@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "paging": {
+      "page": 1,
+      "size": 10,
+      "totalItems": 150,
+      "totalPages": 15
+    }
+  },
+  "data": [
+    {
+      "_txId": 12345,
+      "_politicianId": "P000197",
+      "_assetId": 100,
+      "_issuerId": 5678,
+      "pubDate": "2024-03-15T10:30:00Z",
+      "filingDate": "2024-03-10",
+      "txDate": "2024-03-01",
+      "txType": "buy",
+      "txTypeExtended": null,
+      "hasCapitalGains": false,
+      "owner": "self",
+      "chamber": "senate",
+      "price": 150.25,
+      "size": 50000,
+      "sizeRangeHigh": 100000,
+      "sizeRangeLow": 15001,
+      "value": 50000,
+      "filingId": 99999,
+      "filingURL": "https://efts.sec.gov/LATEST/search-index?q=12345",
+      "reportingGap": 14,
+      "comment": null,
+      "committees": ["Finance", "Banking"],
+      "asset": {
+        "assetType": "stock",
+        "assetTicker": "AAPL",
+        "instrument": "Stock"
+      },
+      "issuer": {
+        "_stateId": null,
+        "c2iq": "AAPL:US",
+        "country": "US",
+        "issuerName": "Apple Inc",
+        "issuerTicker": "AAPL",
+        "sector": "information-technology"
+      },
+      "politician": {
+        "_stateId": "CA",
+        "chamber": "senate",
+        "dob": "1960-01-01",
+        "firstName": "Jane",
+        "gender": "female",
+        "lastName": "Smith",
+        "nickname": null,
+        "party": "democrat"
+      },
+      "labels": ["buy", "stock"]
+    }
+  ]
+}

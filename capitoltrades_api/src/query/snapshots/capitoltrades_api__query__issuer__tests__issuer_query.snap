@@ -1,0 +1,5 @@
+---
+source: crates/capitoltrades_api/src/query/issuer.rs
+expression: "IssuerQuery::default().with_search(\"search\").with_page(1).with_page_size(10).with_tx_date_relative(10).with_pub_date_relative(10).with_country(\"IT\").with_countries(&[\"US\".to_string(),\n                                                        \"CA\".to_string()]).with_state(\"CA\").with_states(&[\"NY\".to_string(),\n                                                \"TX\".to_string()]).with_market_cap(MarketCap::Small).with_market_caps(&[MarketCap::Mid,\n                                        MarketCap::Large]).with_politician_id(1.to_string()).with_politician_ids(&[2.to_string(),\n                                3.to_string()]).with_sector(Sector::InformationTechnology).with_sectors(&[Sector::HealthCare,\n                        Sector::ConsumerDiscretionary]).add_to_url(&url).to_string()"
+---
+"https://example.com/?search=search&politician=1&politician=2&politician=3&mcap=4&mcap=3&mcap=2&sector=information-technology&sector=health-care&sector=consumer-discretionary&country=IT&country=US&country=CA&state=CA&state=NY&state=TX&sortBy=-volume"

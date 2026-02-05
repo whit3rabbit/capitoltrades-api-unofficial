@@ -1,0 +1,5 @@
+---
+source: crates/capitoltrades_api/src/query/trade.rs
+expression: "TradeQuery::default().with_issuer_id(123).with_issuer_id(124).with_page(1).with_page_size(12).with_pub_date_relative(10).with_tx_date_relative(30).add_to_url(&url).to_string()"
+---
+"https://example.com/?page=1&pageSize=12&pubDate=10d&txDate=30d&issuer=123&issuer=124&sortBy=-pubDate"

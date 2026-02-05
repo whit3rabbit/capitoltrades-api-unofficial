@@ -1,0 +1,18 @@
+[package]
+name = "capitoltraders_cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "capitoltraders"
+path = "src/main.rs"
+
+[dependencies]
+capitoltraders_lib = { path = "../capitoltraders_lib" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+tabled = "0.17"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,0 +1,23 @@
+[package]
+name = "capitoltrades_api"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json", "gzip"] }
+url = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8.5"
+
+
+[dev-dependencies]
+insta = { version = "1", features = ["yaml"] }
+wiremock = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde_json = "1"

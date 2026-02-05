@@ -1,0 +1,14 @@
+[package]
+name = "capitoltraders_lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+capitoltrades_api = { path = "../capitoltrades_api" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+dashmap = "6"

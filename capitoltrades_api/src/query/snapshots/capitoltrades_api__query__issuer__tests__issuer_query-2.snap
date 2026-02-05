@@ -1,0 +1,5 @@
+---
+source: crates/capitoltrades_api/src/query/issuer.rs
+expression: "IssuerQuery::default().with_sort_direction(SortDirection::Asc).with_sort_by(IssuerSortBy::MarketCap).add_to_url(&url).to_string()"
+---
+"https://example.com/?sortBy=mcap"

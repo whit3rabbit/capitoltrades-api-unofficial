@@ -1,0 +1,5 @@
+---
+source: crates/capitoltrades_api/src/query/politician.rs
+expression: "PoliticianQuery::default().with_issuer_id(123).with_issuer_id(124).add_to_url(&url).to_string()"
+---
+"https://example.com/?page=1&issuer=123&issuer=124&sortBy=-volume"

@@ -1,0 +1,5 @@
+---
+source: crates/capitoltrades_api/src/query/trade.rs
+expression: "TradeQuery::default().with_sort_direction(SortDirection::Asc).with_sort_by(TradeSortBy::ReportingGap).add_to_url(&url).to_string()"
+---
+"https://example.com/?page=1&sortBy=reportingGap"

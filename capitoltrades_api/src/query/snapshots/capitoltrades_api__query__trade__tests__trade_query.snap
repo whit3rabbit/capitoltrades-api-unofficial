@@ -1,0 +1,5 @@
+---
+source: crates/capitoltrades_api/src/query/trade.rs
+expression: "TradeQuery::default().add_to_url(&url).to_string()"
+---
+"https://example.com/?page=1&sortBy=-pubDate"

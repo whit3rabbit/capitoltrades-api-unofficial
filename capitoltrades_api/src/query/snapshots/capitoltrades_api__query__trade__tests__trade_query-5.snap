@@ -1,0 +1,5 @@
+---
+source: crates/capitoltrades_api/src/query/trade.rs
+expression: "TradeQuery::default().with_issuer_ids(vec![1, 2, 3,\n                        4].as_slice()).with_trade_sizes(vec![TradeSize::From250Kto500K,\n                    TradeSize::From1Mto5M].as_slice()).add_to_url(&url).to_string()"
+---
+"https://example.com/?page=1&issuer=1&issuer=2&issuer=3&issuer=4&tradeSize=6&tradeSize=8&sortBy=-pubDate"

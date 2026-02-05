@@ -1,0 +1,64 @@
+{
+  "meta": {
+    "paging": {
+      "page": 1,
+      "size": 10,
+      "totalItems": 535,
+      "totalPages": 54
+    }
+  },
+  "data": [
+    {
+      "_politicianId": "P000197",
+      "_stateId": "CA",
+      "party": "democrat",
+      "partyOther": null,
+      "district": null,
+      "firstName": "Nancy",
+      "lastName": "Pelosi",
+      "nickname": null,
+      "middleName": null,
+      "fullName": "Nancy Pelosi",
+      "dob": "1940-03-26",
+      "gender": "female",
+      "socialFacebook": "NancyPelosi",
+      "socialTwitter": "SpeakerPelosi",
+      "socialYoutube": null,
+      "website": "https://pelosi.house.gov",
+      "chamber": "house",
+      "committees": ["Financial Services"],
+      "stats": {
+        "dateLastTraded": "2024-03-01",
+        "countTrades": 250,
+        "countIssuers": 45,
+        "volume": 15000000
+      }
+    },
+    {
+      "_politicianId": "T000250",
+      "_stateId": "NC",
+      "party": "republican",
+      "partyOther": null,
+      "district": "13",
+      "firstName": "Patrick",
+      "lastName": "McHenry",
+      "nickname": null,
+      "middleName": "T.",
+      "fullName": "Patrick McHenry",
+      "dob": "1975-10-22",
+      "gender": "male",
+      "socialFacebook": null,
+      "socialTwitter": "PatrickMcHenry",
+      "socialYoutube": null,
+      "website": null,
+      "chamber": "house",
+      "committees": ["Financial Services", "Oversight"],
+      "stats": {
+        "dateLastTraded": "2024-02-15",
+        "countTrades": 120,
+        "countIssuers": 30,
+        "volume": 5000000
+      }
+    }
+  ]
+}
