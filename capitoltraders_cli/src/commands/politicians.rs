@@ -3,7 +3,10 @@ use clap::Args;
 use capitoltraders_lib::{CachedClient, PoliticianQuery, PoliticianSortBy, Query, SortDirection};
 use capitoltraders_lib::validation;
 
-use crate::output::{print_json, print_politicians_table, OutputFormat};
+use crate::output::{
+    print_json, print_politicians_csv, print_politicians_markdown, print_politicians_table,
+    OutputFormat,
+};
 
 #[derive(Args)]
 pub struct PoliticiansArgs {
@@ -98,6 +101,8 @@ pub async fn run(
     match format {
         OutputFormat::Table => print_politicians_table(&resp.data),
         OutputFormat::Json => print_json(&resp.data),
+        OutputFormat::Csv => print_politicians_csv(&resp.data)?,
+        OutputFormat::Markdown => print_politicians_markdown(&resp.data),
     }
 
     Ok(())

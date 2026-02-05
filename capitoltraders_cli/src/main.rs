@@ -14,7 +14,7 @@ use crate::output::OutputFormat;
 #[command(name = "capitoltraders")]
 #[command(about = "Query congressional trading data from CapitolTrades")]
 struct Cli {
-    /// Output format: table or json
+    /// Output format: table, json, csv, md
     #[arg(long, default_value = "table", global = true)]
     output: String,
 
@@ -46,6 +46,8 @@ async fn main() -> Result<()> {
 
     let format = match cli.output.as_str() {
         "json" => OutputFormat::Json,
+        "csv" => OutputFormat::Csv,
+        "md" | "markdown" => OutputFormat::Markdown,
         _ => OutputFormat::Table,
     };
 

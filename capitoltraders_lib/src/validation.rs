@@ -1,3 +1,4 @@
+use chrono::{NaiveDate, Utc};
 use capitoltrades_api::types::{
     AssetType, Chamber, Gender, Label, MarketCap, Party, Sector, TradeSize, TxType,
 };
@@ -374,6 +375,40 @@ pub fn validate_trade_size(input: &str) -> Result<TradeSize, CapitolTradesError>
              9 ($5M-$25M), 10 ($25M-$50M)",
             input
         ))),
+    }
+}
+
+/// Validate a YYYY-MM-DD date string.
+pub fn validate_date(input: &str) -> Result<NaiveDate, CapitolTradesError> {
+    let trimmed = input.trim();
+    NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").map_err(|_| {
+        CapitolTradesError::InvalidInput(format!(
+            "invalid date '{}'. Expected format: YYYY-MM-DD (e.g., 2024-06-01)",
+            trimmed
+        ))
+    })
+}
+
+/// Validate relative days: must be 1..=3650 (approx 10 years).
+pub fn validate_days(days: i64) -> Result<i64, CapitolTradesError> {
+    if !(1..=3650).contains(&days) {
+        return Err(CapitolTradesError::InvalidInput(format!(
+            "days must be between 1 and 3650, got {}",
+            days
+        )));
+    }
+    Ok(days)
+}
+
+/// Convert an absolute date to relative days from today.
+/// Returns None if the date is in the future.
+pub fn date_to_relative_days(date: NaiveDate) -> Option<i64> {
+    let today = Utc::now().date_naive();
+    let diff = (today - date).num_days();
+    if diff < 0 {
+        None
+    } else {
+        Some(diff)
     }
 }
 
@@ -807,5 +842,88 @@ mod tests {
         assert!(validate_trade_size("0").is_err());
         assert!(validate_trade_size("11").is_err());
         assert!(validate_trade_size("abc").is_err());
+    }
+
+    // -- Date validation --
+
+    #[test]
+    fn date_valid() {
+        let d = validate_date("2024-06-01").unwrap();
+        assert_eq!(d, NaiveDate::from_ymd_opt(2024, 6, 1).unwrap());
+    }
+
+    #[test]
+    fn date_with_whitespace() {
+        let d = validate_date("  2024-01-15  ").unwrap();
+        assert_eq!(d, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    }
+
+    #[test]
+    fn date_invalid_format() {
+        assert!(validate_date("06/01/2024").is_err());
+        assert!(validate_date("not-a-date").is_err());
+    }
+
+    #[test]
+    fn date_single_digit_accepted() {
+        // chrono's %m/%d accepts single-digit values
+        let d = validate_date("2024-6-1").unwrap();
+        assert_eq!(d, NaiveDate::from_ymd_opt(2024, 6, 1).unwrap());
+    }
+
+    #[test]
+    fn date_invalid_values() {
+        assert!(validate_date("2024-13-01").is_err());
+        assert!(validate_date("2024-02-30").is_err());
+    }
+
+    #[test]
+    fn date_empty() {
+        assert!(validate_date("").is_err());
+        assert!(validate_date("   ").is_err());
+    }
+
+    // -- Days validation --
+
+    #[test]
+    fn days_valid() {
+        assert_eq!(validate_days(1).unwrap(), 1);
+        assert_eq!(validate_days(30).unwrap(), 30);
+        assert_eq!(validate_days(3650).unwrap(), 3650);
+    }
+
+    #[test]
+    fn days_zero_rejected() {
+        assert!(validate_days(0).is_err());
+    }
+
+    #[test]
+    fn days_negative_rejected() {
+        assert!(validate_days(-1).is_err());
+    }
+
+    #[test]
+    fn days_over_max_rejected() {
+        assert!(validate_days(3651).is_err());
+    }
+
+    // -- date_to_relative_days --
+
+    #[test]
+    fn relative_days_past_date() {
+        let yesterday = Utc::now().date_naive() - chrono::Duration::days(5);
+        assert_eq!(date_to_relative_days(yesterday), Some(5));
+    }
+
+    #[test]
+    fn relative_days_today() {
+        let today = Utc::now().date_naive();
+        assert_eq!(date_to_relative_days(today), Some(0));
+    }
+
+    #[test]
+    fn relative_days_future_returns_none() {
+        let tomorrow = Utc::now().date_naive() + chrono::Duration::days(1);
+        assert_eq!(date_to_relative_days(tomorrow), None);
     }
 }

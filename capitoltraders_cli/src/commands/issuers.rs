@@ -4,7 +4,9 @@ use capitoltraders_lib::types::{MarketCap, Sector};
 use capitoltraders_lib::{CachedClient, IssuerQuery, IssuerSortBy, Query, SortDirection};
 use capitoltraders_lib::validation;
 
-use crate::output::{print_issuers_table, print_json, OutputFormat};
+use crate::output::{
+    print_issuers_csv, print_issuers_markdown, print_issuers_table, print_json, OutputFormat,
+};
 
 #[derive(Args)]
 pub struct IssuersArgs {
@@ -51,6 +53,8 @@ pub async fn run(args: &IssuersArgs, client: &CachedClient, format: &OutputForma
         match format {
             OutputFormat::Table => print_issuers_table(&[resp.data]),
             OutputFormat::Json => print_json(&resp.data),
+            OutputFormat::Csv => print_issuers_csv(&[resp.data])?,
+            OutputFormat::Markdown => print_issuers_markdown(&[resp.data]),
         }
         return Ok(());
     }
@@ -122,6 +126,8 @@ pub async fn run(args: &IssuersArgs, client: &CachedClient, format: &OutputForma
     match format {
         OutputFormat::Table => print_issuers_table(&resp.data),
         OutputFormat::Json => print_json(&resp.data),
+        OutputFormat::Csv => print_issuers_csv(&resp.data)?,
+        OutputFormat::Markdown => print_issuers_markdown(&resp.data),
     }
 
     Ok(())

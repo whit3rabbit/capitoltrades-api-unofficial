@@ -5,7 +5,9 @@ use capitoltraders_lib::{
 };
 use capitoltraders_lib::validation;
 
-use crate::output::{print_json, print_trades_table, OutputFormat};
+use crate::output::{
+    print_json, print_trades_csv, print_trades_markdown, print_trades_table, OutputFormat,
+};
 
 #[derive(Args)]
 pub struct TradesArgs {
@@ -38,12 +40,28 @@ pub struct TradesArgs {
     pub committee: Option<String>,
 
     /// Filter trades from last N days (by publication date)
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["since", "until"])]
     pub days: Option<i64>,
 
     /// Filter trades from last N days (by trade date)
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["tx_since", "tx_until"])]
     pub tx_days: Option<i64>,
+
+    /// Filter trades published on/after this date (YYYY-MM-DD)
+    #[arg(long, conflicts_with = "days")]
+    pub since: Option<String>,
+
+    /// Filter trades published on/before this date (YYYY-MM-DD)
+    #[arg(long, conflicts_with = "days")]
+    pub until: Option<String>,
+
+    /// Filter by transaction date on/after (YYYY-MM-DD)
+    #[arg(long, conflicts_with = "tx_days")]
+    pub tx_since: Option<String>,
+
+    /// Filter by transaction date on/before (YYYY-MM-DD)
+    #[arg(long, conflicts_with = "tx_days")]
+    pub tx_until: Option<String>,
 
     /// Filter by trade size (1-10, comma-separated)
     #[arg(long)]
@@ -157,12 +175,52 @@ pub async fn run(args: &TradesArgs, client: &CachedClient, format: &OutputFormat
         query = query.with_committee(&validated);
     }
 
+    // Parse absolute date filters
+    let since_date = args.since.as_ref().map(|s| validation::validate_date(s)).transpose()?;
+    let until_date = args.until.as_ref().map(|s| validation::validate_date(s)).transpose()?;
+    let tx_since_date = args.tx_since.as_ref().map(|s| validation::validate_date(s)).transpose()?;
+    let tx_until_date = args.tx_until.as_ref().map(|s| validation::validate_date(s)).transpose()?;
+
+    // Validate since <= until when both provided
+    if let (Some(s), Some(u)) = (since_date, until_date) {
+        if s > u {
+            bail!("--since ({}) must be on or before --until ({})", s, u);
+        }
+    }
+    if let (Some(s), Some(u)) = (tx_since_date, tx_until_date) {
+        if s > u {
+            bail!("--tx-since ({}) must be on or before --tx-until ({})", s, u);
+        }
+    }
+
     if let Some(days) = args.days {
-        query = query.with_pub_date_relative(days);
+        let validated = validation::validate_days(days)?;
+        query = query.with_pub_date_relative(validated);
     }
 
     if let Some(tx_days) = args.tx_days {
-        query = query.with_tx_date_relative(tx_days);
+        let validated = validation::validate_days(tx_days)?;
+        query = query.with_tx_date_relative(validated);
+    }
+
+    // Convert --since to relative days for the API (reduces response size)
+    if let Some(since) = since_date {
+        match validation::date_to_relative_days(since) {
+            Some(days) => {
+                // Add 1 day of padding to ensure we don't miss edge-case trades
+                query = query.with_pub_date_relative(days + 1);
+            }
+            None => bail!("--since date {} is in the future", since),
+        }
+    }
+
+    if let Some(tx_since) = tx_since_date {
+        match validation::date_to_relative_days(tx_since) {
+            Some(days) => {
+                query = query.with_tx_date_relative(days + 1);
+            }
+            None => bail!("--tx-since date {} is in the future", tx_since),
+        }
     }
 
     if let Some(ref val) = args.trade_size {
@@ -255,14 +313,62 @@ pub async fn run(args: &TradesArgs, client: &CachedClient, format: &OutputFormat
 
     let resp = client.get_trades(&query).await?;
 
-    eprintln!(
-        "Page {}/{} ({} total trades)",
-        resp.meta.paging.page, resp.meta.paging.total_pages, resp.meta.paging.total_items
-    );
+    let needs_filtering = since_date.is_some()
+        || until_date.is_some()
+        || tx_since_date.is_some()
+        || tx_until_date.is_some();
+
+    let trades = if needs_filtering {
+        let mut filtered: Vec<_> = resp.data.into_iter().collect();
+        filtered.retain(|t| {
+            let pub_date = t.pub_date.date_naive();
+            if let Some(s) = since_date {
+                if pub_date < s {
+                    return false;
+                }
+            }
+            if let Some(u) = until_date {
+                if pub_date > u {
+                    return false;
+                }
+            }
+            if let Some(s) = tx_since_date {
+                if t.tx_date < s {
+                    return false;
+                }
+            }
+            if let Some(u) = tx_until_date {
+                if t.tx_date > u {
+                    return false;
+                }
+            }
+            true
+        });
+        filtered
+    } else {
+        resp.data
+    };
+
+    if needs_filtering {
+        eprintln!(
+            "Page {}/{} ({} API results, {} after date filtering)",
+            resp.meta.paging.page,
+            resp.meta.paging.total_pages,
+            resp.meta.paging.total_items,
+            trades.len()
+        );
+    } else {
+        eprintln!(
+            "Page {}/{} ({} total trades)",
+            resp.meta.paging.page, resp.meta.paging.total_pages, resp.meta.paging.total_items
+        );
+    }
 
     match format {
-        OutputFormat::Table => print_trades_table(&resp.data),
-        OutputFormat::Json => print_json(&resp.data),
+        OutputFormat::Table => print_trades_table(&trades),
+        OutputFormat::Json => print_json(&trades),
+        OutputFormat::Csv => print_trades_csv(&trades)?,
+        OutputFormat::Markdown => print_trades_markdown(&trades),
     }
 
     Ok(())
