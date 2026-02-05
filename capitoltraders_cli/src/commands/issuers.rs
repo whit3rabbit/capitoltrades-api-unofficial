@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Args;
 use capitoltraders_lib::types::{MarketCap, Sector};
 use capitoltraders_lib::{CachedClient, IssuerQuery, IssuerSortBy, Query, SortDirection};
+use capitoltraders_lib::validation;
 
 use crate::output::{print_issuers_table, print_json, OutputFormat};
 
@@ -22,6 +23,10 @@ pub struct IssuersArgs {
     /// Search by name
     #[arg(long)]
     pub search: Option<String>,
+
+    /// Filter by US state code (e.g. CA, TX, NY)
+    #[arg(long)]
+    pub state: Option<String>,
 
     /// Page number
     #[arg(long, default_value = "1")]
@@ -56,6 +61,11 @@ pub async fn run(args: &IssuersArgs, client: &CachedClient, format: &OutputForma
 
     if let Some(search) = &args.search {
         query = query.with_search(search);
+    }
+
+    if let Some(ref state) = args.state {
+        let validated = validation::validate_state(state)?;
+        query = query.with_state(&validated);
     }
 
     if let Some(sector) = &args.sector {

@@ -94,7 +94,7 @@ pub struct Stats {
     pub volume: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum Chamber {
     #[serde(rename = "house")]
     House,
@@ -102,14 +102,38 @@ pub enum Chamber {
     #[serde(rename = "senate")]
     Senate,
 }
+impl std::fmt::Display for Chamber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Chamber::House => "house",
+                Chamber::Senate => "senate",
+            }
+        )
+    }
+}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum Gender {
     #[serde(rename = "female")]
     Female,
 
     #[serde(rename = "male")]
     Male,
+}
+impl std::fmt::Display for Gender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Gender::Female => "female",
+                Gender::Male => "male",
+            }
+        )
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]

@@ -25,7 +25,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// List recent trades
-    Trades(commands::trades::TradesArgs),
+    Trades(Box<commands::trades::TradesArgs>),
     /// List politicians
     Politicians(commands::politicians::PoliticiansArgs),
     /// List or lookup issuers
@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
     let client = CachedClient::new(cache);
 
     match &cli.command {
-        Commands::Trades(args) => commands::trades::run(args, &client, &format).await?,
+        Commands::Trades(args) => commands::trades::run(args.as_ref(), &client, &format).await?,
         Commands::Politicians(args) => commands::politicians::run(args, &client, &format).await?,
         Commands::Issuers(args) => commands::issuers::run(args, &client, &format).await?,
     }

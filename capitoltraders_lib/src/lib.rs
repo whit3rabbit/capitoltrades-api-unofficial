@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod cache;
 pub mod client;
 pub mod error;
+pub mod validation;
 
 pub use capitoltrades_api;
 pub use capitoltrades_api::types;

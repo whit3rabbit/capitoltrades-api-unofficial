@@ -123,11 +123,107 @@ pub enum Owner {
     Spouse,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 pub enum TxType {
     Buy,
     Sell,
     Exchange,
     Receive,
+}
+impl std::fmt::Display for TxType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                TxType::Buy => "buy",
+                TxType::Sell => "sell",
+                TxType::Exchange => "exchange",
+                TxType::Receive => "receive",
+            }
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssetType {
+    Stock,
+    StockOption,
+    CorporateBond,
+    Etf,
+    Etn,
+    MutualFund,
+    Cryptocurrency,
+    Pdf,
+    MunicipalSecurity,
+    NonPublicStock,
+    Other,
+    Reit,
+    Commodity,
+    Hedge,
+    VariableInsurance,
+    PrivateEquity,
+    ClosedEndFund,
+    Venture,
+    IndexFund,
+    GovernmentBond,
+    MoneyMarketFund,
+    Brokered,
+}
+impl std::fmt::Display for AssetType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                AssetType::Stock => "stock",
+                AssetType::StockOption => "stock-option",
+                AssetType::CorporateBond => "corporate-bond",
+                AssetType::Etf => "etf",
+                AssetType::Etn => "etn",
+                AssetType::MutualFund => "mutual-fund",
+                AssetType::Cryptocurrency => "cryptocurrency",
+                AssetType::Pdf => "pdf",
+                AssetType::MunicipalSecurity => "municipal-security",
+                AssetType::NonPublicStock => "non-public-stock",
+                AssetType::Other => "other",
+                AssetType::Reit => "reit",
+                AssetType::Commodity => "commodity",
+                AssetType::Hedge => "hedge",
+                AssetType::VariableInsurance => "variable-insurance",
+                AssetType::PrivateEquity => "private-equity",
+                AssetType::ClosedEndFund => "closed-end-fund",
+                AssetType::Venture => "venture",
+                AssetType::IndexFund => "index-fund",
+                AssetType::GovernmentBond => "government-bond",
+                AssetType::MoneyMarketFund => "money-market-fund",
+                AssetType::Brokered => "brokered",
+            }
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum Label {
+    Faang,
+    Crypto,
+    Memestock,
+    Spac,
+}
+impl std::fmt::Display for Label {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Label::Faang => "faang",
+                Label::Crypto => "crypto",
+                Label::Memestock => "memestock",
+                Label::Spac => "spac",
+            }
+        )
+    }
 }

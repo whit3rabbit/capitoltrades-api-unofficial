@@ -14,6 +14,8 @@ pub struct PoliticianQuery {
     pub common: QueryCommon,
     pub issuer_ids: Vec<IssuerID>,
     pub parties: Vec<Party>,
+    pub states: Vec<String>,
+    pub committees: Vec<String>,
     pub search: Option<String>,
     pub sort_by: PoliticianSortBy,
 }
@@ -31,6 +33,13 @@ impl Query for PoliticianQuery {
         for party in self.parties.iter() {
             url.query_pairs_mut()
                 .append_pair("party", party.to_string().as_str());
+        }
+        for state in self.states.iter() {
+            url.query_pairs_mut().append_pair("state", state.as_str());
+        }
+        for committee in self.committees.iter() {
+            url.query_pairs_mut()
+                .append_pair("committee", committee.as_str());
         }
         if let Some(search) = &self.search {
             url.query_pairs_mut().append_pair("search", search.as_str());
@@ -69,6 +78,24 @@ impl PoliticianQuery {
     }
     pub fn with_parties(mut self, parties: &[Party]) -> Self {
         self.parties.extend_from_slice(parties);
+        self
+    }
+
+    pub fn with_state(mut self, state: &str) -> Self {
+        self.states.push(state.to_string());
+        self
+    }
+    pub fn with_states(mut self, states: &[String]) -> Self {
+        self.states.extend_from_slice(states);
+        self
+    }
+
+    pub fn with_committee(mut self, committee: &str) -> Self {
+        self.committees.push(committee.to_string());
+        self
+    }
+    pub fn with_committees(mut self, committees: &[String]) -> Self {
+        self.committees.extend_from_slice(committees);
         self
     }
 

@@ -1,19 +1,31 @@
 use anyhow::Result;
 use clap::Args;
-use capitoltraders_lib::types::Party;
 use capitoltraders_lib::{CachedClient, PoliticianQuery, PoliticianSortBy, Query, SortDirection};
+use capitoltraders_lib::validation;
 
 use crate::output::{print_json, print_politicians_table, OutputFormat};
 
 #[derive(Args)]
 pub struct PoliticiansArgs {
-    /// Filter by party: democrat, republican, other
+    /// Filter by party: democrat (d), republican (r), other
     #[arg(long)]
     pub party: Option<String>,
 
-    /// Search by name
+    /// Search by politician name
     #[arg(long)]
+    pub name: Option<String>,
+
+    /// Search by name (hidden alias for --name, kept for backwards compatibility)
+    #[arg(long, hide = true)]
     pub search: Option<String>,
+
+    /// Filter by US state code (e.g. CA, TX, NY)
+    #[arg(long)]
+    pub state: Option<String>,
+
+    /// Filter by committee name (e.g. "Senate - Finance")
+    #[arg(long)]
+    pub committee: Option<String>,
 
     /// Page number
     #[arg(long, default_value = "1")]
@@ -41,17 +53,26 @@ pub async fn run(
         .with_page(args.page)
         .with_page_size(args.page_size);
 
-    if let Some(party) = &args.party {
-        let p = match party.as_str() {
-            "democrat" | "d" => Party::Democrat,
-            "republican" | "r" => Party::Republican,
-            _ => Party::Other,
-        };
+    if let Some(ref party) = args.party {
+        let p = validation::validate_party(party)?;
         query = query.with_party(&p);
     }
 
-    if let Some(search) = &args.search {
-        query = query.with_search(search);
+    // --name takes precedence over --search (hidden alias)
+    let search_input = args.name.as_ref().or(args.search.as_ref());
+    if let Some(search) = search_input {
+        let sanitized = validation::validate_search(search)?;
+        query = query.with_search(&sanitized);
+    }
+
+    if let Some(ref state) = args.state {
+        let validated = validation::validate_state(state)?;
+        query = query.with_state(&validated);
+    }
+
+    if let Some(ref committee) = args.committee {
+        let validated = validation::validate_committee(committee)?;
+        query = query.with_committee(&validated);
     }
 
     let sort_by = match args.sort_by.as_str() {
