@@ -5,12 +5,12 @@ use capitoltraders_lib::validation;
 
 use crate::output::{
     print_json, print_politicians_csv, print_politicians_markdown, print_politicians_table,
-    OutputFormat,
+    print_politicians_xml, OutputFormat,
 };
 
 #[derive(Args)]
 pub struct PoliticiansArgs {
-    /// Filter by party: democrat (d), republican (r), other
+    /// Filter by party (comma-separated): democrat (d), republican (r), other
     #[arg(long)]
     pub party: Option<String>,
 
@@ -22,13 +22,17 @@ pub struct PoliticiansArgs {
     #[arg(long, hide = true)]
     pub search: Option<String>,
 
-    /// Filter by US state code (e.g. CA, TX, NY)
+    /// Filter by US state code (comma-separated, e.g. CA,TX,NY)
     #[arg(long)]
     pub state: Option<String>,
 
-    /// Filter by committee name (e.g. "Senate - Finance")
+    /// Filter by committee (comma-separated, code or full name)
     #[arg(long)]
     pub committee: Option<String>,
+
+    /// Filter by issuer ID (comma-separated, numeric)
+    #[arg(long)]
+    pub issuer_id: Option<String>,
 
     /// Page number
     #[arg(long, default_value = "1")]
@@ -56,9 +60,11 @@ pub async fn run(
         .with_page(args.page)
         .with_page_size(args.page_size);
 
-    if let Some(ref party) = args.party {
-        let p = validation::validate_party(party)?;
-        query = query.with_party(&p);
+    if let Some(ref val) = args.party {
+        for item in val.split(',') {
+            let p = validation::validate_party(item.trim())?;
+            query = query.with_party(&p);
+        }
     }
 
     // --name takes precedence over --search (hidden alias)
@@ -68,14 +74,27 @@ pub async fn run(
         query = query.with_search(&sanitized);
     }
 
-    if let Some(ref state) = args.state {
-        let validated = validation::validate_state(state)?;
-        query = query.with_state(&validated);
+    if let Some(ref val) = args.state {
+        for item in val.split(',') {
+            let validated = validation::validate_state(item.trim())?;
+            query = query.with_state(&validated);
+        }
     }
 
-    if let Some(ref committee) = args.committee {
-        let validated = validation::validate_committee(committee)?;
-        query = query.with_committee(&validated);
+    if let Some(ref val) = args.committee {
+        for item in val.split(',') {
+            let validated = validation::validate_committee(item.trim())?;
+            query = query.with_committee(&validated);
+        }
+    }
+
+    if let Some(ref val) = args.issuer_id {
+        for item in val.split(',') {
+            let id: i64 = item.trim().parse().map_err(|_| {
+                anyhow::anyhow!("invalid issuer ID '{}': must be numeric", item.trim())
+            })?;
+            query = query.with_issuer_id(id);
+        }
     }
 
     let sort_by = match args.sort_by.as_str() {
@@ -103,6 +122,7 @@ pub async fn run(
         OutputFormat::Json => print_json(&resp.data),
         OutputFormat::Csv => print_politicians_csv(&resp.data)?,
         OutputFormat::Markdown => print_politicians_markdown(&resp.data),
+        OutputFormat::Xml => print_politicians_xml(&resp.data),
     }
 
     Ok(())

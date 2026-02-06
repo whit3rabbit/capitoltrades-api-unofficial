@@ -1,5 +1,6 @@
 mod commands;
 mod output;
+mod xml_output;
 
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use crate::output::OutputFormat;
 #[command(name = "capitoltraders")]
 #[command(about = "Query congressional trading data from CapitolTrades")]
 struct Cli {
-    /// Output format: table, json, csv, md
+    /// Output format: table, json, csv, md, xml
     #[arg(long, default_value = "table", global = true)]
     output: String,
 
@@ -48,6 +49,7 @@ async fn main() -> Result<()> {
         "json" => OutputFormat::Json,
         "csv" => OutputFormat::Csv,
         "md" | "markdown" => OutputFormat::Markdown,
+        "xml" => OutputFormat::Xml,
         _ => OutputFormat::Table,
     };
 

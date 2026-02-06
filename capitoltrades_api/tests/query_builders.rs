@@ -362,3 +362,75 @@ fn trade_query_combined_new_filters() {
     assert!(query.contains("issuerState=ca"));
     assert!(query.contains("country=us"));
 }
+
+// -- Issuer query pagination tests (verifies IssuerQuery::add_to_url fix) --
+
+#[test]
+fn issuer_query_with_pagination() {
+    let url = IssuerQuery::default()
+        .with_page(2)
+        .with_page_size(25)
+        .add_to_url(&base_url());
+    let query = url.query().unwrap();
+    assert!(query.contains("page=2"));
+    assert!(query.contains("pageSize=25"));
+}
+
+#[test]
+fn issuer_query_with_date_params() {
+    let url = IssuerQuery::default()
+        .with_pub_date_relative(7)
+        .with_tx_date_relative(30)
+        .add_to_url(&base_url());
+    let query = url.query().unwrap();
+    assert!(query.contains("pubDate=7d"));
+    assert!(query.contains("txDate=30d"));
+}
+
+#[test]
+fn issuer_query_with_politician_ids() {
+    let url = IssuerQuery::default()
+        .with_politician_id("P000197".to_string())
+        .with_politician_id("P000123".to_string())
+        .add_to_url(&base_url());
+    let query = url.query().unwrap();
+    assert!(query.contains("politician=P000197"));
+    assert!(query.contains("politician=P000123"));
+}
+
+#[test]
+fn issuer_query_with_countries() {
+    let url = IssuerQuery::default()
+        .with_country("us")
+        .with_country("ca")
+        .add_to_url(&base_url());
+    let query = url.query().unwrap();
+    assert!(query.contains("country=us"));
+    assert!(query.contains("country=ca"));
+}
+
+#[test]
+fn issuer_query_combined_all_params() {
+    let url = IssuerQuery::default()
+        .with_page(3)
+        .with_page_size(50)
+        .with_search("apple")
+        .with_state("CA")
+        .with_country("us")
+        .with_politician_id("P000197".to_string())
+        .with_sector(Sector::InformationTechnology)
+        .with_market_cap(MarketCap::Mega)
+        .with_sort_by(IssuerSortBy::TotalTrades)
+        .with_sort_direction(SortDirection::Asc)
+        .add_to_url(&base_url());
+    let query = url.query().unwrap();
+    assert!(query.contains("page=3"));
+    assert!(query.contains("pageSize=50"));
+    assert!(query.contains("search=apple"));
+    assert!(query.contains("state=CA"));
+    assert!(query.contains("country=us"));
+    assert!(query.contains("politician=P000197"));
+    assert!(query.contains("sector=information-technology"));
+    assert!(query.contains("mcap=1"));
+    assert!(query.contains("sortBy=countTrades"));
+}

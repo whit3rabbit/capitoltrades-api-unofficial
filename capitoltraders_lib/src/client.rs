@@ -1,7 +1,11 @@
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use capitoltrades_api::types::{IssuerDetail, PaginatedResponse, PoliticianDetail, Response, Trade};
 use capitoltrades_api::{
     Client, IssuerQuery, PoliticianQuery, TradeQuery,
 };
+use rand::Rng;
 
 use crate::cache::MemoryCache;
 use crate::error::CapitolTradesError;
@@ -9,6 +13,7 @@ use crate::error::CapitolTradesError;
 pub struct CachedClient {
     inner: Client,
     cache: MemoryCache,
+    last_request: Mutex<Option<Instant>>,
 }
 
 impl CachedClient {
@@ -16,6 +21,7 @@ impl CachedClient {
         Self {
             inner: Client::new(),
             cache,
+            last_request: Mutex::new(None),
         }
     }
 
@@ -23,7 +29,31 @@ impl CachedClient {
         Self {
             inner: Client::with_base_url(base_url),
             cache,
+            last_request: Mutex::new(None),
         }
+    }
+
+    async fn rate_limit(&self) {
+        let sleep_dur = {
+            let last = self.last_request.lock().unwrap();
+            if let Some(last_time) = *last {
+                let elapsed = last_time.elapsed();
+                let delay = Duration::from_secs_f64(
+                    rand::thread_rng().gen_range(5.0..10.0),
+                );
+                if elapsed < delay {
+                    Some(delay - elapsed)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+        if let Some(dur) = sleep_dur {
+            tokio::time::sleep(dur).await;
+        }
+        *self.last_request.lock().unwrap() = Some(Instant::now());
     }
 
     pub async fn get_trades(
@@ -37,6 +67,7 @@ impl CachedClient {
             return Ok(resp);
         }
 
+        self.rate_limit().await;
         let resp = self.inner.get_trades(query).await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
@@ -55,6 +86,7 @@ impl CachedClient {
             return Ok(resp);
         }
 
+        self.rate_limit().await;
         let resp = self.inner.get_politicians(query).await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
@@ -73,6 +105,7 @@ impl CachedClient {
             return Ok(resp);
         }
 
+        self.rate_limit().await;
         let resp = self.inner.get_issuer(issuer_id).await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
@@ -91,6 +124,7 @@ impl CachedClient {
             return Ok(resp);
         }
 
+        self.rate_limit().await;
         let resp = self.inner.get_issuers(query).await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
@@ -144,22 +178,31 @@ fn query_to_cache_key(query: &TradeQuery) -> String {
 
 fn query_to_cache_key_politician(query: &PoliticianQuery) -> String {
     format!(
-        "p{}:s{:?}:search{:?}:pa[{}]:st{:?}:co{:?}",
+        "p{}:s{:?}:search{:?}:pa[{}]:st{:?}:co{:?}:is{:?}:sb{}:sd{}",
         query.common.page,
         query.common.page_size,
         query.search,
         parties_cache_key(&query.parties),
         query.states,
         query.committees,
+        query.issuer_ids,
+        query.sort_by,
+        query.common.sort_direction as u8,
     )
 }
 
 fn query_to_cache_key_issuer(query: &IssuerQuery) -> String {
     format!(
-        "p{}:s{:?}:search{:?}:st{:?}",
+        "p{}:s{:?}:search{:?}:st{:?}:pi{:?}:mc{:?}:se{:?}:cn{:?}:sb{}:sd{}",
         query.common.page,
         query.common.page_size,
         query.search,
         query.states,
+        query.politician_ids,
+        query.market_caps.iter().map(|m| *m as u8).collect::<Vec<_>>(),
+        query.sectors.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        query.countries,
+        query.sort_by,
+        query.common.sort_direction as u8,
     )
 }

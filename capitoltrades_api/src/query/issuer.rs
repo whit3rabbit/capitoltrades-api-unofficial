@@ -26,7 +26,7 @@ impl Query for IssuerQuery {
         &mut self.common
     }
     fn add_to_url(&self, url: &Url) -> Url {
-        let mut url = url.clone();
+        let mut url = self.common.add_to_url(url);
         if let Some(search) = &self.search {
             url.query_pairs_mut().append_pair("search", search.as_str());
         };

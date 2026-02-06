@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <xs:element name="politicians">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="politician" type="PoliticianDetailType" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="PoliticianDetailType">
+    <xs:all>
+      <xs:element name="_politicianId" type="PoliticianIdType"/>
+      <xs:element name="_stateId" type="xs:string"/>
+      <xs:element name="party" type="PartyEnum"/>
+      <xs:element name="partyOther" type="xs:string" minOccurs="0"/>
+      <xs:element name="district" type="xs:string" minOccurs="0"/>
+      <xs:element name="firstName" type="xs:string"/>
+      <xs:element name="lastName" type="xs:string"/>
+      <xs:element name="nickname" type="xs:string" minOccurs="0"/>
+      <xs:element name="middleName" type="xs:string" minOccurs="0"/>
+      <xs:element name="fullName" type="xs:string"/>
+      <xs:element name="dob" type="xs:string"/>
+      <xs:element name="gender" type="GenderEnum"/>
+      <xs:element name="socialFacebook" type="xs:string" minOccurs="0"/>
+      <xs:element name="socialTwitter" type="xs:string" minOccurs="0"/>
+      <xs:element name="socialYoutube" type="xs:string" minOccurs="0"/>
+      <xs:element name="website" type="xs:anyURI" minOccurs="0"/>
+      <xs:element name="chamber" type="ChamberEnum"/>
+      <xs:element name="committees" type="CommitteeListType"/>
+      <xs:element name="stats" type="PoliticianStatsType"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="PoliticianStatsType">
+    <xs:all>
+      <xs:element name="dateLastTraded" type="xs:date" minOccurs="0"/>
+      <xs:element name="countTrades" type="xs:integer"/>
+      <xs:element name="countIssuers" type="xs:integer"/>
+      <xs:element name="volume" type="xs:integer"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="CommitteeListType">
+    <xs:sequence>
+      <xs:element name="committee" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="PoliticianIdType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="P\d{6}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ChamberEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="house"/>
+      <xs:enumeration value="senate"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="GenderEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="female"/>
+      <xs:enumeration value="male"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PartyEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="democrat"/>
+      <xs:enumeration value="republican"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

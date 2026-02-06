@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <xs:element name="trades">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="trade" type="TradeType" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="TradeType">
+    <xs:all>
+      <xs:element name="_txId" type="xs:integer"/>
+      <xs:element name="_politicianId" type="PoliticianIdType"/>
+      <xs:element name="_assetId" type="xs:integer"/>
+      <xs:element name="_issuerId" type="xs:integer"/>
+      <xs:element name="pubDate" type="xs:string"/>
+      <xs:element name="filingDate" type="xs:date"/>
+      <xs:element name="txDate" type="xs:date"/>
+      <xs:element name="txType" type="TxTypeEnum"/>
+      <xs:element name="txTypeExtended" type="xs:string" minOccurs="0"/>
+      <xs:element name="hasCapitalGains" type="xs:boolean"/>
+      <xs:element name="owner" type="OwnerEnum"/>
+      <xs:element name="chamber" type="ChamberEnum"/>
+      <xs:element name="price" type="xs:double" minOccurs="0"/>
+      <xs:element name="size" type="xs:integer" minOccurs="0"/>
+      <xs:element name="sizeRangeHigh" type="xs:integer" minOccurs="0"/>
+      <xs:element name="sizeRangeLow" type="xs:integer" minOccurs="0"/>
+      <xs:element name="value" type="xs:integer"/>
+      <xs:element name="filingId" type="xs:integer"/>
+      <xs:element name="filingURL" type="xs:anyURI"/>
+      <xs:element name="reportingGap" type="xs:integer"/>
+      <xs:element name="comment" type="xs:string" minOccurs="0"/>
+      <xs:element name="committees" type="StringListType"/>
+      <xs:element name="asset" type="AssetType"/>
+      <xs:element name="issuer" type="IssuerType"/>
+      <xs:element name="politician" type="PoliticianType"/>
+      <xs:element name="labels" type="LabelListType"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="AssetType">
+    <xs:all>
+      <xs:element name="assetType" type="xs:string"/>
+      <xs:element name="assetTicker" type="xs:string" minOccurs="0"/>
+      <xs:element name="instrument" type="xs:string" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="IssuerType">
+    <xs:all>
+      <xs:element name="_stateId" type="xs:string" minOccurs="0"/>
+      <xs:element name="c2iq" type="xs:string" minOccurs="0"/>
+      <xs:element name="country" type="xs:string" minOccurs="0"/>
+      <xs:element name="issuerName" type="xs:string"/>
+      <xs:element name="issuerTicker" type="xs:string" minOccurs="0"/>
+      <xs:element name="sector" type="SectorEnum" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="PoliticianType">
+    <xs:all>
+      <xs:element name="_stateId" type="xs:string"/>
+      <xs:element name="chamber" type="ChamberEnum"/>
+      <xs:element name="dob" type="xs:string"/>
+      <xs:element name="firstName" type="xs:string"/>
+      <xs:element name="gender" type="GenderEnum"/>
+      <xs:element name="lastName" type="xs:string"/>
+      <xs:element name="nickname" type="xs:string" minOccurs="0"/>
+      <xs:element name="party" type="PartyEnum"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="StringListType">
+    <xs:sequence>
+      <xs:element name="committee" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="LabelListType">
+    <xs:sequence>
+      <xs:element name="label" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="PoliticianIdType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="P\d{6}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TxTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="buy"/>
+      <xs:enumeration value="sell"/>
+      <xs:enumeration value="exchange"/>
+      <xs:enumeration value="receive"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="OwnerEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="self"/>
+      <xs:enumeration value="spouse"/>
+      <xs:enumeration value="joint"/>
+      <xs:enumeration value="child"/>
+      <xs:enumeration value="not-disclosed"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ChamberEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="house"/>
+      <xs:enumeration value="senate"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="GenderEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="female"/>
+      <xs:enumeration value="male"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PartyEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="democrat"/>
+      <xs:enumeration value="republican"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="SectorEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="communication-services"/>
+      <xs:enumeration value="consumer-discretionary"/>
+      <xs:enumeration value="consumer-staples"/>
+      <xs:enumeration value="energy"/>
+      <xs:enumeration value="financials"/>
+      <xs:enumeration value="health-care"/>
+      <xs:enumeration value="industrials"/>
+      <xs:enumeration value="information-technology"/>
+      <xs:enumeration value="materials"/>
+      <xs:enumeration value="real-estate"/>
+      <xs:enumeration value="utilities"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "issuer.schema.json",
+  "title": "Issuers",
+  "description": "Array of issuer details as emitted by --output json",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/IssuerDetail"
+  },
+  "$defs": {
+    "IssuerDetail": {
+      "type": "object",
+      "required": [
+        "_issuerId",
+        "issuerName",
+        "stats"
+      ],
+      "properties": {
+        "_issuerId": {
+          "type": "integer",
+          "description": "Unique issuer ID"
+        },
+        "_stateId": {
+          "type": ["string", "null"],
+          "description": "2-letter state code (null for foreign issuers)"
+        },
+        "c2iq": {
+          "type": ["string", "null"],
+          "description": "Capital IQ identifier (e.g. AAPL:US)"
+        },
+        "country": {
+          "type": ["string", "null"],
+          "description": "2-letter ISO country code"
+        },
+        "issuerName": {
+          "type": "string",
+          "description": "Company or issuer name"
+        },
+        "issuerTicker": {
+          "type": ["string", "null"],
+          "description": "Ticker symbol"
+        },
+        "performance": {
+          "oneOf": [
+            { "$ref": "#/$defs/Performance" },
+            { "type": "null" }
+          ],
+          "description": "Price performance data (null for non-public issuers)"
+        },
+        "sector": {
+          "oneOf": [
+            { "$ref": "#/$defs/Sector" },
+            { "type": "null" }
+          ],
+          "description": "GICS sector classification"
+        },
+        "stats": {
+          "$ref": "#/$defs/IssuerStats"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Performance": {
+      "type": "object",
+      "required": [
+        "eodPrices",
+        "mcap",
+        "trailing1",
+        "trailing1Change",
+        "trailing7",
+        "trailing7Change",
+        "trailing30",
+        "trailing30Change",
+        "trailing90",
+        "trailing90Change",
+        "trailing365",
+        "trailing365Change",
+        "wtd",
+        "wtdChange",
+        "mtd",
+        "mtdChange",
+        "qtd",
+        "qtdChange",
+        "ytd",
+        "ytdChange"
+      ],
+      "properties": {
+        "eodPrices": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "description": "Either a price (number) or a date (string YYYY-MM-DD)",
+              "oneOf": [
+                { "type": "number" },
+                { "type": "string", "format": "date" }
+              ]
+            }
+          },
+          "description": "End-of-day prices as arrays of [price, date] pairs"
+        },
+        "mcap": {
+          "type": "integer",
+          "description": "Market capitalization in USD"
+        },
+        "trailing1": {
+          "type": "number",
+          "description": "1-day trailing price"
+        },
+        "trailing1Change": {
+          "type": "number",
+          "description": "1-day price change percentage"
+        },
+        "trailing7": {
+          "type": "number",
+          "description": "7-day trailing price"
+        },
+        "trailing7Change": {
+          "type": "number",
+          "description": "7-day price change percentage"
+        },
+        "trailing30": {
+          "type": "number",
+          "description": "30-day trailing price"
+        },
+        "trailing30Change": {
+          "type": "number",
+          "description": "30-day price change percentage"
+        },
+        "trailing90": {
+          "type": "number",
+          "description": "90-day trailing price"
+        },
+        "trailing90Change": {
+          "type": "number",
+          "description": "90-day price change percentage"
+        },
+        "trailing365": {
+          "type": "number",
+          "description": "365-day trailing price"
+        },
+        "trailing365Change": {
+          "type": "number",
+          "description": "365-day price change percentage"
+        },
+        "wtd": {
+          "type": "number",
+          "description": "Week-to-date price"
+        },
+        "wtdChange": {
+          "type": "number",
+          "description": "Week-to-date change percentage"
+        },
+        "mtd": {
+          "type": "number",
+          "description": "Month-to-date price"
+        },
+        "mtdChange": {
+          "type": "number",
+          "description": "Month-to-date change percentage"
+        },
+        "qtd": {
+          "type": "number",
+          "description": "Quarter-to-date price"
+        },
+        "qtdChange": {
+          "type": "number",
+          "description": "Quarter-to-date change percentage"
+        },
+        "ytd": {
+          "type": "number",
+          "description": "Year-to-date price"
+        },
+        "ytdChange": {
+          "type": "number",
+          "description": "Year-to-date change percentage"
+        }
+      },
+      "additionalProperties": false
+    },
+    "IssuerStats": {
+      "type": "object",
+      "required": ["countTrades", "countPoliticians", "volume", "dateLastTraded"],
+      "properties": {
+        "countTrades": {
+          "type": "integer",
+          "description": "Total number of trades"
+        },
+        "countPoliticians": {
+          "type": "integer",
+          "description": "Number of distinct politicians who traded this issuer"
+        },
+        "volume": {
+          "type": "integer",
+          "description": "Total trade volume in USD"
+        },
+        "dateLastTraded": {
+          "type": "string",
+          "format": "date",
+          "description": "Date of most recent trade (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Sector": {
+      "type": "string",
+      "enum": [
+        "communication-services",
+        "consumer-discretionary",
+        "consumer-staples",
+        "energy",
+        "financials",
+        "health-care",
+        "industrials",
+        "information-technology",
+        "materials",
+        "real-estate",
+        "utilities",
+        "other"
+      ]
+    }
+  }
+}

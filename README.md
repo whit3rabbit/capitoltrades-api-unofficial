@@ -167,6 +167,10 @@ cargo run -p capitoltraders_cli -- trades --days 7
 
 All data comes from the [CapitolTrades](https://www.capitoltrades.com) API. This tool queries their public BFF endpoint. Results are cached in-memory for 5 minutes to reduce API load.
 
+## Rate Limiting
+
+This tool uses an unofficial API and adds a randomized 5-10 second delay between HTTP requests to avoid putting unnecessary load on the CapitolTrades servers. Cache hits are not delayed, so repeated queries within the 5-minute cache window return instantly. The first request in a session has no delay.
+
 ## License
 
 This project vendors code from [TommasoAmici/capitoltrades](https://github.com/TommasoAmici/capitoltrades). See that repository for its license terms.

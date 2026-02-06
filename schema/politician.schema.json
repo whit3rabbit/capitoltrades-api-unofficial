@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "politician.schema.json",
+  "title": "Politicians",
+  "description": "Array of politician details as emitted by --output json",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/PoliticianDetail"
+  },
+  "$defs": {
+    "PoliticianDetail": {
+      "type": "object",
+      "required": [
+        "_politicianId",
+        "_stateId",
+        "party",
+        "firstName",
+        "lastName",
+        "fullName",
+        "dob",
+        "gender",
+        "chamber",
+        "committees",
+        "stats"
+      ],
+      "properties": {
+        "_politicianId": {
+          "type": "string",
+          "pattern": "^[A-Z]\\d{6}$",
+          "description": "Politician ID (uppercase letter followed by 6 digits)"
+        },
+        "_stateId": {
+          "type": "string",
+          "description": "2-letter US state code (uppercase)"
+        },
+        "party": {
+          "$ref": "#/$defs/Party"
+        },
+        "partyOther": {
+          "description": "Party name if party is 'other' (rarely populated)",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "null" }
+          ]
+        },
+        "district": {
+          "type": ["string", "null"],
+          "description": "Congressional district number (null for senators)"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "nickname": {
+          "type": ["string", "null"]
+        },
+        "middleName": {
+          "type": ["string", "null"]
+        },
+        "fullName": {
+          "type": "string",
+          "description": "Display name (firstName + lastName)"
+        },
+        "dob": {
+          "type": "string",
+          "format": "date",
+          "description": "Date of birth (YYYY-MM-DD)"
+        },
+        "gender": {
+          "$ref": "#/$defs/Gender"
+        },
+        "socialFacebook": {
+          "type": ["string", "null"],
+          "description": "Facebook handle"
+        },
+        "socialTwitter": {
+          "type": ["string", "null"],
+          "description": "Twitter/X handle"
+        },
+        "socialYoutube": {
+          "type": ["string", "null"],
+          "description": "YouTube channel name"
+        },
+        "website": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Official website URL"
+        },
+        "chamber": {
+          "$ref": "#/$defs/Chamber"
+        },
+        "committees": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Committee memberships"
+        },
+        "stats": {
+          "$ref": "#/$defs/PoliticianStats"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PoliticianStats": {
+      "type": "object",
+      "required": ["countTrades", "countIssuers", "volume"],
+      "properties": {
+        "dateLastTraded": {
+          "type": ["string", "null"],
+          "format": "date",
+          "description": "Date of most recent trade (YYYY-MM-DD, null if no trades)"
+        },
+        "countTrades": {
+          "type": "integer",
+          "description": "Total number of trades"
+        },
+        "countIssuers": {
+          "type": "integer",
+          "description": "Number of distinct issuers traded"
+        },
+        "volume": {
+          "type": "integer",
+          "description": "Total trade volume in USD"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Chamber": {
+      "type": "string",
+      "enum": ["house", "senate"]
+    },
+    "Gender": {
+      "type": "string",
+      "enum": ["female", "male"]
+    },
+    "Party": {
+      "type": "string",
+      "enum": ["democrat", "republican", "other"]
+    }
+  }
+}

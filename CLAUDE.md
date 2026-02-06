@@ -47,12 +47,21 @@ capitoltraders_lib/
 capitoltraders_cli/
   src/
     main.rs                   # CLI entry point, Commands enum, tokio runtime
-    output.rs                 # table/JSON formatting (tabled, serde_json)
+    output.rs                 # table/JSON/CSV/Markdown/XML formatting
+    xml_output.rs             # XML serialization via JSON-to-XML bridge (quick-xml)
     commands/
       mod.rs                  # module declarations
       trades.rs               # trades subcommand (TradesArgs + run)
       politicians.rs          # politicians subcommand (PoliticiansArgs + run)
       issuers.rs              # issuers subcommand (IssuersArgs + run)
+
+schema/
+  trade.schema.json           # JSON Schema (draft 2020-12) for Trade array
+  politician.schema.json      # JSON Schema for PoliticianDetail array
+  issuer.schema.json          # JSON Schema for IssuerDetail array
+  trades.xsd                  # XML Schema for trades XML output
+  politicians.xsd             # XML Schema for politicians XML output
+  issuers.xsd                 # XML Schema for issuers XML output
 ```
 
 ## Build & Test
@@ -161,17 +170,20 @@ All user input is validated before being passed to the API layer. Each validator
 | `validate_issuer_state` | state code | `String` (lowercase) | 2-letter alpha |
 | `validate_trade_size` | bracket number | `TradeSize` | `1`-`10` |
 
-## Test Inventory (129 tests)
+## Test Inventory (188 tests)
 
 | Suite | Count | Location |
 |---|---|---|
 | Upstream snapshot (insta) | 3 | `capitoltrades_api/src/query/*.rs` |
 | Deserialization | 7 | `capitoltrades_api/tests/deserialization.rs` |
-| Query builders | 31 | `capitoltrades_api/tests/query_builders.rs` |
+| Query builders | 36 | `capitoltrades_api/tests/query_builders.rs` |
 | Wiremock integration | 8 | `capitoltrades_api/tests/client_integration.rs` |
 | Cache unit | 5 | `capitoltraders_lib/src/cache.rs` |
 | Analysis unit | 5 | `capitoltraders_lib/src/analysis.rs` |
-| Validation unit | 70 | `capitoltraders_lib/src/validation.rs` |
+| Validation unit | 83 | `capitoltraders_lib/src/validation.rs` |
+| XML output | 12 | `capitoltraders_cli/src/xml_output.rs` |
+| Output unit | 20 | `capitoltraders_cli/src/output.rs` |
+| Schema validation | 9 | `capitoltraders_cli/tests/schema_validation.rs` |
 
 ## Key Dependencies
 
@@ -183,17 +195,53 @@ All user input is validated before being passed to the API layer. Each validator
 | tabled | 0.17 | Terminal table output |
 | clap | 4 | CLI argument parsing (derive) |
 | insta | 1 | Snapshot testing (upstream) |
+| quick-xml | 0.37 | XML output serialization (Writer API) |
+| jsonschema | 0.29 | JSON Schema validation in tests (dev-dependency) |
 
 ## Conventions
 
 - The CLI binary is named `capitoltraders` (no underscore).
 - Cache TTL is 300 seconds (5 minutes), in-memory only via `MemoryCache`.
-- Output format is controlled by `--output table|json` (global flag).
+- Output format is controlled by `--output table|json|csv|md|xml` (global flag).
 - Analysis functions operate on slices of upstream types and return standard collections.
 - Error types in the lib layer wrap upstream `capitoltrades_api::Error` rather than re-implementing.
 - Two-step lookups (`--politician`, `--issuer`) search an endpoint by name, collect IDs, then filter trades by those IDs.
 - Comma-separated CLI values are split, individually validated, then added to the query via builder methods.
 - `issuerState` and `country` use lowercase in the API (unlike politician `state` which is uppercase). Validation normalizes accordingly.
+- Rate limiting: `CachedClient` enforces a randomized 5-10 second delay between actual HTTP requests. Cache hits skip the delay. The first request in a session has no delay. Implemented via `Mutex<Option<Instant>>` tracking the last request time.
+
+## XML Output Format
+
+The `--output xml` flag emits well-formed XML. Implementation uses a JSON-to-XML bridge: types are serialized to `serde_json::Value` first, then walked recursively to emit XML via `quick-xml::Writer`. This avoids modifying the vendored crate.
+
+Key behaviors:
+- Null fields are omitted (no empty element emitted)
+- Arrays produce a wrapper element with singular child elements (e.g. `<committees><committee>...</committee></committees>`)
+- XML declaration: `<?xml version="1.0" encoding="UTF-8"?>`
+- Root elements: `<trades>`, `<politicians>`, `<issuers>`
+- Empty results produce a self-closing root (e.g. `<trades/>`)
+- Special characters (`&`, `<`, `>`) are escaped by quick-xml
+
+The singularization map for array wrapper names:
+- `committees` -> `committee`
+- `labels` -> `label`
+- `eodPrices` -> `priceSet`
+- All other arrays use the field name as-is for children
+
+## Schema Files
+
+The `schema/` directory contains JSON Schema (draft 2020-12) and XSD files documenting the structure of CLI output. Schemas describe what `--output json` and `--output xml` actually emit: arrays of data items, not the PaginatedResponse wrapper (which goes to stderr).
+
+| File | Format | Describes |
+|------|--------|-----------|
+| `schema/trade.schema.json` | JSON Schema | Trade array from `trades --output json` |
+| `schema/politician.schema.json` | JSON Schema | PoliticianDetail array from `politicians --output json` |
+| `schema/issuer.schema.json` | JSON Schema | IssuerDetail array from `issuers --output json` |
+| `schema/trades.xsd` | XML Schema | Trade XML from `trades --output xml` |
+| `schema/politicians.xsd` | XML Schema | PoliticianDetail XML from `politicians --output xml` |
+| `schema/issuers.xsd` | XML Schema | IssuerDetail XML from `issuers --output xml` |
+
+All serialized fields are documented, including private Rust fields that are still serde-serialized. Schemas are hand-written (no `schemars` crate) to avoid vendored crate modifications.
 
 ## Adding a New CLI Subcommand
 

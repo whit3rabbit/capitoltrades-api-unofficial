@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.schema.json",
+  "title": "Trades",
+  "description": "Array of congressional trades as emitted by --output json",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/Trade"
+  },
+  "$defs": {
+    "Trade": {
+      "type": "object",
+      "required": [
+        "_txId",
+        "_politicianId",
+        "_assetId",
+        "_issuerId",
+        "pubDate",
+        "filingDate",
+        "txDate",
+        "txType",
+        "hasCapitalGains",
+        "owner",
+        "chamber",
+        "value",
+        "filingId",
+        "filingURL",
+        "reportingGap",
+        "committees",
+        "asset",
+        "issuer",
+        "politician",
+        "labels"
+      ],
+      "properties": {
+        "_txId": {
+          "type": "integer",
+          "description": "Unique transaction ID"
+        },
+        "_politicianId": {
+          "type": "string",
+          "pattern": "^[A-Z]\\d{6}$",
+          "description": "Politician ID (uppercase letter followed by 6 digits)"
+        },
+        "_assetId": {
+          "type": "integer",
+          "description": "Asset ID"
+        },
+        "_issuerId": {
+          "type": "integer",
+          "description": "Issuer ID"
+        },
+        "pubDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Publication date (ISO 8601 datetime with timezone)"
+        },
+        "filingDate": {
+          "type": "string",
+          "format": "date",
+          "description": "Filing date (YYYY-MM-DD)"
+        },
+        "txDate": {
+          "type": "string",
+          "format": "date",
+          "description": "Transaction date (YYYY-MM-DD)"
+        },
+        "txType": {
+          "$ref": "#/$defs/TxType"
+        },
+        "txTypeExtended": {
+          "description": "Extended transaction type info (rarely populated)",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "object" },
+            { "type": "null" }
+          ]
+        },
+        "hasCapitalGains": {
+          "type": "boolean",
+          "description": "Whether the trade has capital gains"
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "chamber": {
+          "$ref": "#/$defs/Chamber"
+        },
+        "price": {
+          "type": ["number", "null"],
+          "description": "Trade price per share (null if not disclosed)"
+        },
+        "size": {
+          "type": ["integer", "null"],
+          "description": "Number of shares (null if not disclosed)"
+        },
+        "sizeRangeHigh": {
+          "type": ["integer", "null"],
+          "description": "Upper bound of reported size range"
+        },
+        "sizeRangeLow": {
+          "type": ["integer", "null"],
+          "description": "Lower bound of reported size range"
+        },
+        "value": {
+          "type": "integer",
+          "description": "Estimated trade value in USD"
+        },
+        "filingId": {
+          "type": "integer",
+          "description": "SEC filing ID"
+        },
+        "filingURL": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the SEC filing"
+        },
+        "reportingGap": {
+          "type": "integer",
+          "description": "Days between transaction and publication"
+        },
+        "comment": {
+          "type": ["string", "null"],
+          "description": "Optional filer comment"
+        },
+        "committees": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Committee memberships of the politician"
+        },
+        "asset": {
+          "$ref": "#/$defs/Asset"
+        },
+        "issuer": {
+          "$ref": "#/$defs/Issuer"
+        },
+        "politician": {
+          "$ref": "#/$defs/Politician"
+        },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Labels applied to this trade"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Asset": {
+      "type": "object",
+      "required": ["assetType"],
+      "properties": {
+        "assetType": {
+          "type": "string",
+          "description": "Type of asset (stock, etf, etc.)"
+        },
+        "assetTicker": {
+          "type": ["string", "null"],
+          "description": "Asset ticker symbol"
+        },
+        "instrument": {
+          "type": ["string", "null"],
+          "description": "Instrument description"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Issuer": {
+      "type": "object",
+      "required": ["issuerName"],
+      "properties": {
+        "_stateId": {
+          "type": ["string", "null"],
+          "description": "Issuer state code"
+        },
+        "c2iq": {
+          "type": ["string", "null"],
+          "description": "Capital IQ identifier"
+        },
+        "country": {
+          "type": ["string", "null"],
+          "description": "2-letter country code"
+        },
+        "issuerName": {
+          "type": "string",
+          "description": "Company or issuer name"
+        },
+        "issuerTicker": {
+          "type": ["string", "null"],
+          "description": "Ticker symbol"
+        },
+        "sector": {
+          "oneOf": [
+            { "$ref": "#/$defs/Sector" },
+            { "type": "null" }
+          ],
+          "description": "GICS sector classification"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Politician": {
+      "type": "object",
+      "required": ["_stateId", "chamber", "dob", "firstName", "gender", "lastName", "party"],
+      "properties": {
+        "_stateId": {
+          "type": "string",
+          "description": "2-letter US state code (uppercase)"
+        },
+        "chamber": {
+          "$ref": "#/$defs/Chamber"
+        },
+        "dob": {
+          "type": "string",
+          "format": "date",
+          "description": "Date of birth (YYYY-MM-DD)"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "gender": {
+          "$ref": "#/$defs/Gender"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "nickname": {
+          "type": ["string", "null"]
+        },
+        "party": {
+          "$ref": "#/$defs/Party"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TxType": {
+      "type": "string",
+      "enum": ["buy", "sell", "exchange", "receive"]
+    },
+    "Owner": {
+      "type": "string",
+      "enum": ["self", "spouse", "joint", "child", "not-disclosed"]
+    },
+    "Chamber": {
+      "type": "string",
+      "enum": ["house", "senate"]
+    },
+    "Gender": {
+      "type": "string",
+      "enum": ["female", "male"]
+    },
+    "Party": {
+      "type": "string",
+      "enum": ["democrat", "republican", "other"]
+    },
+    "Sector": {
+      "type": "string",
+      "enum": [
+        "communication-services",
+        "consumer-discretionary",
+        "consumer-staples",
+        "energy",
+        "financials",
+        "health-care",
+        "industrials",
+        "information-technology",
+        "materials",
+        "real-estate",
+        "utilities",
+        "other"
+      ]
+    }
+  }
+}

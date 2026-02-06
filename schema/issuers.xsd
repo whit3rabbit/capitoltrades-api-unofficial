@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <xs:element name="issuers">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="issuer" type="IssuerDetailType" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:complexType name="IssuerDetailType">
+    <xs:all>
+      <xs:element name="_issuerId" type="xs:integer"/>
+      <xs:element name="_stateId" type="xs:string" minOccurs="0"/>
+      <xs:element name="c2iq" type="xs:string" minOccurs="0"/>
+      <xs:element name="country" type="xs:string" minOccurs="0"/>
+      <xs:element name="issuerName" type="xs:string"/>
+      <xs:element name="issuerTicker" type="xs:string" minOccurs="0"/>
+      <xs:element name="performance" type="PerformanceType" minOccurs="0"/>
+      <xs:element name="sector" type="SectorEnum" minOccurs="0"/>
+      <xs:element name="stats" type="IssuerStatsType"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="PerformanceType">
+    <xs:all>
+      <xs:element name="eodPrices" type="EodPricesType"/>
+      <xs:element name="mcap" type="xs:integer"/>
+      <xs:element name="trailing1" type="xs:double"/>
+      <xs:element name="trailing1Change" type="xs:double"/>
+      <xs:element name="trailing7" type="xs:double"/>
+      <xs:element name="trailing7Change" type="xs:double"/>
+      <xs:element name="trailing30" type="xs:double"/>
+      <xs:element name="trailing30Change" type="xs:double"/>
+      <xs:element name="trailing90" type="xs:double"/>
+      <xs:element name="trailing90Change" type="xs:double"/>
+      <xs:element name="trailing365" type="xs:double"/>
+      <xs:element name="trailing365Change" type="xs:double"/>
+      <xs:element name="wtd" type="xs:double"/>
+      <xs:element name="wtdChange" type="xs:double"/>
+      <xs:element name="mtd" type="xs:double"/>
+      <xs:element name="mtdChange" type="xs:double"/>
+      <xs:element name="qtd" type="xs:double"/>
+      <xs:element name="qtdChange" type="xs:double"/>
+      <xs:element name="ytd" type="xs:double"/>
+      <xs:element name="ytdChange" type="xs:double"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="EodPricesType">
+    <xs:sequence>
+      <xs:element name="priceSet" type="PriceSetType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PriceSetType">
+    <xs:sequence>
+      <xs:element name="priceSet" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="IssuerStatsType">
+    <xs:all>
+      <xs:element name="countTrades" type="xs:integer"/>
+      <xs:element name="countPoliticians" type="xs:integer"/>
+      <xs:element name="volume" type="xs:integer"/>
+      <xs:element name="dateLastTraded" type="xs:date"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:simpleType name="SectorEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="communication-services"/>
+      <xs:enumeration value="consumer-discretionary"/>
+      <xs:enumeration value="consumer-staples"/>
+      <xs:enumeration value="energy"/>
+      <xs:enumeration value="financials"/>
+      <xs:enumeration value="health-care"/>
+      <xs:enumeration value="industrials"/>
+      <xs:enumeration value="information-technology"/>
+      <xs:enumeration value="materials"/>
+      <xs:enumeration value="real-estate"/>
+      <xs:enumeration value="utilities"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

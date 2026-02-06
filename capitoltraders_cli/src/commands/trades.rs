@@ -6,7 +6,8 @@ use capitoltraders_lib::{
 use capitoltraders_lib::validation;
 
 use crate::output::{
-    print_json, print_trades_csv, print_trades_markdown, print_trades_table, OutputFormat,
+    print_json, print_trades_csv, print_trades_markdown, print_trades_table, print_trades_xml,
+    OutputFormat,
 };
 
 #[derive(Args)]
@@ -27,15 +28,15 @@ pub struct TradesArgs {
     #[arg(long)]
     pub politician: Option<String>,
 
-    /// Filter by party: democrat (d), republican (r), other
+    /// Filter by party (comma-separated): democrat (d), republican (r), other
     #[arg(long)]
     pub party: Option<String>,
 
-    /// Filter by US state code (e.g. CA, TX, NY)
+    /// Filter by US state code (comma-separated, e.g. CA,TX,NY)
     #[arg(long)]
     pub state: Option<String>,
 
-    /// Filter by committee name (e.g. "Senate - Finance")
+    /// Filter by committee (comma-separated, code or full name)
     #[arg(long)]
     pub committee: Option<String>,
 
@@ -160,19 +161,25 @@ pub async fn run(args: &TradesArgs, client: &CachedClient, format: &OutputFormat
         query = query.with_politician_ids(&ids);
     }
 
-    if let Some(ref party) = args.party {
-        let p = validation::validate_party(party)?;
-        query = query.with_party(&p);
+    if let Some(ref val) = args.party {
+        for item in val.split(',') {
+            let p = validation::validate_party(item.trim())?;
+            query = query.with_party(&p);
+        }
     }
 
-    if let Some(ref state) = args.state {
-        let validated = validation::validate_state(state)?;
-        query = query.with_state(&validated);
+    if let Some(ref val) = args.state {
+        for item in val.split(',') {
+            let validated = validation::validate_state(item.trim())?;
+            query = query.with_state(&validated);
+        }
     }
 
-    if let Some(ref committee) = args.committee {
-        let validated = validation::validate_committee(committee)?;
-        query = query.with_committee(&validated);
+    if let Some(ref val) = args.committee {
+        for item in val.split(',') {
+            let validated = validation::validate_committee(item.trim())?;
+            query = query.with_committee(&validated);
+        }
     }
 
     // Parse absolute date filters
@@ -369,6 +376,7 @@ pub async fn run(args: &TradesArgs, client: &CachedClient, format: &OutputFormat
         OutputFormat::Json => print_json(&trades),
         OutputFormat::Csv => print_trades_csv(&trades)?,
         OutputFormat::Markdown => print_trades_markdown(&trades),
+        OutputFormat::Xml => print_trades_xml(&trades),
     }
 
     Ok(())
