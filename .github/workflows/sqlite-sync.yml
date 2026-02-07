@@ -1,0 +1,41 @@
+name: SQLite Sync
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Restore SQLite cache
+        uses: actions/cache@v4
+        with:
+          path: data/capitoltraders.db
+          key: sqlite-db-${{ github.run_id }}
+          restore-keys: |
+            sqlite-db-
+
+      - name: Run sync
+        run: |
+          mkdir -p data
+          cargo run -p capitoltraders_cli -- sync --db data/capitoltraders.db
+
+      - name: Upload SQLite artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: capitoltraders-db
+          path: data/capitoltraders.db
+          if-no-files-found: error
+          retention-days: 30

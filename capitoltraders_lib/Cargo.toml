@@ -13,3 +13,4 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 dashmap = "6"
 rand = "0.8.5"
+rusqlite = { workspace = true }
