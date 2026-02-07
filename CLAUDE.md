@@ -6,7 +6,7 @@ Rust workspace with three crates:
 
 - `capitoltrades_api/` -- Vendored fork of [TommasoAmici/capitoltrades](https://github.com/TommasoAmici/capitoltrades). HTTP client for the CapitolTrades BFF API. Modifications from upstream are minimal and documented below.
 - `capitoltraders_lib/` -- Library layer: cached client wrapper, in-memory TTL cache, analysis helpers, validation, error types.
-- `capitoltraders_cli/` -- CLI binary (`capitoltraders`) using clap. Subcommands: `trades`, `politicians`, `issuers`.
+- `capitoltraders_cli/` -- CLI binary (`capitoltraders`) using clap. Subcommands: `trades`, `politicians`, `issuers`, `sync`.
 
 ### File Layout
 
@@ -40,6 +40,7 @@ capitoltraders_lib/
     lib.rs                    # crate root, re-exports from capitoltrades_api
     client.rs                 # CachedClient wrapper, cache key generation
     cache.rs                  # MemoryCache (DashMap-backed TTL cache)
+    db.rs                     # SQLite storage + ingestion helpers
     validation.rs             # input validation for all CLI filter types
     analysis.rs               # trade analysis helpers (by-party, by-month, top issuers)
     error.rs                  # CapitolTradesError (wraps upstream Error + InvalidInput)
@@ -54,11 +55,13 @@ capitoltraders_cli/
       trades.rs               # trades subcommand (TradesArgs + run)
       politicians.rs          # politicians subcommand (PoliticiansArgs + run)
       issuers.rs              # issuers subcommand (IssuersArgs + run)
+      sync.rs                 # sync subcommand (SQLite ingestion)
 
 schema/
   trade.schema.json           # JSON Schema (draft 2020-12) for Trade array
   politician.schema.json      # JSON Schema for PoliticianDetail array
   issuer.schema.json          # JSON Schema for IssuerDetail array
+  sqlite.sql                  # SQLite DDL aligned with CLI JSON output
   trades.xsd                  # XML Schema for trades XML output
   politicians.xsd             # XML Schema for politicians XML output
   issuers.xsd                 # XML Schema for issuers XML output
@@ -89,11 +92,13 @@ Forked from `crates/capitoltrades_api/` in the upstream repo. Our modifications:
 10. New enums: `AssetType` (22 variants), `Label` (4 variants) in `trade.rs`.
 11. `Commands::Trades` uses `Box<TradesArgs>` to avoid `large_enum_variant` clippy warning.
 
-Remaining clippy warnings in upstream code are intentionally left alone. Do not "fix" upstream code style without understanding why it exists (Chesterton's Fence).
+All clippy warnings in the vendored crate have been resolved.
 
 ## Trade Filter Types
 
 The trades command supports extensive filtering. All multi-value filters accept comma-separated input at the CLI layer.
+Date filters use either relative days (`--days`, `--tx-days`) or absolute date ranges
+(`--since`/`--until`, `--tx-since`/`--tx-until`), but not both simultaneously.
 
 | CLI Flag | API Param | Type | Accepted Values |
 |---|---|---|---|
@@ -106,6 +111,10 @@ The trades command supports extensive filtering. All multi-value filters accept 
 | `--committee` | `committee` | `String` | abbreviation code (e.g. `ssfi`) or full name |
 | `--days` | `pubDate` | `i64` | relative days (e.g. `7` becomes `7d`) |
 | `--tx-days` | `txDate` | `i64` | relative days |
+| `--since` | `pubDate` | `YYYY-MM-DD` | absolute lower bound (converted to relative days); conflicts with `--days` |
+| `--until` | client-side | `YYYY-MM-DD` | absolute upper bound; conflicts with `--days` |
+| `--tx-since` | `txDate` | `YYYY-MM-DD` | absolute lower bound (converted to relative days); conflicts with `--tx-days` |
+| `--tx-until` | client-side | `YYYY-MM-DD` | absolute upper bound; conflicts with `--tx-days` |
 | `--trade-size` | `tradeSize` | `TradeSize` | `1`-`10` (bracket numbers) |
 | `--gender` | `gender` | `Gender` | `female` (`f`), `male` (`m`) |
 | `--market-cap` | `mcap` | `MarketCap` | `mega`-`nano` or `1`-`6` |
@@ -169,6 +178,9 @@ All user input is validated before being passed to the API layer. Each validator
 | `validate_country` | ISO code | `String` (lowercase) | 2-letter alpha |
 | `validate_issuer_state` | state code | `String` (lowercase) | 2-letter alpha |
 | `validate_trade_size` | bracket number | `TradeSize` | `1`-`10` |
+| `validate_date` | date string | `NaiveDate` | YYYY-MM-DD format (chrono) |
+| `validate_days` | number | `i64` | 1-3650 range |
+| `date_to_relative_days` | `NaiveDate` | `Option<i64>` | days from today, `None` if future |
 
 ## Test Inventory (188 tests)
 
@@ -197,6 +209,7 @@ All user input is validated before being passed to the API layer. Each validator
 | insta | 1 | Snapshot testing (upstream) |
 | quick-xml | 0.37 | XML output serialization (Writer API) |
 | jsonschema | 0.29 | JSON Schema validation in tests (dev-dependency) |
+| rusqlite | 0.31 | SQLite storage for `sync` ingestion |
 
 ## Conventions
 
@@ -209,6 +222,28 @@ All user input is validated before being passed to the API layer. Each validator
 - Comma-separated CLI values are split, individually validated, then added to the query via builder methods.
 - `issuerState` and `country` use lowercase in the API (unlike politician `state` which is uppercase). Validation normalizes accordingly.
 - Rate limiting: `CachedClient` enforces a randomized 5-10 second delay between actual HTTP requests. Cache hits skip the delay. The first request in a session has no delay. Implemented via `Mutex<Option<Instant>>` tracking the last request time.
+
+## SQLite Ingestion
+
+The `sync` subcommand writes to SQLite using `schema/sqlite.sql`, which mirrors the CLI JSON output schemas.
+Nested arrays are normalized into join tables (`trade_committees`, `trade_labels`, `politician_committees`),
+and issuer performance is stored in `issuer_performance` plus `issuer_eod_prices`. Incremental runs track
+`ingest_meta.last_trade_pub_date` (YYYY-MM-DD) and request only recent pages; `--since` overrides it.
+
+Commands:
+
+```
+capitoltraders sync --db capitoltraders.db --full
+capitoltraders sync --db capitoltraders.db
+capitoltraders sync --db capitoltraders.db --refresh-issuers --refresh-politicians
+capitoltraders sync --db capitoltraders.db --since 2024-01-01
+```
+
+## CI
+
+The daily SQLite sync workflow is defined in `.github/workflows/sqlite-sync.yml`.
+It restores the previous DB from a GitHub Actions cache, runs `capitoltraders sync`,
+and uploads the updated database as a workflow artifact.
 
 ## XML Output Format
 
@@ -237,6 +272,7 @@ The `schema/` directory contains JSON Schema (draft 2020-12) and XSD files docum
 | `schema/trade.schema.json` | JSON Schema | Trade array from `trades --output json` |
 | `schema/politician.schema.json` | JSON Schema | PoliticianDetail array from `politicians --output json` |
 | `schema/issuer.schema.json` | JSON Schema | IssuerDetail array from `issuers --output json` |
+| `schema/sqlite.sql` | SQL DDL | SQLite schema aligned to CLI JSON output |
 | `schema/trades.xsd` | XML Schema | Trade XML from `trades --output xml` |
 | `schema/politicians.xsd` | XML Schema | PoliticianDetail XML from `politicians --output xml` |
 | `schema/issuers.xsd` | XML Schema | IssuerDetail XML from `issuers --output xml` |
