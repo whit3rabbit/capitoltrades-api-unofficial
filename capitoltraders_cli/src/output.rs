@@ -1,3 +1,8 @@
+//! Output formatting for all supported formats: table, JSON, CSV, Markdown, and XML.
+//!
+//! Each data type (trades, politicians, issuers) has dedicated print functions
+//! for each format. Data is first mapped to flat row structs, then rendered.
+
 use anyhow::Result;
 use serde::Serialize;
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
@@ -6,15 +11,22 @@ use tabled::{Table, Tabled};
 
 use crate::xml_output;
 
+/// Supported output formats for CLI results.
 #[derive(Clone, Debug)]
 pub enum OutputFormat {
+    /// ASCII table (default).
     Table,
+    /// Pretty-printed JSON array.
     Json,
+    /// Comma-separated values with header row.
     Csv,
+    /// GitHub-flavored Markdown table.
     Markdown,
+    /// Well-formed XML document.
     Xml,
 }
 
+/// Flattened row representation of a trade for tabular output.
 #[derive(Tabled, Serialize)]
 struct TradeRow {
     #[tabled(rename = "Date")]
@@ -40,6 +52,7 @@ struct TradeRow {
     value: String,
 }
 
+/// Flattened row representation of a politician for tabular output.
 #[derive(Tabled, Serialize)]
 struct PoliticianRow {
     #[tabled(rename = "Name")]
@@ -62,6 +75,7 @@ struct PoliticianRow {
     volume: String,
 }
 
+/// Flattened row representation of an issuer for tabular output.
 #[derive(Tabled, Serialize)]
 struct IssuerRow {
     #[tabled(rename = "Name")]
@@ -139,32 +153,38 @@ fn build_issuer_rows(issuers: &[IssuerDetail]) -> Vec<IssuerRow> {
 
 // -- Table output --
 
+/// Prints trades as an ASCII table to stdout.
 pub fn print_trades_table(trades: &[Trade]) {
     println!("{}", Table::new(build_trade_rows(trades)));
 }
 
+/// Prints politicians as an ASCII table to stdout.
 pub fn print_politicians_table(politicians: &[PoliticianDetail]) {
     println!("{}", Table::new(build_politician_rows(politicians)));
 }
 
+/// Prints issuers as an ASCII table to stdout.
 pub fn print_issuers_table(issuers: &[IssuerDetail]) {
     println!("{}", Table::new(build_issuer_rows(issuers)));
 }
 
 // -- Markdown output --
 
+/// Prints trades as a GitHub-flavored Markdown table to stdout.
 pub fn print_trades_markdown(trades: &[Trade]) {
     let mut table = Table::new(build_trade_rows(trades));
     table.with(Style::markdown());
     println!("{}", table);
 }
 
+/// Prints politicians as a GitHub-flavored Markdown table to stdout.
 pub fn print_politicians_markdown(politicians: &[PoliticianDetail]) {
     let mut table = Table::new(build_politician_rows(politicians));
     table.with(Style::markdown());
     println!("{}", table);
 }
 
+/// Prints issuers as a GitHub-flavored Markdown table to stdout.
 pub fn print_issuers_markdown(issuers: &[IssuerDetail]) {
     let mut table = Table::new(build_issuer_rows(issuers));
     table.with(Style::markdown());
@@ -173,27 +193,47 @@ pub fn print_issuers_markdown(issuers: &[IssuerDetail]) {
 
 // -- CSV output --
 
+/// Neutralize CSV formula injection by prefixing dangerous leading characters with a tab.
+/// Spreadsheet applications (Excel, Google Sheets) interpret cells starting with =, +, -, or @
+/// as formulas. A leading tab prevents formula evaluation while remaining visually unobtrusive.
+fn sanitize_csv_field(s: &str) -> String {
+    if s.starts_with('=') || s.starts_with('+') || s.starts_with('-') || s.starts_with('@') {
+        format!("\t{}", s)
+    } else {
+        s.to_string()
+    }
+}
+
+/// Prints trades as CSV to stdout. Fields are sanitized against formula injection.
 pub fn print_trades_csv(trades: &[Trade]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(std::io::stdout());
-    for row in build_trade_rows(trades) {
+    for mut row in build_trade_rows(trades) {
+        row.politician = sanitize_csv_field(&row.politician);
+        row.issuer = sanitize_csv_field(&row.issuer);
+        row.ticker = sanitize_csv_field(&row.ticker);
         wtr.serialize(row)?;
     }
     wtr.flush()?;
     Ok(())
 }
 
+/// Prints politicians as CSV to stdout. Fields are sanitized against formula injection.
 pub fn print_politicians_csv(politicians: &[PoliticianDetail]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(std::io::stdout());
-    for row in build_politician_rows(politicians) {
+    for mut row in build_politician_rows(politicians) {
+        row.name = sanitize_csv_field(&row.name);
         wtr.serialize(row)?;
     }
     wtr.flush()?;
     Ok(())
 }
 
+/// Prints issuers as CSV to stdout. Fields are sanitized against formula injection.
 pub fn print_issuers_csv(issuers: &[IssuerDetail]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(std::io::stdout());
-    for row in build_issuer_rows(issuers) {
+    for mut row in build_issuer_rows(issuers) {
+        row.name = sanitize_csv_field(&row.name);
+        row.ticker = sanitize_csv_field(&row.ticker);
         wtr.serialize(row)?;
     }
     wtr.flush()?;
@@ -202,20 +242,24 @@ pub fn print_issuers_csv(issuers: &[IssuerDetail]) -> Result<()> {
 
 // -- XML output --
 
+/// Prints trades as a well-formed XML document to stdout.
 pub fn print_trades_xml(trades: &[Trade]) {
     println!("{}", xml_output::trades_to_xml(trades));
 }
 
+/// Prints politicians as a well-formed XML document to stdout.
 pub fn print_politicians_xml(politicians: &[PoliticianDetail]) {
     println!("{}", xml_output::politicians_to_xml(politicians));
 }
 
+/// Prints issuers as a well-formed XML document to stdout.
 pub fn print_issuers_xml(issuers: &[IssuerDetail]) {
     println!("{}", xml_output::issuers_to_xml(issuers));
 }
 
 // -- JSON output --
 
+/// Prints any serializable data as pretty-printed JSON to stdout.
 pub fn print_json<T: serde::Serialize>(data: &T) {
     match serde_json::to_string_pretty(data) {
         Ok(json) => println!("{}", json),
@@ -223,6 +267,7 @@ pub fn print_json<T: serde::Serialize>(data: &T) {
     }
 }
 
+/// Formats a dollar value with K/M suffixes for readability.
 fn format_value(value: i64) -> String {
     if value >= 1_000_000 {
         format!("${:.1}M", value as f64 / 1_000_000.0)
@@ -234,248 +279,5 @@ fn format_value(value: i64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn load_trades_fixture() -> Vec<Trade> {
-        let json_str = include_str!("../../capitoltrades_api/tests/fixtures/trades.json");
-        let resp: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        serde_json::from_value(resp["data"].clone()).unwrap()
-    }
-
-    fn load_politicians_fixture() -> Vec<PoliticianDetail> {
-        let json_str = include_str!("../../capitoltrades_api/tests/fixtures/politicians.json");
-        let resp: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        serde_json::from_value(resp["data"].clone()).unwrap()
-    }
-
-    fn load_issuers_fixture() -> Vec<IssuerDetail> {
-        let json_str = include_str!("../../capitoltrades_api/tests/fixtures/issuers.json");
-        let resp: serde_json::Value = serde_json::from_str(json_str).unwrap();
-        serde_json::from_value(resp["data"].clone()).unwrap()
-    }
-
-    // -- format_value tests --
-
-    #[test]
-    fn test_format_value_millions() {
-        assert_eq!(format_value(15_000_000), "$15.0M");
-    }
-
-    #[test]
-    fn test_format_value_thousands() {
-        assert_eq!(format_value(50_000), "$50.0K");
-    }
-
-    #[test]
-    fn test_format_value_small() {
-        assert_eq!(format_value(500), "$500");
-    }
-
-    #[test]
-    fn test_format_value_zero() {
-        assert_eq!(format_value(0), "$0");
-    }
-
-    // -- Row builder tests --
-
-    #[test]
-    fn test_build_trade_rows_mapping() {
-        let trades = load_trades_fixture();
-        let rows = build_trade_rows(&trades);
-        assert_eq!(rows.len(), 1);
-
-        let row = &rows[0];
-        assert_eq!(row.tx_date, "2024-03-01");
-        assert_eq!(row.politician, "Jane Smith");
-        assert_eq!(row.party, "democrat");
-        assert_eq!(row.issuer, "Apple Inc");
-        assert_eq!(row.ticker, "AAPL");
-        assert_eq!(row.tx_type, "buy");
-        assert_eq!(row.value, "$50.0K");
-    }
-
-    #[test]
-    fn test_build_trade_rows_empty() {
-        let rows = build_trade_rows(&[]);
-        assert!(rows.is_empty());
-    }
-
-    #[test]
-    fn test_build_politician_rows_mapping() {
-        let politicians = load_politicians_fixture();
-        let rows = build_politician_rows(&politicians);
-
-        let row = &rows[0];
-        assert_eq!(row.name, "Nancy Pelosi");
-        assert_eq!(row.party, "democrat");
-        assert_eq!(row.state, "CA");
-        assert_eq!(row.chamber, "house");
-        assert_eq!(row.trades, 250);
-        assert_eq!(row.volume, "$15.0M");
-    }
-
-    #[test]
-    fn test_build_politician_rows_count() {
-        let politicians = load_politicians_fixture();
-        let rows = build_politician_rows(&politicians);
-        assert_eq!(rows.len(), 2);
-    }
-
-    #[test]
-    fn test_build_issuer_rows_mapping() {
-        let issuers = load_issuers_fixture();
-        let rows = build_issuer_rows(&issuers);
-
-        let row = &rows[0];
-        assert_eq!(row.name, "Apple Inc");
-        assert_eq!(row.ticker, "AAPL");
-        assert_eq!(row.trades, 500);
-        assert_eq!(row.politicians, 85);
-        assert_eq!(row.volume, "$50.0M");
-        assert_eq!(row.last_traded, "2024-03-14");
-    }
-
-    #[test]
-    fn test_build_issuer_rows_empty() {
-        let rows = build_issuer_rows(&[]);
-        assert!(rows.is_empty());
-    }
-
-    #[test]
-    fn test_build_issuer_rows_missing_ticker() {
-        let json = serde_json::json!([{
-            "_issuerId": 9999,
-            "_stateId": null,
-            "c2iq": null,
-            "country": null,
-            "issuerName": "Mystery Corp",
-            "issuerTicker": null,
-            "performance": null,
-            "sector": null,
-            "stats": {
-                "countTrades": 10,
-                "countPoliticians": 3,
-                "volume": 1000,
-                "dateLastTraded": "2024-01-01"
-            }
-        }]);
-        let issuers: Vec<IssuerDetail> = serde_json::from_value(json).unwrap();
-        let rows = build_issuer_rows(&issuers);
-        assert_eq!(rows[0].ticker, "");
-    }
-
-    // -- CSV output tests --
-
-    fn csv_from_rows<T: Serialize>(rows: &[T]) -> String {
-        let mut wtr = csv::Writer::from_writer(Vec::new());
-        for row in rows {
-            wtr.serialize(row).unwrap();
-        }
-        wtr.flush().unwrap();
-        String::from_utf8(wtr.into_inner().unwrap()).unwrap()
-    }
-
-    #[test]
-    fn test_csv_trades_headers() {
-        let trades = load_trades_fixture();
-        let rows = build_trade_rows(&trades);
-        let csv = csv_from_rows(&rows);
-        let header = csv.lines().next().unwrap();
-        assert_eq!(header, "Date,Politician,Party,Issuer,Ticker,Type,Value");
-    }
-
-    #[test]
-    fn test_csv_politicians_headers() {
-        let politicians = load_politicians_fixture();
-        let rows = build_politician_rows(&politicians);
-        let csv = csv_from_rows(&rows);
-        let header = csv.lines().next().unwrap();
-        assert_eq!(header, "Name,Party,State,Chamber,Trades,Volume");
-    }
-
-    #[test]
-    fn test_csv_issuers_headers() {
-        let issuers = load_issuers_fixture();
-        let rows = build_issuer_rows(&issuers);
-        let csv = csv_from_rows(&rows);
-        let header = csv.lines().next().unwrap();
-        assert_eq!(header, "Name,Ticker,Trades,Politicians,Volume,Last Traded");
-    }
-
-    // -- JSON output tests --
-
-    #[test]
-    fn test_json_trades_serializable() {
-        let trades = load_trades_fixture();
-        let val = serde_json::to_value(&trades).unwrap();
-        assert!(val.is_array());
-        assert_eq!(val.as_array().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_json_politicians_serializable() {
-        let politicians = load_politicians_fixture();
-        let val = serde_json::to_value(&politicians).unwrap();
-        assert!(val.is_array());
-        assert_eq!(val.as_array().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn test_json_issuers_serializable() {
-        let issuers = load_issuers_fixture();
-        let val = serde_json::to_value(&issuers).unwrap();
-        assert!(val.is_array());
-        assert_eq!(val.as_array().unwrap().len(), 1);
-    }
-
-    // -- Markdown output tests --
-
-    #[test]
-    fn test_markdown_trades_structure() {
-        let trades = load_trades_fixture();
-        let rows = build_trade_rows(&trades);
-        let mut table = Table::new(&rows);
-        table.with(Style::markdown());
-        let md = table.to_string();
-
-        // Should contain pipe chars and separator line
-        assert!(md.contains('|'));
-        assert!(md.contains("---"));
-        // Should contain column headers
-        assert!(md.contains("Date"));
-        assert!(md.contains("Politician"));
-        assert!(md.contains("Value"));
-    }
-
-    #[test]
-    fn test_markdown_politicians_headers() {
-        let politicians = load_politicians_fixture();
-        let rows = build_politician_rows(&politicians);
-        let mut table = Table::new(&rows);
-        table.with(Style::markdown());
-        let md = table.to_string();
-
-        let header_line = md.lines().next().unwrap();
-        assert!(header_line.contains("Name"));
-        assert!(header_line.contains("Party"));
-        assert!(header_line.contains("State"));
-        assert!(header_line.contains("Chamber"));
-    }
-
-    #[test]
-    fn test_markdown_empty_produces_headers_only() {
-        let rows: Vec<TradeRow> = build_trade_rows(&[]);
-        let mut table = Table::new(&rows);
-        table.with(Style::markdown());
-        let md = table.to_string();
-
-        // Should have header and separator but no data rows
-        let lines: Vec<&str> = md.lines().collect();
-        // tabled markdown with empty data: header line + separator line = 2 lines
-        assert!(lines.len() <= 2, "expected at most 2 lines for empty table, got {}", lines.len());
-        if !lines.is_empty() {
-            assert!(lines[0].contains("Date"));
-        }
-    }
-}
+#[path = "output_tests.rs"]
+mod tests;

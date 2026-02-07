@@ -1,17 +1,25 @@
+//! In-memory TTL cache backed by `DashMap` for concurrent access.
+
 use dashmap::DashMap;
 use std::time::{Duration, Instant};
 
+/// A single cached value with its expiration time.
 struct CacheEntry {
     value: String,
     expires_at: Instant,
 }
 
+/// Thread-safe in-memory cache with time-to-live expiration.
+///
+/// Entries are stored as serialized JSON strings. Expired entries are
+/// lazily evicted on the next `get` call for that key.
 pub struct MemoryCache {
     store: DashMap<String, CacheEntry>,
     ttl: Duration,
 }
 
 impl MemoryCache {
+    /// Creates a new cache with the given time-to-live for entries.
     pub fn new(ttl: Duration) -> Self {
         Self {
             store: DashMap::new(),
@@ -19,6 +27,7 @@ impl MemoryCache {
         }
     }
 
+    /// Returns the cached value for `key`, or `None` if missing or expired.
     pub fn get(&self, key: &str) -> Option<String> {
         let entry = self.store.get(key)?;
         if Instant::now() > entry.expires_at {
@@ -29,6 +38,7 @@ impl MemoryCache {
         Some(entry.value.clone())
     }
 
+    /// Inserts or overwrites a cache entry. The entry expires after the configured TTL.
     pub fn set(&self, key: String, value: String) {
         self.store.insert(
             key,
@@ -39,6 +49,7 @@ impl MemoryCache {
         );
     }
 
+    /// Removes all entries from the cache.
     pub fn clear(&self) {
         self.store.clear();
     }

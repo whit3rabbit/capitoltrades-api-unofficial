@@ -2,7 +2,9 @@
 
 A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com).
 
-Built in Rust on top of a vendored fork of the [capitoltrades_api](https://github.com/TommasoAmici/capitoltrades) crate.
+There is no public API. The CLI scrapes the public site (Next.js RSC payloads) and normalizes the data for output.
+The vendored [capitoltrades_api](https://github.com/TommasoAmici/capitoltrades) crate is still used for shared types
+and validation helpers.
 
 ## Install
 
@@ -31,29 +33,17 @@ capitoltraders trades --since 2024-01-01 --until 2024-06-30
 # Filter trades executed within an absolute date range
 capitoltraders trades --tx-since 2024-01-01 --tx-until 2024-06-30
 
-# Search trades by politician name (two-step lookup by name)
+# Search trades by politician name
 capitoltraders trades --politician pelosi
 
-# Search trades by issuer name (two-step lookup by name)
+# Search trades by issuer name
 capitoltraders trades --issuer nvidia
 
 # Senate Democrats buying stock in the last 30 days
 capitoltraders trades --chamber senate --party democrat --tx-type buy --days 30
 
-# Large FAANG trades by female politicians
-capitoltraders trades --label faang --gender female --trade-size 7,8,9,10
-
-# Technology sector trades from mega-cap companies
-capitoltraders trades --sector information-technology --market-cap mega
-
-# Crypto and memestock trades
-capitoltraders trades --label crypto,memestock
-
-# Filter by multiple asset types
-capitoltraders trades --asset-type stock,etf --tx-type buy,sell
-
-# Trades from specific committees
-capitoltraders trades --committee "Senate - Finance"
+# Technology sector trades
+capitoltraders trades --sector information-technology
 
 # Trades by state
 capitoltraders trades --state CA --party republican
@@ -66,9 +56,6 @@ capitoltraders politicians
 
 # Search for a politician by name
 capitoltraders politicians --name pelosi
-
-# Republican senators on the Armed Services committee
-capitoltraders politicians --party r --state TX --committee ssas
 
 # List issuers in the technology sector
 capitoltraders issuers --sector information-technology
@@ -85,8 +72,8 @@ capitoltraders sync --db capitoltraders.db --full
 # Incremental SQLite update (since last stored pub date)
 capitoltraders sync --db capitoltraders.db
 
-# Refresh issuer/politician catalogs during incremental runs
-capitoltraders sync --db capitoltraders.db --refresh-issuers --refresh-politicians
+# Include per-trade filing URLs (slow)
+capitoltraders sync --db capitoltraders.db --since 2026-01-01 --with-trade-details
 ```
 
 ### Subcommands
@@ -96,8 +83,8 @@ capitoltraders sync --db capitoltraders.db --refresh-issuers --refresh-politicia
 | Flag | Description | Default |
 |---|---|---|
 | `--name` | Search by politician name (broad text search) | -- |
-| `--politician` | Filter by politician name (two-step lookup by ID) | -- |
-| `--issuer` | Filter by issuer name/ticker (two-step lookup by ID) | -- |
+| `--politician` | Filter by politician name | -- |
+| `--issuer` | Filter by issuer name/ticker | -- |
 | `--issuer-id` | Filter by issuer ID (numeric) | -- |
 | `--party` | `democrat` (`d`), `republican` (`r`), `other` | all |
 | `--state` | US state code, e.g. `CA`, `TX`, `NY` | all |
@@ -120,13 +107,20 @@ capitoltraders sync --db capitoltraders.db --refresh-issuers --refresh-politicia
 | `--issuer-state` | 2-letter issuer state code (lowercase), comma-separated | all |
 | `--country` | 2-letter ISO country code (lowercase), comma-separated | all |
 | `--page` | Page number | 1 |
-| `--page-size` | Results per page | 20 |
+| `--page-size` | Results per page (ignored; fixed at 12) | 12 |
 | `--sort-by` | `pub-date`, `trade-date`, `reporting-gap` | `pub-date` |
 | `--asc` | Sort ascending | descending |
+| `--details-delay-ms` | Delay between trade detail requests (ms) | 250 |
 
 Most filter flags accept comma-separated values for multi-select, e.g. `--asset-type stock,etf` or `--trade-size 7,8,9`.
 Date filters are mutually exclusive: use `--days`/`--tx-days` for relative days, or `--since`/`--until` and
 `--tx-since`/`--tx-until` for absolute date ranges.
+
+Scrape mode limitations: `--committee`, `--trade-size`, `--market-cap`, `--asset-type`, and `--label` are not
+supported and will return an error. `--page-size` is fixed at 12.
+
+The `trades` command fetches each trade’s detail page to populate `filingURL`/`filingId`. Use
+`--details-delay-ms` to throttle those requests.
 
 **politicians** -- List politicians and their trading activity.
 
@@ -138,9 +132,12 @@ Date filters are mutually exclusive: use `--days`/`--tx-days` for relative days,
 | `--committee` | Committee code or full name | all |
 | `--issuer-id` | Filter by issuer ID (numeric), comma-separated | all |
 | `--page` | Page number | 1 |
-| `--page-size` | Results per page | 20 |
+| `--page-size` | Results per page (ignored; fixed at 12) | 12 |
 | `--sort-by` | `volume`, `name`, `issuers`, `trades`, `last-traded` | `volume` |
 | `--asc` | Sort ascending | descending |
+
+Scrape mode limitations: `--committee` and `--issuer-id` are not supported and will return an error.
+`--page-size` is fixed at 12.
 
 **issuers** -- List or look up stock issuers.
 
@@ -154,9 +151,12 @@ Date filters are mutually exclusive: use `--days`/`--tx-days` for relative days,
 | `--country` | 2-letter ISO country code (lowercase), comma-separated | all |
 | `--politician-id` | Politician ID (e.g. `P000197`), comma-separated | all |
 | `--page` | Page number | 1 |
-| `--page-size` | Results per page | 20 |
+| `--page-size` | Results per page (ignored; fixed at 12) | 12 |
 | `--sort-by` | `volume`, `politicians`, `trades`, `last-traded`, `mcap` | `volume` |
 | `--asc` | Sort ascending | descending |
+
+Scrape mode limitations: `--market-cap`, `--state`, `--country`, `--politician-id`, and `--sort-by mcap`
+are not supported and will return an error. `--page-size` is fixed at 12.
 
 **sync** -- Ingest CapitolTrades data into SQLite.
 
@@ -167,13 +167,42 @@ Date filters are mutually exclusive: use `--days`/`--tx-days` for relative days,
 | `--since` | Override incremental cutoff date (YYYY-MM-DD, pub date) | -- |
 | `--refresh-politicians` | Refresh full politician catalog during incremental run | off |
 | `--refresh-issuers` | Refresh full issuer catalog during incremental run | off |
-| `--page-size` | API page size (1-100) | 100 |
+| `--page-size` | Page size (ignored in scrape mode) | 100 |
+| `--with-trade-details` | Fetch per-trade detail pages to capture filing URLs | off |
+| `--details-delay-ms` | Delay between trade detail requests (ms) | 250 |
+
+Scrape mode note: `--refresh-politicians`, `--refresh-issuers`, and `--page-size` are ignored.
 
 ### Global Flags
 
 | Flag | Description | Default |
 |---|---|---|
 | `--output` | `table`, `json`, `csv`, `md`, or `xml` | `table` |
+| `--base-url` | Override scraping base URL (or set `CAPITOLTRADES_BASE_URL`) | `https://www.capitoltrades.com` |
+
+## CI
+
+The daily SQLite sync workflow lives at `.github/workflows/sqlite-sync.yml`. It restores the previous
+database from a GitHub Actions cache, runs `capitoltraders sync`, and uploads the updated database as
+an artifact.
+
+## Output Formats & Schemas
+
+Output is written to stdout; pagination metadata is written to stderr. Supported formats:
+
+- `table` (human-readable table)
+- `json` (array of items)
+- `csv` (header + rows)
+- `md` (Markdown table)
+- `xml` (well-formed XML with root `<trades>`, `<politicians>`, or `<issuers>`)
+
+Schemas live in `schema/`:
+
+- JSON Schema: `schema/trade.schema.json`, `schema/politician.schema.json`, `schema/issuer.schema.json`
+- XML Schema: `schema/trades.xsd`, `schema/politicians.xsd`, `schema/issuers.xsd`
+- SQLite DDL: `schema/sqlite.sql`
+
+These schemas describe the CLI output (arrays of items), not the PaginatedResponse wrapper.
 
 ## Project Structure
 
@@ -201,7 +230,11 @@ cargo run -p capitoltraders_cli -- trades --days 7
 
 ## Data Source
 
-All data comes from the [CapitolTrades](https://www.capitoltrades.com) API. This tool queries their public BFF endpoint. Results are cached in-memory for 5 minutes to reduce API load.
+There is no public API. All data is scraped from the [CapitolTrades](https://www.capitoltrades.com) website by
+parsing the Next.js RSC payloads embedded in HTML responses. Results are cached in-memory for 5 minutes to
+reduce request load. Use `sync --with-trade-details` to fetch per-trade detail pages and populate `filing_url`
+and `filing_id` (much slower). Senate filings often use UUID-style URLs, so `filing_id` may remain `0` while
+`filing_url` is populated.
 
 ## SQLite
 

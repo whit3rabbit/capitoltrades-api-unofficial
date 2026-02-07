@@ -6,6 +6,7 @@ use chrono::NaiveDate;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 
+use crate::scrape::ScrapedTrade;
 use crate::types::{IssuerDetail, PoliticianDetail, Trade};
 
 #[derive(thiserror::Error, Debug)]
@@ -268,6 +269,182 @@ impl Db {
         Ok(())
     }
 
+    pub fn upsert_scraped_trades(&mut self, trades: &[ScrapedTrade]) -> Result<(), DbError> {
+        let tx = self.conn.transaction()?;
+
+        {
+            let mut stmt_asset = tx.prepare(
+                "INSERT INTO assets (asset_id, asset_type, asset_ticker, instrument)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(asset_id) DO UPDATE SET
+                   asset_type = excluded.asset_type,
+                   asset_ticker = COALESCE(excluded.asset_ticker, assets.asset_ticker),
+                   instrument = COALESCE(excluded.instrument, assets.instrument)",
+            )?;
+            let mut stmt_issuer = tx.prepare(
+                "INSERT INTO issuers (issuer_id, state_id, c2iq, country, issuer_name, issuer_ticker, sector)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(issuer_id) DO UPDATE SET
+                   issuer_name = excluded.issuer_name,
+                   issuer_ticker = COALESCE(excluded.issuer_ticker, issuers.issuer_ticker),
+                   sector = COALESCE(excluded.sector, issuers.sector),
+                   state_id = COALESCE(excluded.state_id, issuers.state_id),
+                   c2iq = COALESCE(excluded.c2iq, issuers.c2iq),
+                   country = COALESCE(excluded.country, issuers.country)",
+            )?;
+            let mut stmt_politician = tx.prepare(
+                "INSERT INTO politicians (
+                   politician_id,
+                   state_id,
+                   party,
+                   party_other,
+                   district,
+                   first_name,
+                   last_name,
+                   nickname,
+                   middle_name,
+                   full_name,
+                   dob,
+                   gender,
+                   social_facebook,
+                   social_twitter,
+                   social_youtube,
+                   website,
+                   chamber
+                 )
+                 VALUES (?1, ?2, ?3, NULL, NULL, ?4, ?5, ?6, NULL, ?7, ?8, ?9, NULL, NULL, NULL, NULL, ?10)
+                 ON CONFLICT(politician_id) DO UPDATE SET
+                   state_id = excluded.state_id,
+                   party = excluded.party,
+                   first_name = excluded.first_name,
+                   last_name = excluded.last_name,
+                   nickname = COALESCE(excluded.nickname, politicians.nickname),
+                   full_name = COALESCE(excluded.full_name, politicians.full_name),
+                   dob = excluded.dob,
+                   gender = excluded.gender,
+                   chamber = excluded.chamber",
+            )?;
+            let mut stmt_trade = tx.prepare(
+                "INSERT INTO trades (
+                   tx_id,
+                   politician_id,
+                   asset_id,
+                   issuer_id,
+                   pub_date,
+                   filing_date,
+                   tx_date,
+                   tx_type,
+                   tx_type_extended,
+                   has_capital_gains,
+                   owner,
+                   chamber,
+                   price,
+                   size,
+                   size_range_high,
+                   size_range_low,
+                   value,
+                   filing_id,
+                   filing_url,
+                   reporting_gap,
+                   comment
+                 )
+                 VALUES (
+                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
+                   ?20, ?21
+                 )
+                 ON CONFLICT(tx_id) DO UPDATE SET
+                   politician_id = excluded.politician_id,
+                   asset_id = excluded.asset_id,
+                   issuer_id = excluded.issuer_id,
+                   pub_date = excluded.pub_date,
+                   filing_date = excluded.filing_date,
+                   tx_date = excluded.tx_date,
+                   tx_type = excluded.tx_type,
+                   tx_type_extended = excluded.tx_type_extended,
+                   has_capital_gains = excluded.has_capital_gains,
+                   owner = excluded.owner,
+                   chamber = excluded.chamber,
+                   price = excluded.price,
+                   size = excluded.size,
+                   size_range_high = excluded.size_range_high,
+                   size_range_low = excluded.size_range_low,
+                   value = excluded.value,
+                   filing_id = excluded.filing_id,
+                   filing_url = excluded.filing_url,
+                   reporting_gap = excluded.reporting_gap,
+                   comment = excluded.comment",
+            )?;
+
+            for trade in trades {
+                let asset_id = trade.tx_id;
+                let filing_date = trade.pub_date.split('T').next().unwrap_or(&trade.pub_date);
+                let full_name = format!("{} {}", trade.politician.first_name, trade.politician.last_name);
+                let filing_id = trade.filing_id.unwrap_or(0);
+                let filing_url = trade.filing_url.as_deref().unwrap_or("");
+
+                stmt_asset.execute(params![
+                    asset_id,
+                    "unknown",
+                    None::<String>,
+                    None::<String>
+                ])?;
+
+                stmt_issuer.execute(params![
+                    trade.issuer_id,
+                    trade.issuer.state_id,
+                    trade.issuer.c2iq,
+                    trade.issuer.country,
+                    trade.issuer.issuer_name,
+                    normalize_empty(trade.issuer.issuer_ticker.as_deref()),
+                    trade.issuer.sector
+                ])?;
+
+                stmt_politician.execute(params![
+                    trade.politician_id,
+                    trade.politician.state_id,
+                    trade.politician.party,
+                    trade.politician.first_name,
+                    trade.politician.last_name,
+                    trade.politician.nickname,
+                    full_name,
+                    trade.politician.dob,
+                    trade.politician.gender,
+                    trade.politician.chamber
+                ])?;
+
+                stmt_trade.execute(params![
+                    trade.tx_id,
+                    trade.politician_id,
+                    asset_id,
+                    trade.issuer_id,
+                    trade.pub_date,
+                    filing_date,
+                    trade.tx_date,
+                    trade.tx_type,
+                    trade
+                        .tx_type_extended
+                        .as_ref()
+                        .map(|val| val.to_string()),
+                    0,
+                    trade.owner,
+                    trade.chamber,
+                    trade.price,
+                    None::<i64>,
+                    None::<i64>,
+                    None::<i64>,
+                    trade.value,
+                    filing_id,
+                    filing_url,
+                    trade.reporting_gap,
+                    trade.comment
+                ])?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn upsert_politicians(&mut self, politicians: &[PoliticianDetail]) -> Result<(), DbError> {
         let tx = self.conn.transaction()?;
 
@@ -379,6 +556,41 @@ impl Db {
             }
         }
 
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn upsert_politician_stats(
+        &mut self,
+        stats: &[PoliticianStatsRow],
+    ) -> Result<(), DbError> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO politician_stats (
+                   politician_id,
+                   date_last_traded,
+                   count_trades,
+                   count_issuers,
+                   volume
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(politician_id) DO UPDATE SET
+                   date_last_traded = excluded.date_last_traded,
+                   count_trades = excluded.count_trades,
+                   count_issuers = excluded.count_issuers,
+                   volume = excluded.volume",
+            )?;
+            for row in stats {
+                stmt.execute(params![
+                    row.politician_id,
+                    row.date_last_traded,
+                    row.count_trades,
+                    row.count_issuers,
+                    row.volume
+                ])?;
+            }
+        }
         tx.commit()?;
         Ok(())
     }
@@ -536,6 +748,62 @@ impl Db {
 
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn upsert_issuer_stats(&mut self, stats: &[IssuerStatsRow]) -> Result<(), DbError> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO issuer_stats (
+                   issuer_id,
+                   count_trades,
+                   count_politicians,
+                   volume,
+                   date_last_traded
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(issuer_id) DO UPDATE SET
+                   count_trades = excluded.count_trades,
+                   count_politicians = excluded.count_politicians,
+                   volume = excluded.volume,
+                   date_last_traded = excluded.date_last_traded",
+            )?;
+            for row in stats {
+                stmt.execute(params![
+                    row.issuer_id,
+                    row.count_trades,
+                    row.count_politicians,
+                    row.volume,
+                    row.date_last_traded
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+pub struct PoliticianStatsRow {
+    pub politician_id: String,
+    pub date_last_traded: Option<String>,
+    pub count_trades: i64,
+    pub count_issuers: i64,
+    pub volume: i64,
+}
+
+pub struct IssuerStatsRow {
+    pub issuer_id: i64,
+    pub count_trades: i64,
+    pub count_politicians: i64,
+    pub volume: i64,
+    pub date_last_traded: String,
+}
+
+fn normalize_empty(value: Option<&str>) -> Option<String> {
+    match value {
+        Some(val) if val.trim().is_empty() => None,
+        Some(val) => Some(val.to_string()),
+        None => None,
     }
 }
 

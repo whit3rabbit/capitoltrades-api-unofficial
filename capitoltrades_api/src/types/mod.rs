@@ -1,3 +1,7 @@
+//! Domain types returned by the CapitolTrades BFF API.
+//!
+//! Re-exports all structs, enums, and type aliases used across the crate.
+
 mod meta;
 pub use self::meta::{Meta, PaginatedResponse, Paging, Response};
 

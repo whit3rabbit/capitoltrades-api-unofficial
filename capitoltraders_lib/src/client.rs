@@ -1,3 +1,5 @@
+//! Caching and rate-limiting wrapper around the API client.
+
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -10,13 +12,44 @@ use rand::Rng;
 use crate::cache::MemoryCache;
 use crate::error::CapitolTradesError;
 
+/// API client wrapper that adds in-memory caching and rate limiting.
+///
+/// Cache hits bypass the network entirely. On cache misses, a randomized
+/// 5-10 second delay is enforced between consecutive HTTP requests to
+/// avoid overwhelming the API. The first request has no delay.
 pub struct CachedClient {
     inner: Client,
     cache: MemoryCache,
+    /// Tracks when the last HTTP request was sent, for rate limiting.
     last_request: Mutex<Option<Instant>>,
 }
 
+struct RetryConfig {
+    max_retries: usize,
+    base_delay_ms: u64,
+    max_delay_ms: u64,
+}
+
+impl RetryConfig {
+    fn from_env() -> Self {
+        Self {
+            max_retries: env_usize("CAPITOLTRADES_RETRY_MAX", 3),
+            base_delay_ms: env_u64("CAPITOLTRADES_RETRY_BASE_MS", 2000),
+            max_delay_ms: env_u64("CAPITOLTRADES_RETRY_MAX_MS", 30000),
+        }
+    }
+
+    fn delay_for_attempt(&self, attempt: usize) -> Duration {
+        let shift = (attempt.saturating_sub(1)).min(30) as u32;
+        let exp = 1u64 << shift;
+        let base = self.base_delay_ms.saturating_mul(exp).min(self.max_delay_ms);
+        let jitter = rand::thread_rng().gen_range(0.8..1.2);
+        Duration::from_millis((base as f64 * jitter) as u64)
+    }
+}
+
 impl CachedClient {
+    /// Creates a new cached client using the production API URL.
     pub fn new(cache: MemoryCache) -> Self {
         Self {
             inner: Client::new(),
@@ -25,6 +58,7 @@ impl CachedClient {
         }
     }
 
+    /// Creates a new cached client with a custom base URL. Used for testing.
     pub fn with_base_url(base_url: &str, cache: MemoryCache) -> Self {
         Self {
             inner: Client::with_base_url(base_url),
@@ -35,7 +69,7 @@ impl CachedClient {
 
     async fn rate_limit(&self) {
         let sleep_dur = {
-            let last = self.last_request.lock().unwrap();
+            let last = self.last_request.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(last_time) = *last {
                 let elapsed = last_time.elapsed();
                 let delay = Duration::from_secs_f64(
@@ -53,9 +87,39 @@ impl CachedClient {
         if let Some(dur) = sleep_dur {
             tokio::time::sleep(dur).await;
         }
-        *self.last_request.lock().unwrap() = Some(Instant::now());
+        *self.last_request.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
     }
 
+    async fn with_retry<T, F, Fut>(&self, label: &str, mut f: F) -> Result<T, CapitolTradesError>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T, CapitolTradesError>>,
+    {
+        let cfg = RetryConfig::from_env();
+        let mut attempt = 0usize;
+        loop {
+            match f().await {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    attempt += 1;
+                    if attempt > cfg.max_retries || !is_retryable(&err) {
+                        return Err(err);
+                    }
+                    let delay = cfg.delay_for_attempt(attempt);
+                    tracing::warn!(
+                        "{} request failed (attempt {}/{}), retrying in {:.1}s",
+                        label,
+                        attempt,
+                        cfg.max_retries,
+                        delay.as_secs_f64()
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+
+    /// Fetches trades, returning cached results when available.
     pub async fn get_trades(
         &self,
         query: &TradeQuery,
@@ -67,14 +131,19 @@ impl CachedClient {
             return Ok(resp);
         }
 
-        self.rate_limit().await;
-        let resp = self.inner.get_trades(query).await?;
+        let resp = self
+            .with_retry("trades", || async {
+                self.rate_limit().await;
+                Ok(self.inner.get_trades(query).await?)
+            })
+            .await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
         }
         Ok(resp)
     }
 
+    /// Fetches politicians, returning cached results when available.
     pub async fn get_politicians(
         &self,
         query: &PoliticianQuery,
@@ -86,14 +155,19 @@ impl CachedClient {
             return Ok(resp);
         }
 
-        self.rate_limit().await;
-        let resp = self.inner.get_politicians(query).await?;
+        let resp = self
+            .with_retry("politicians", || async {
+                self.rate_limit().await;
+                Ok(self.inner.get_politicians(query).await?)
+            })
+            .await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
         }
         Ok(resp)
     }
 
+    /// Fetches a single issuer by ID, returning cached results when available.
     pub async fn get_issuer(
         &self,
         issuer_id: i64,
@@ -105,14 +179,19 @@ impl CachedClient {
             return Ok(resp);
         }
 
-        self.rate_limit().await;
-        let resp = self.inner.get_issuer(issuer_id).await?;
+        let resp = self
+            .with_retry("issuer", || async {
+                self.rate_limit().await;
+                Ok(self.inner.get_issuer(issuer_id).await?)
+            })
+            .await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
         }
         Ok(resp)
     }
 
+    /// Fetches issuers, returning cached results when available.
     pub async fn get_issuers(
         &self,
         query: &IssuerQuery,
@@ -124,17 +203,48 @@ impl CachedClient {
             return Ok(resp);
         }
 
-        self.rate_limit().await;
-        let resp = self.inner.get_issuers(query).await?;
+        let resp = self
+            .with_retry("issuers", || async {
+                self.rate_limit().await;
+                Ok(self.inner.get_issuers(query).await?)
+            })
+            .await?;
         if let Ok(json) = serde_json::to_string(&resp) {
             self.cache.set(cache_key, json);
         }
         Ok(resp)
     }
 
+    /// Removes all entries from the cache.
     pub fn clear_cache(&self) {
         self.cache.clear();
     }
+}
+
+fn is_retryable(err: &CapitolTradesError) -> bool {
+    match err {
+        CapitolTradesError::Api(api_err) => match api_err {
+            capitoltrades_api::Error::RequestFailed => true,
+            capitoltrades_api::Error::HttpStatus { status, .. } => {
+                *status == 429 || *status >= 500
+            }
+        },
+        _ => false,
+    }
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|val| val.parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|val| val.parse::<usize>().ok())
+        .unwrap_or(default)
 }
 
 fn parties_cache_key(parties: &[capitoltrades_api::types::Party]) -> String {

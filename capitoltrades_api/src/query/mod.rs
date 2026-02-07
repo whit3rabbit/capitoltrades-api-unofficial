@@ -1,3 +1,5 @@
+//! Query builders for constructing API requests with filters, pagination, and sorting.
+
 mod common;
 pub use self::common::{Query, SortDirection};
 mod issuer;

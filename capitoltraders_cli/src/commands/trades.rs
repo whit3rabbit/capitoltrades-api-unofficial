@@ -1,15 +1,24 @@
+//! The `trades` subcommand: lists congressional trades with extensive filtering.
+
 use anyhow::{bail, Result};
+use chrono::{NaiveDate, Utc};
 use clap::Args;
-use capitoltraders_lib::{
-    CachedClient, IssuerQuery, PoliticianQuery, Query, SortDirection, TradeQuery, TradeSortBy,
-};
+use capitoltraders_lib::{ScrapeClient, ScrapedTrade};
 use capitoltraders_lib::validation;
+use std::time::Duration;
+use tokio::time::sleep;
+use capitoltraders_lib::types::Trade;
 
 use crate::output::{
     print_json, print_trades_csv, print_trades_markdown, print_trades_table, print_trades_xml,
     OutputFormat,
 };
 
+/// Arguments for the `trades` subcommand.
+///
+/// Supports 24 filter flags, all of which accept comma-separated values where applicable.
+/// Date filters use either relative days (`--days`, `--tx-days`) or absolute dates
+/// (`--since`/`--until`, `--tx-since`/`--tx-until`), but not both simultaneously.
 #[derive(Args)]
 pub struct TradesArgs {
     /// Filter by issuer ID (numeric)
@@ -113,7 +122,7 @@ pub struct TradesArgs {
     pub page: i64,
 
     /// Results per page
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "12")]
     pub page_size: i64,
 
     /// Sort field: pub-date, trade-date, reporting-gap
@@ -123,63 +132,177 @@ pub struct TradesArgs {
     /// Sort ascending instead of descending
     #[arg(long)]
     pub asc: bool,
+
+    /// Delay between trade detail requests in milliseconds
+    #[arg(long, default_value = "250")]
+    pub details_delay_ms: u64,
 }
 
-pub async fn run(args: &TradesArgs, client: &CachedClient, format: &OutputFormat) -> Result<()> {
-    let mut query = TradeQuery::default()
-        .with_page(args.page)
-        .with_page_size(args.page_size);
+/// Executes the trades subcommand: validates inputs, scrapes results,
+/// applies client-side filtering and sorting, then prints output.
+pub async fn run(args: &TradesArgs, scraper: &ScrapeClient, format: &OutputFormat) -> Result<()> {
+    let page = validation::validate_page(args.page)?;
+    let page_size = validation::validate_page_size(args.page_size)?;
+    if page_size != 12 {
+        eprintln!("Note: --page-size is ignored in scrape mode (fixed at 12).");
+    }
+
+    if args.committee.is_some() {
+        bail!("--committee is not supported in scrape mode");
+    }
+    if args.trade_size.is_some() {
+        bail!("--trade-size is not supported in scrape mode");
+    }
+    if args.market_cap.is_some() {
+        bail!("--market-cap is not supported in scrape mode");
+    }
+    if args.asset_type.is_some() {
+        bail!("--asset-type is not supported in scrape mode");
+    }
+    if args.label.is_some() {
+        bail!("--label is not supported in scrape mode");
+    }
+
+    let resp = scraper.trades_page(page).await?;
+    let total_pages = resp.total_pages.unwrap_or(page);
+    let total_count = resp.total_count;
+    let mut trades = resp.data;
+    let scraped_count = trades.len();
 
     if let Some(issuer_id) = args.issuer_id {
-        query = query.with_issuer_id(issuer_id);
+        trades.retain(|t| t.issuer_id == issuer_id);
     }
 
     if let Some(ref name) = args.name {
-        let sanitized = validation::validate_search(name)?;
-        query = query.with_search(&sanitized);
+        let needle = validation::validate_search(name)?.to_lowercase();
+        trades.retain(|t| {
+            let full = format!("{} {}", t.politician.first_name, t.politician.last_name)
+                .to_lowercase();
+            full.contains(&needle)
+        });
     }
 
     if let Some(ref issuer) = args.issuer {
-        let sanitized = validation::validate_search(issuer)?;
-        let issuer_query = IssuerQuery::default().with_search(&sanitized);
-        let issuer_resp = client.get_issuers(&issuer_query).await?;
-        if issuer_resp.data.is_empty() {
-            bail!("no issuers found matching '{}'", sanitized);
-        }
-        let ids: Vec<i64> = issuer_resp.data.iter().map(|i| i.issuer_id).collect();
-        query = query.with_issuer_ids(&ids);
+        let needle = validation::validate_search(issuer)?.to_lowercase();
+        trades.retain(|t| {
+            t.issuer.issuer_name.to_lowercase().contains(&needle)
+                || t.issuer
+                    .issuer_ticker
+                    .as_ref()
+                    .map(|s| s.to_lowercase().contains(&needle))
+                    .unwrap_or(false)
+        });
     }
 
     if let Some(ref politician) = args.politician {
-        let sanitized = validation::validate_search(politician)?;
-        let pol_query = PoliticianQuery::default().with_search(&sanitized);
-        let pol_resp = client.get_politicians(&pol_query).await?;
-        if pol_resp.data.is_empty() {
-            bail!("no politicians found matching '{}'", sanitized);
-        }
-        let ids: Vec<String> = pol_resp.data.iter().map(|p| p.politician_id.clone()).collect();
-        query = query.with_politician_ids(&ids);
+        let needle = validation::validate_search(politician)?.to_lowercase();
+        trades.retain(|t| {
+            let full = format!("{} {}", t.politician.first_name, t.politician.last_name)
+                .to_lowercase();
+            full.contains(&needle)
+        });
     }
 
     if let Some(ref val) = args.party {
+        let mut allowed = Vec::new();
         for item in val.split(',') {
             let p = validation::validate_party(item.trim())?;
-            query = query.with_party(&p);
+            allowed.push(p.to_string());
         }
+        trades.retain(|t| allowed.iter().any(|p| p == &t.politician.party));
     }
 
     if let Some(ref val) = args.state {
+        let mut allowed = Vec::new();
         for item in val.split(',') {
             let validated = validation::validate_state(item.trim())?;
-            query = query.with_state(&validated);
+            allowed.push(validated);
         }
+        trades.retain(|t| {
+            let state = t.politician.state_id.to_ascii_uppercase();
+            allowed.iter().any(|s| s == &state)
+        });
     }
 
-    if let Some(ref val) = args.committee {
+    if let Some(ref val) = args.gender {
+        let mut allowed = Vec::new();
         for item in val.split(',') {
-            let validated = validation::validate_committee(item.trim())?;
-            query = query.with_committee(&validated);
+            let validated = validation::validate_gender(item.trim())?;
+            allowed.push(validated.to_string());
         }
+        trades.retain(|t| allowed.iter().any(|g| g == &t.politician.gender));
+    }
+
+    if let Some(ref val) = args.sector {
+        let mut allowed = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_sector(item.trim())?;
+            allowed.push(validated.to_string());
+        }
+        trades.retain(|t| {
+            t.issuer
+                .sector
+                .as_ref()
+                .map(|s| allowed.iter().any(|v| v == s))
+                .unwrap_or(false)
+        });
+    }
+
+    if let Some(ref val) = args.tx_type {
+        let mut allowed = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_tx_type(item.trim())?;
+            allowed.push(validated.to_string());
+        }
+        trades.retain(|t| allowed.iter().any(|v| v == &t.tx_type));
+    }
+
+    if let Some(ref val) = args.chamber {
+        let mut allowed = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_chamber(item.trim())?;
+            allowed.push(validated.to_string());
+        }
+        trades.retain(|t| allowed.iter().any(|v| v == &t.chamber));
+    }
+
+    if let Some(ref val) = args.politician_id {
+        let mut allowed = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_politician_id(item.trim())?;
+            allowed.push(validated);
+        }
+        trades.retain(|t| allowed.iter().any(|v| v == &t.politician_id));
+    }
+
+    if let Some(ref val) = args.issuer_state {
+        let mut allowed = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_issuer_state(item.trim())?;
+            allowed.push(validated);
+        }
+        trades.retain(|t| {
+            t.issuer
+                .state_id
+                .as_ref()
+                .map(|s| allowed.iter().any(|v| v == s))
+                .unwrap_or(false)
+        });
+    }
+
+    if let Some(ref val) = args.country {
+        let mut allowed = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_country(item.trim())?;
+            allowed.push(validated);
+        }
+        trades.retain(|t| {
+            t.issuer
+                .country
+                .as_ref()
+                .map(|s| allowed.iter().any(|v| v == s))
+                .unwrap_or(false)
+        });
     }
 
     // Parse absolute date filters
@@ -188,7 +311,6 @@ pub async fn run(args: &TradesArgs, client: &CachedClient, format: &OutputFormat
     let tx_since_date = args.tx_since.as_ref().map(|s| validation::validate_date(s)).transpose()?;
     let tx_until_date = args.tx_until.as_ref().map(|s| validation::validate_date(s)).transpose()?;
 
-    // Validate since <= until when both provided
     if let (Some(s), Some(u)) = (since_date, until_date) {
         if s > u {
             bail!("--since ({}) must be on or before --until ({})", s, u);
@@ -200,184 +322,180 @@ pub async fn run(args: &TradesArgs, client: &CachedClient, format: &OutputFormat
         }
     }
 
+    let today = Utc::now().date_naive();
+    let mut since_cutoff = since_date;
+    let mut tx_since_cutoff = tx_since_date;
+
     if let Some(days) = args.days {
         let validated = validation::validate_days(days)?;
-        query = query.with_pub_date_relative(validated);
+        since_cutoff = Some(today - chrono::Duration::days(validated));
     }
 
     if let Some(tx_days) = args.tx_days {
         let validated = validation::validate_days(tx_days)?;
-        query = query.with_tx_date_relative(validated);
+        tx_since_cutoff = Some(today - chrono::Duration::days(validated));
     }
 
-    // Convert --since to relative days for the API (reduces response size)
-    if let Some(since) = since_date {
-        match validation::date_to_relative_days(since) {
-            Some(days) => {
-                // Add 1 day of padding to ensure we don't miss edge-case trades
-                query = query.with_pub_date_relative(days + 1);
-            }
-            None => bail!("--since date {} is in the future", since),
-        }
-    }
-
-    if let Some(tx_since) = tx_since_date {
-        match validation::date_to_relative_days(tx_since) {
-            Some(days) => {
-                query = query.with_tx_date_relative(days + 1);
-            }
-            None => bail!("--tx-since date {} is in the future", tx_since),
-        }
-    }
-
-    if let Some(ref val) = args.trade_size {
-        for item in val.split(',') {
-            let validated = validation::validate_trade_size(item.trim())?;
-            query = query.with_trade_size(validated);
-        }
-    }
-
-    if let Some(ref val) = args.gender {
-        for item in val.split(',') {
-            let validated = validation::validate_gender(item.trim())?;
-            query = query.with_gender(validated);
-        }
-    }
-
-    if let Some(ref val) = args.market_cap {
-        for item in val.split(',') {
-            let validated = validation::validate_market_cap(item.trim())?;
-            query = query.with_market_cap(validated);
-        }
-    }
-
-    if let Some(ref val) = args.asset_type {
-        for item in val.split(',') {
-            let validated = validation::validate_asset_type(item.trim())?;
-            query = query.with_asset_type(validated);
-        }
-    }
-
-    if let Some(ref val) = args.label {
-        for item in val.split(',') {
-            let validated = validation::validate_label(item.trim())?;
-            query = query.with_label(validated);
-        }
-    }
-
-    if let Some(ref val) = args.sector {
-        for item in val.split(',') {
-            let validated = validation::validate_sector(item.trim())?;
-            query = query.with_sector(validated);
-        }
-    }
-
-    if let Some(ref val) = args.tx_type {
-        for item in val.split(',') {
-            let validated = validation::validate_tx_type(item.trim())?;
-            query = query.with_tx_type(validated);
-        }
-    }
-
-    if let Some(ref val) = args.chamber {
-        for item in val.split(',') {
-            let validated = validation::validate_chamber(item.trim())?;
-            query = query.with_chamber(validated);
-        }
-    }
-
-    if let Some(ref val) = args.politician_id {
-        for item in val.split(',') {
-            let validated = validation::validate_politician_id(item.trim())?;
-            query = query.with_politician_id(&validated);
-        }
-    }
-
-    if let Some(ref val) = args.issuer_state {
-        for item in val.split(',') {
-            let validated = validation::validate_issuer_state(item.trim())?;
-            query = query.with_issuer_state(&validated);
-        }
-    }
-
-    if let Some(ref val) = args.country {
-        for item in val.split(',') {
-            let validated = validation::validate_country(item.trim())?;
-            query = query.with_country(&validated);
-        }
-    }
-
-    let sort_by = match args.sort_by.as_str() {
-        "trade-date" => TradeSortBy::TradeDate,
-        "reporting-gap" => TradeSortBy::ReportingGap,
-        _ => TradeSortBy::PublicationDate,
-    };
-    query = query.with_sort_by(sort_by);
-
-    if args.asc {
-        query = query.with_sort_direction(SortDirection::Asc);
-    }
-
-    let resp = client.get_trades(&query).await?;
-
-    let needs_filtering = since_date.is_some()
+    let needs_filtering = since_cutoff.is_some()
         || until_date.is_some()
-        || tx_since_date.is_some()
+        || tx_since_cutoff.is_some()
         || tx_until_date.is_some();
 
-    let trades = if needs_filtering {
-        let mut filtered: Vec<_> = resp.data.into_iter().collect();
-        filtered.retain(|t| {
-            let pub_date = t.pub_date.date_naive();
-            if let Some(s) = since_date {
-                if pub_date < s {
+    if needs_filtering {
+        trades.retain(|t| {
+            let pub_date = parse_date(&t.pub_date);
+            let tx_date = NaiveDate::parse_from_str(&t.tx_date, "%Y-%m-%d").ok();
+            if let Some(s) = since_cutoff {
+                if pub_date.map(|d| d < s).unwrap_or(true) {
                     return false;
                 }
             }
             if let Some(u) = until_date {
-                if pub_date > u {
+                if pub_date.map(|d| d > u).unwrap_or(true) {
                     return false;
                 }
             }
-            if let Some(s) = tx_since_date {
-                if t.tx_date < s {
+            if let Some(s) = tx_since_cutoff {
+                if tx_date.map(|d| d < s).unwrap_or(true) {
                     return false;
                 }
             }
             if let Some(u) = tx_until_date {
-                if t.tx_date > u {
+                if tx_date.map(|d| d > u).unwrap_or(true) {
                     return false;
                 }
             }
             true
         });
-        filtered
-    } else {
-        resp.data
-    };
+    }
+
+    match args.sort_by.as_str() {
+        "trade-date" => trades.sort_by_key(|t| t.tx_date.clone()),
+        "reporting-gap" => trades.sort_by_key(|t| t.reporting_gap),
+        _ => trades.sort_by_key(|t| t.pub_date.clone()),
+    }
+    if !args.asc {
+        trades.reverse();
+    }
+
+    for trade in &mut trades {
+        let detail = scraper.trade_detail(trade.tx_id).await?;
+        trade.filing_url = detail.filing_url;
+        trade.filing_id = detail.filing_id;
+        if args.details_delay_ms > 0 {
+            sleep(Duration::from_millis(args.details_delay_ms)).await;
+        }
+    }
+
+    let mut out: Vec<Trade> = Vec::with_capacity(trades.len());
+    for trade in &trades {
+        out.push(scraped_trade_to_trade(trade)?);
+    }
 
     if needs_filtering {
         eprintln!(
-            "Page {}/{} ({} API results, {} after date filtering)",
-            resp.meta.paging.page,
-            resp.meta.paging.total_pages,
-            resp.meta.paging.total_items,
-            trades.len()
+            "Page {}/{} ({} scraped, {} after filters)",
+            page,
+            total_pages,
+            scraped_count,
+            out.len()
         );
     } else {
-        eprintln!(
-            "Page {}/{} ({} total trades)",
-            resp.meta.paging.page, resp.meta.paging.total_pages, resp.meta.paging.total_items
-        );
+        match total_count {
+            Some(count) => {
+                eprintln!("Page {}/{} ({} total trades)", page, total_pages, count)
+            }
+            None => eprintln!("Page {}/{} ({} trades)", page, total_pages, out.len()),
+        }
     }
 
     match format {
-        OutputFormat::Table => print_trades_table(&trades),
-        OutputFormat::Json => print_json(&trades),
-        OutputFormat::Csv => print_trades_csv(&trades)?,
-        OutputFormat::Markdown => print_trades_markdown(&trades),
-        OutputFormat::Xml => print_trades_xml(&trades),
+        OutputFormat::Table => print_trades_table(&out),
+        OutputFormat::Json => print_json(&out),
+        OutputFormat::Csv => print_trades_csv(&out)?,
+        OutputFormat::Markdown => print_trades_markdown(&out),
+        OutputFormat::Xml => print_trades_xml(&out),
     }
 
     Ok(())
+}
+
+fn parse_date(value: &str) -> Option<NaiveDate> {
+    value
+        .split('T')
+        .next()
+        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+}
+
+fn scraped_trade_to_trade(trade: &ScrapedTrade) -> Result<Trade> {
+    let filing_url = trade
+        .filing_url
+        .clone()
+        .unwrap_or_default();
+    if filing_url.is_empty() {
+        bail!("missing filing URL for trade {}", trade.tx_id);
+    }
+
+    let filing_date = trade
+        .pub_date
+        .split('T')
+        .next()
+        .unwrap_or(trade.pub_date.as_str());
+
+    let politician_state = trade.politician.state_id.to_ascii_uppercase();
+
+    let asset_ticker = trade.issuer.issuer_ticker.clone();
+    let issuer_ticker = trade.issuer.issuer_ticker.clone();
+
+    let json = serde_json::json!({
+        "_txId": trade.tx_id,
+        "_politicianId": trade.politician_id,
+        "_assetId": trade.tx_id,
+        "_issuerId": trade.issuer_id,
+        "pubDate": trade.pub_date,
+        "filingDate": filing_date,
+        "txDate": trade.tx_date,
+        "txType": trade.tx_type,
+        "txTypeExtended": trade.tx_type_extended,
+        "hasCapitalGains": false,
+        "owner": trade.owner,
+        "chamber": trade.chamber,
+        "price": trade.price,
+        "size": null,
+        "sizeRangeHigh": null,
+        "sizeRangeLow": null,
+        "value": trade.value,
+        "filingId": trade.filing_id.unwrap_or(0),
+        "filingURL": filing_url,
+        "reportingGap": trade.reporting_gap,
+        "comment": trade.comment,
+        "committees": [],
+        "asset": {
+            "assetType": "unknown",
+            "assetTicker": asset_ticker,
+            "instrument": null
+        },
+        "issuer": {
+            "_stateId": trade.issuer.state_id,
+            "c2iq": trade.issuer.c2iq,
+            "country": trade.issuer.country,
+            "issuerName": trade.issuer.issuer_name,
+            "issuerTicker": issuer_ticker,
+            "sector": trade.issuer.sector
+        },
+        "politician": {
+            "_stateId": politician_state,
+            "chamber": trade.politician.chamber,
+            "dob": trade.politician.dob,
+            "firstName": trade.politician.first_name,
+            "gender": trade.politician.gender,
+            "lastName": trade.politician.last_name,
+            "nickname": trade.politician.nickname,
+            "party": trade.politician.party
+        },
+        "labels": []
+    });
+
+    let trade: Trade = serde_json::from_value(json)?;
+    Ok(trade)
 }

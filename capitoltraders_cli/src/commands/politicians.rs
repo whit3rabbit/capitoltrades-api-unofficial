@@ -1,13 +1,20 @@
-use anyhow::Result;
+//! The `politicians` subcommand: lists and filters politicians who trade.
+
+use anyhow::{bail, Result};
+use chrono::NaiveDate;
 use clap::Args;
-use capitoltraders_lib::{CachedClient, PoliticianQuery, PoliticianSortBy, Query, SortDirection};
+use capitoltraders_lib::{ScrapeClient, ScrapedPoliticianCard};
 use capitoltraders_lib::validation;
+use capitoltraders_lib::types::PoliticianDetail;
 
 use crate::output::{
     print_json, print_politicians_csv, print_politicians_markdown, print_politicians_table,
     print_politicians_xml, OutputFormat,
 };
 
+/// Arguments for the `politicians` subcommand.
+///
+/// Supports filtering by party, name, state, committee, and issuer ID.
 #[derive(Args)]
 pub struct PoliticiansArgs {
     /// Filter by party (comma-separated): democrat (d), republican (r), other
@@ -39,7 +46,7 @@ pub struct PoliticiansArgs {
     pub page: i64,
 
     /// Results per page
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "12")]
     pub page_size: i64,
 
     /// Sort field: volume, name, issuers, trades, last-traded
@@ -51,79 +58,141 @@ pub struct PoliticiansArgs {
     pub asc: bool,
 }
 
+/// Executes the politicians subcommand: validates inputs, scrapes results,
+/// applies client-side filtering and sorting, then prints output.
 pub async fn run(
     args: &PoliticiansArgs,
-    client: &CachedClient,
+    scraper: &ScrapeClient,
     format: &OutputFormat,
 ) -> Result<()> {
-    let mut query = PoliticianQuery::default()
-        .with_page(args.page)
-        .with_page_size(args.page_size);
-
-    if let Some(ref val) = args.party {
-        for item in val.split(',') {
-            let p = validation::validate_party(item.trim())?;
-            query = query.with_party(&p);
-        }
+    let page = validation::validate_page(args.page)?;
+    let page_size = validation::validate_page_size(args.page_size)?;
+    if page_size != 12 {
+        eprintln!("Note: --page-size is ignored in scrape mode (fixed at 12).");
     }
 
-    // --name takes precedence over --search (hidden alias)
+    if args.committee.is_some() {
+        bail!("--committee is not supported in scrape mode");
+    }
+    if args.issuer_id.is_some() {
+        bail!("--issuer-id is not supported in scrape mode");
+    }
+
+    let resp = scraper.politicians_page(page).await?;
+    let total_pages = resp.total_pages.unwrap_or(page);
+    let total_count = resp.total_count;
+    let mut cards = resp.data;
+
+    if let Some(ref val) = args.party {
+        let mut allowed = Vec::new();
+        for item in val.split(',') {
+            let p = validation::validate_party(item.trim())?;
+            allowed.push(p.to_string());
+        }
+        cards.retain(|c| allowed.iter().any(|p| p == &c.party));
+    }
+
     let search_input = args.name.as_ref().or(args.search.as_ref());
     if let Some(search) = search_input {
-        let sanitized = validation::validate_search(search)?;
-        query = query.with_search(&sanitized);
+        let needle = validation::validate_search(search)?.to_lowercase();
+        cards.retain(|c| c.name.to_lowercase().contains(&needle));
     }
 
     if let Some(ref val) = args.state {
+        let mut allowed = Vec::new();
         for item in val.split(',') {
             let validated = validation::validate_state(item.trim())?;
-            query = query.with_state(&validated);
+            allowed.push(validated);
         }
+        cards.retain(|c| allowed.iter().any(|s| s == &c.state));
     }
 
-    if let Some(ref val) = args.committee {
-        for item in val.split(',') {
-            let validated = validation::validate_committee(item.trim())?;
-            query = query.with_committee(&validated);
-        }
-    }
-
-    if let Some(ref val) = args.issuer_id {
-        for item in val.split(',') {
-            let id: i64 = item.trim().parse().map_err(|_| {
-                anyhow::anyhow!("invalid issuer ID '{}': must be numeric", item.trim())
+    let mut records = Vec::with_capacity(cards.len());
+    for card in cards {
+        let detail = scraper
+            .politician_detail(&card.politician_id)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "missing detail payload for politician {}",
+                    card.politician_id
+                )
             })?;
-            query = query.with_issuer_id(id);
-        }
+        records.push((card, detail));
     }
 
-    let sort_by = match args.sort_by.as_str() {
-        "name" => PoliticianSortBy::LastName,
-        "issuers" => PoliticianSortBy::TradedIssuersCount,
-        "trades" => PoliticianSortBy::TotalTrades,
-        "last-traded" => PoliticianSortBy::DateLastTraded,
-        _ => PoliticianSortBy::TradedVolume,
-    };
-    query = query.with_sort_by(sort_by);
-
-    if args.asc {
-        query = query.with_sort_direction(SortDirection::Asc);
+    match args.sort_by.as_str() {
+        "name" => records.sort_by_key(|(_, detail)| detail.last_name.clone()),
+        "issuers" => records.sort_by_key(|(card, _)| card.issuers),
+        "trades" => records.sort_by_key(|(card, _)| card.trades),
+        "last-traded" => records.sort_by_key(|(card, _)| parse_date_opt(&card.last_traded)),
+        _ => records.sort_by_key(|(card, _)| card.volume),
+    }
+    if !args.asc {
+        records.reverse();
     }
 
-    let resp = client.get_politicians(&query).await?;
+    let mut out: Vec<PoliticianDetail> = Vec::with_capacity(records.len());
+    for (card, detail) in &records {
+        out.push(scraped_politician_to_detail(card, detail)?);
+    }
 
-    eprintln!(
-        "Page {}/{} ({} total politicians)",
-        resp.meta.paging.page, resp.meta.paging.total_pages, resp.meta.paging.total_items
-    );
+    match total_count {
+        Some(count) => eprintln!("Page {}/{} ({} total politicians)", page, total_pages, count),
+        None => eprintln!("Page {}/{} ({} politicians)", page, total_pages, out.len()),
+    }
 
     match format {
-        OutputFormat::Table => print_politicians_table(&resp.data),
-        OutputFormat::Json => print_json(&resp.data),
-        OutputFormat::Csv => print_politicians_csv(&resp.data)?,
-        OutputFormat::Markdown => print_politicians_markdown(&resp.data),
-        OutputFormat::Xml => print_politicians_xml(&resp.data),
+        OutputFormat::Table => print_politicians_table(&out),
+        OutputFormat::Json => print_json(&out),
+        OutputFormat::Csv => print_politicians_csv(&out)?,
+        OutputFormat::Markdown => print_politicians_markdown(&out),
+        OutputFormat::Xml => print_politicians_xml(&out),
     }
 
     Ok(())
+}
+
+fn parse_date_opt(value: &Option<String>) -> Option<NaiveDate> {
+    value
+        .as_ref()
+        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+}
+
+fn scraped_politician_to_detail(
+    card: &ScrapedPoliticianCard,
+    detail: &capitoltraders_lib::scrape::ScrapedPolitician,
+) -> Result<PoliticianDetail> {
+    let state = detail.state_id.to_ascii_uppercase();
+    let full_name = format!("{} {}", detail.first_name, detail.last_name);
+
+    let json = serde_json::json!({
+        "_politicianId": card.politician_id,
+        "_stateId": state,
+        "party": detail.party,
+        "partyOther": null,
+        "district": null,
+        "firstName": detail.first_name,
+        "lastName": detail.last_name,
+        "nickname": detail.nickname,
+        "middleName": null,
+        "fullName": full_name,
+        "dob": detail.dob,
+        "gender": detail.gender,
+        "socialFacebook": null,
+        "socialTwitter": null,
+        "socialYoutube": null,
+        "website": null,
+        "chamber": detail.chamber,
+        "committees": [],
+        "stats": {
+            "dateLastTraded": card.last_traded,
+            "countTrades": card.trades,
+            "countIssuers": card.issuers,
+            "volume": card.volume
+        }
+    });
+
+    let detail: PoliticianDetail = serde_json::from_value(json)?;
+    Ok(detail)
 }

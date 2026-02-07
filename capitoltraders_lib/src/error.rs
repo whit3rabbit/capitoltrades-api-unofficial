@@ -1,10 +1,18 @@
+//! Error types for the library layer.
+
 use std::fmt;
 
+/// Errors produced by the library layer, wrapping upstream API errors
+/// and adding cache, serialization, and input validation failures.
 #[derive(Debug)]
 pub enum CapitolTradesError {
+    /// An error from the underlying API client.
     Api(capitoltrades_api::Error),
+    /// A cache operation failed (e.g. deserialization of cached data).
     Cache(String),
+    /// JSON serialization or deserialization failed.
     Serialization(serde_json::Error),
+    /// User-provided input failed validation.
     InvalidInput(String),
 }
 

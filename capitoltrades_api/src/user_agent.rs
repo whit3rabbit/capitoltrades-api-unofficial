@@ -1,7 +1,13 @@
+//! Randomized user-agent selection for HTTP requests.
+//!
+//! Picks from a weighted distribution of common browser user-agent strings
+//! to reduce the chance of being blocked by the API.
+
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 
-const USER_AGENTS: [&'static str;24] = [
+/// Pool of browser user-agent strings with associated popularity weights.
+const USER_AGENTS: [&str;24] = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.3",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.3",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.",
@@ -28,13 +34,15 @@ const USER_AGENTS: [&'static str;24] = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.",
 ];
 
+/// Popularity weights corresponding to each user agent. Higher values are sampled more often.
 const WEIGHTS: [f64; 24] = [
     34.12, 14.12, 13.53, 12.35, 4.71, 4.12, 2.35, 2.35, 1.76, 1.18, 1.18, 1.18, 0.59, 0.59, 0.59,
     0.59, 0.59, 0.59, 0.59, 0.59, 0.59, 0.59, 0.59, 0.59,
 ];
 
+/// Returns a randomly selected user-agent string, weighted by browser popularity.
 pub fn get_user_agent() -> &'static str {
-    let dist = WeightedIndex::new(&WEIGHTS).unwrap();
+    let dist = WeightedIndex::new(WEIGHTS).unwrap();
     let mut rng = thread_rng();
     USER_AGENTS[dist.sample(&mut rng)]
 }

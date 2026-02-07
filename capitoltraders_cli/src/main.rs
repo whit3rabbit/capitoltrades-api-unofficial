@@ -7,12 +7,9 @@ mod commands;
 mod output;
 mod xml_output;
 
-use std::time::Duration;
-
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use capitoltraders_lib::cache::MemoryCache;
-use capitoltraders_lib::CachedClient;
+use capitoltraders_lib::ScrapeClient;
 
 use crate::output::OutputFormat;
 
@@ -24,6 +21,10 @@ struct Cli {
     /// Output format: table, json, csv, md, xml
     #[arg(long, default_value = "table", global = true)]
     output: String,
+
+    /// Override the scraping base URL (or set CAPITOLTRADES_BASE_URL)
+    #[arg(long, global = true)]
+    base_url: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -62,14 +63,22 @@ async fn main() -> Result<()> {
         _ => OutputFormat::Table,
     };
 
-    let cache = MemoryCache::new(Duration::from_secs(300));
-    let client = CachedClient::new(cache);
+    let base_url = cli
+        .base_url
+        .clone()
+        .or_else(|| std::env::var("CAPITOLTRADES_BASE_URL").ok());
+    let scraper = match base_url.as_deref() {
+        Some(url) => ScrapeClient::with_base_url(url)?,
+        None => ScrapeClient::new()?,
+    };
 
     match &cli.command {
-        Commands::Trades(args) => commands::trades::run(args.as_ref(), &client, &format).await?,
-        Commands::Politicians(args) => commands::politicians::run(args, &client, &format).await?,
-        Commands::Issuers(args) => commands::issuers::run(args, &client, &format).await?,
-        Commands::Sync(args) => commands::sync::run(args, &client).await?,
+        Commands::Trades(args) => commands::trades::run(args.as_ref(), &scraper, &format).await?,
+        Commands::Politicians(args) => {
+            commands::politicians::run(args, &scraper, &format).await?
+        }
+        Commands::Issuers(args) => commands::issuers::run(args, &scraper, &format).await?,
+        Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,
     }
 
     Ok(())

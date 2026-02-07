@@ -4,7 +4,7 @@
 
 Rust workspace with three crates:
 
-- `capitoltrades_api/` -- Vendored fork of [TommasoAmici/capitoltrades](https://github.com/TommasoAmici/capitoltrades). HTTP client for the CapitolTrades BFF API. Modifications from upstream are minimal and documented below.
+- `capitoltrades_api/` -- Vendored fork of [TommasoAmici/capitoltrades](https://github.com/TommasoAmici/capitoltrades). Contains the legacy HTTP client plus shared types/enums used for serialization and validation.
 - `capitoltraders_lib/` -- Library layer: cached client wrapper, in-memory TTL cache, analysis helpers, validation, error types.
 - `capitoltraders_cli/` -- CLI binary (`capitoltraders`) using clap. Subcommands: `trades`, `politicians`, `issuers`, `sync`.
 
@@ -41,6 +41,7 @@ capitoltraders_lib/
     client.rs                 # CachedClient wrapper, cache key generation
     cache.rs                  # MemoryCache (DashMap-backed TTL cache)
     db.rs                     # SQLite storage + ingestion helpers
+    scrape.rs                 # HTML scraper for trades/politicians/issuers
     validation.rs             # input validation for all CLI filter types
     analysis.rs               # trade analysis helpers (by-party, by-month, top issuers)
     error.rs                  # CapitolTradesError (wraps upstream Error + InvalidInput)
@@ -99,12 +100,14 @@ All clippy warnings in the vendored crate have been resolved.
 The trades command supports extensive filtering. All multi-value filters accept comma-separated input at the CLI layer.
 Date filters use either relative days (`--days`, `--tx-days`) or absolute date ranges
 (`--since`/`--until`, `--tx-since`/`--tx-until`), but not both simultaneously.
+In scrape mode, only filters backed by fields present in the HTML are supported; `--committee`,
+`--trade-size`, `--market-cap`, `--asset-type`, and `--label` are rejected.
 
 | CLI Flag | API Param | Type | Accepted Values |
 |---|---|---|---|
 | `--name` | `search` | `String` | free text (max 100 bytes) |
-| `--politician` | `politician` | `PoliticianID` | two-step: searches politicians by name, resolves to IDs |
-| `--issuer` | `issuer` | `IssuerID` | two-step: searches issuers by name, resolves to IDs |
+| `--politician` | `politician` | `PoliticianID` | scrape mode uses client-side name matching |
+| `--issuer` | `issuer` | `IssuerID` | scrape mode uses client-side name/ticker matching |
 | `--issuer-id` | `issuer` | `IssuerID` | numeric ID |
 | `--party` | `party` | `Party` | `democrat` (`d`), `republican` (`r`), `other` |
 | `--state` | `state` | `String` | 2-letter uppercase US state/territory code |
@@ -137,7 +140,9 @@ Date filters use either relative days (`--days`, `--tx-days`) or absolute date r
 
 ## Committee Abbreviation Codes
 
-The CapitolTrades BFF API uses short abbreviation codes for committees, **not** full names. The URL pattern is `?committee=hsag&committee=ssfi` (multiple allowed).
+The CapitolTrades BFF API uses short abbreviation codes for committees, **not** full names. Committee filtering
+is not supported in scrape mode, but the mapping is retained for validation and future use. The URL pattern is
+`?committee=hsag&committee=ssfi` (multiple allowed).
 
 The full code-to-name mapping lives in `capitoltraders_lib/src/validation.rs` as `COMMITTEE_MAP`. The CLI accepts either the code or the full name and resolves to the code before sending to the API.
 
@@ -210,6 +215,7 @@ All user input is validated before being passed to the API layer. Each validator
 | quick-xml | 0.37 | XML output serialization (Writer API) |
 | jsonschema | 0.29 | JSON Schema validation in tests (dev-dependency) |
 | rusqlite | 0.31 | SQLite storage for `sync` ingestion |
+| regex | 1 | Parsing HTML payloads for politician cards |
 
 ## Conventions
 
@@ -218,10 +224,22 @@ All user input is validated before being passed to the API layer. Each validator
 - Output format is controlled by `--output table|json|csv|md|xml` (global flag).
 - Analysis functions operate on slices of upstream types and return standard collections.
 - Error types in the lib layer wrap upstream `capitoltrades_api::Error` rather than re-implementing.
-- Two-step lookups (`--politician`, `--issuer`) search an endpoint by name, collect IDs, then filter trades by those IDs.
-- Comma-separated CLI values are split, individually validated, then added to the query via builder methods.
-- `issuerState` and `country` use lowercase in the API (unlike politician `state` which is uppercase). Validation normalizes accordingly.
-- Rate limiting: `CachedClient` enforces a randomized 5-10 second delay between actual HTTP requests. Cache hits skip the delay. The first request in a session has no delay. Implemented via `Mutex<Option<Instant>>` tracking the last request time.
+- `trades`, `politicians`, and `issuers` scrape `capitoltrades.com`; filters are applied client-side and some flags are unsupported (see Scraping).
+- Scraped listing pages are fixed at 12 results; `--page-size` is ignored for those commands.
+- Comma-separated CLI values are split and individually validated before filtering.
+- `issuerState` and `country` are lowercase in scraped data (unlike politician `state` which is uppercase). Validation normalizes accordingly.
+- `CachedClient` still enforces a randomized 5-10 second delay between API requests for any legacy usage (not used by CLI scraping).
+
+## Scraping
+
+There is no public API. All CLI commands (`trades`, `politicians`, `issuers`, `sync`) scrape
+`capitoltrades.com` and parse the embedded Next.js RSC payloads. `ScrapeClient` exposes
+`trades_page`, `trade_detail`, `politicians_page`, `politician_detail`, `issuers_page`, and
+`issuer_detail`. Missing fields not present in the HTML are populated with safe defaults
+(e.g., unknown asset type, empty committees/labels). Aggregated politician/issuer stats are computed
+from scraped trades in `sync`. Use `--with-trade-details` to hit per-trade pages and capture filing
+URLs/IDs (slow; adds one request per trade). Senate filings often use UUID-style URLs, so `filing_id`
+may be `0` while `filing_url` is populated.
 
 ## SQLite Ingestion
 
@@ -229,6 +247,7 @@ The `sync` subcommand writes to SQLite using `schema/sqlite.sql`, which mirrors 
 Nested arrays are normalized into join tables (`trade_committees`, `trade_labels`, `politician_committees`),
 and issuer performance is stored in `issuer_performance` plus `issuer_eod_prices`. Incremental runs track
 `ingest_meta.last_trade_pub_date` (YYYY-MM-DD) and request only recent pages; `--since` overrides it.
+`--refresh-politicians` and `--refresh-issuers` are ignored in scrape mode.
 
 Commands:
 

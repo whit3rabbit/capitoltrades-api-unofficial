@@ -1,6 +1,13 @@
+//! Trade analysis helpers for aggregating and summarizing trade data.
+//!
+//! All functions operate on slices of upstream `Trade` types and return
+//! standard collections. They are designed for use in summary views
+//! and do not perform network calls.
+
 use std::collections::{BTreeMap, HashMap};
 use capitoltrades_api::types::Trade;
 
+/// Groups trades by political party, returning a map of party name to trades.
 pub fn trades_by_party(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
     let mut map: HashMap<String, Vec<&Trade>> = HashMap::new();
     for trade in trades {
@@ -10,7 +17,8 @@ pub fn trades_by_party(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
     map
 }
 
-pub fn trades_by_sector(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
+/// Groups trades by issuer ticker symbol. Issuers without a ticker are keyed as "unknown".
+pub fn trades_by_ticker(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
     let mut map: HashMap<String, Vec<&Trade>> = HashMap::new();
     for trade in trades {
         let key = trade.issuer.issuer_ticker.clone().unwrap_or_else(|| "unknown".to_string());
@@ -19,6 +27,7 @@ pub fn trades_by_sector(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
     map
 }
 
+/// Returns the most frequently traded issuers, sorted by trade count descending.
 pub fn top_traded_issuers(trades: &[Trade], limit: usize) -> Vec<(String, usize)> {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for trade in trades {
@@ -32,6 +41,7 @@ pub fn top_traded_issuers(trades: &[Trade], limit: usize) -> Vec<(String, usize)
     sorted
 }
 
+/// Groups trades by month (YYYY-MM format), sorted chronologically.
 pub fn trades_by_month(trades: &[Trade]) -> BTreeMap<String, Vec<&Trade>> {
     let mut map: BTreeMap<String, Vec<&Trade>> = BTreeMap::new();
     for trade in trades {
@@ -41,6 +51,7 @@ pub fn trades_by_month(trades: &[Trade]) -> BTreeMap<String, Vec<&Trade>> {
     map
 }
 
+/// Sums the estimated dollar value of all trades.
 pub fn total_volume(trades: &[Trade]) -> i64 {
     trades.iter().map(|t| t.value).sum()
 }

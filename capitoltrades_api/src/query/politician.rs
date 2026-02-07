@@ -1,3 +1,5 @@
+//! Query builder for the `/politicians` endpoint.
+
 use std::str::FromStr;
 
 use url::Url;
@@ -9,14 +11,24 @@ use super::{
     Query,
 };
 
+/// Query builder for the `/politicians` endpoint.
+///
+/// Supports filtering by issuer, party, state, committee, and free-text search.
 #[derive(Default)]
 pub struct PoliticianQuery {
+    /// Shared pagination and date filter fields.
     pub common: QueryCommon,
+    /// Filter by issuer numeric IDs (shows politicians who traded these issuers).
     pub issuer_ids: Vec<IssuerID>,
+    /// Filter by political party.
     pub parties: Vec<Party>,
+    /// Filter by US state codes (uppercase 2-letter).
     pub states: Vec<String>,
+    /// Filter by committee abbreviation codes.
     pub committees: Vec<String>,
+    /// Free-text search by politician name.
     pub search: Option<String>,
+    /// Field to sort results by.
     pub sort_by: PoliticianSortBy,
 }
 
@@ -63,65 +75,77 @@ impl Query for PoliticianQuery {
 }
 
 impl PoliticianQuery {
+    /// Adds a single issuer ID filter.
     pub fn with_issuer_id(mut self, issuer_id: IssuerID) -> Self {
         self.issuer_ids.push(issuer_id);
         self
     }
+    /// Adds multiple issuer ID filters.
     pub fn with_issuer_ids(mut self, issuer_ids: &[IssuerID]) -> Self {
         self.issuer_ids.extend_from_slice(issuer_ids);
         self
     }
 
+    /// Adds a single party filter.
     pub fn with_party(mut self, party: &Party) -> Self {
         self.parties.push(party.clone());
         self
     }
+    /// Adds multiple party filters.
     pub fn with_parties(mut self, parties: &[Party]) -> Self {
         self.parties.extend_from_slice(parties);
         self
     }
 
+    /// Adds a single state filter (uppercase 2-letter code).
     pub fn with_state(mut self, state: &str) -> Self {
         self.states.push(state.to_string());
         self
     }
+    /// Adds multiple state filters.
     pub fn with_states(mut self, states: &[String]) -> Self {
         self.states.extend_from_slice(states);
         self
     }
 
+    /// Adds a single committee filter (abbreviation code, e.g. "ssfi").
     pub fn with_committee(mut self, committee: &str) -> Self {
         self.committees.push(committee.to_string());
         self
     }
+    /// Adds multiple committee filters.
     pub fn with_committees(mut self, committees: &[String]) -> Self {
         self.committees.extend_from_slice(committees);
         self
     }
 
+    /// Sets the free-text search query (searches by politician name).
     pub fn with_search(mut self, search: &str) -> Self {
         self.search = Some(search.to_string());
         self
     }
 
+    /// Sets the field to sort results by.
     pub fn with_sort_by(mut self, sort_by: PoliticianSortBy) -> Self {
         self.sort_by = sort_by;
         self
     }
 }
 
-#[derive(Clone, Copy)]
+/// Sort field for politician queries.
+#[derive(Clone, Copy, Default)]
 pub enum PoliticianSortBy {
+    /// Sort by total traded dollar volume (default).
+    #[default]
     TradedVolume = 0,
+    /// Sort alphabetically by last name.
     LastName = 1,
+    /// Sort by number of distinct issuers traded.
     TradedIssuersCount = 2,
+    /// Sort by total number of trades.
     TotalTrades = 3,
+    /// Sort by date of most recent trade.
     DateLastTraded = 4,
-}
-impl Default for PoliticianSortBy {
-    fn default() -> Self {
-        PoliticianSortBy::TradedVolume
-    }
 }
 impl std::fmt::Display for PoliticianSortBy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -1,12 +1,19 @@
+//! Shared query infrastructure: the [`Query`] trait, [`QueryCommon`] fields, and [`SortDirection`].
+
 use std::str::FromStr;
 
 use url::Url;
 
+/// Trait implemented by all query builders. Provides URL serialization and
+/// shared builder methods for pagination, date filtering, and sort direction.
 pub trait Query {
+    /// Appends this query's parameters to the given URL, returning the modified URL.
     fn add_to_url(&self, url: &Url) -> Url;
 
+    /// Returns a mutable reference to the common query fields.
     fn get_common(&mut self) -> &mut QueryCommon;
 
+    /// Sets the page number (1-indexed).
     fn with_page(mut self, page: i64) -> Self
     where
         Self: Sized,
@@ -15,6 +22,7 @@ pub trait Query {
         self
     }
 
+    /// Sets the number of results per page.
     fn with_page_size(mut self, page_size: i64) -> Self
     where
         Self: Sized,
@@ -23,6 +31,7 @@ pub trait Query {
         self
     }
 
+    /// Filters by publication date, relative to today (e.g. 7 = last 7 days).
     fn with_pub_date_relative(mut self, pub_date_relative: i64) -> Self
     where
         Self: Sized,
@@ -31,6 +40,7 @@ pub trait Query {
         self
     }
 
+    /// Filters by transaction date, relative to today (e.g. 30 = last 30 days).
     fn with_tx_date_relative(mut self, tx_date_relative: i64) -> Self
     where
         Self: Sized,
@@ -39,6 +49,7 @@ pub trait Query {
         self
     }
 
+    /// Sets the sort direction (ascending or descending).
     fn with_sort_direction(mut self, sort_direction: SortDirection) -> Self
     where
         Self: Sized,
@@ -48,15 +59,14 @@ pub trait Query {
     }
 }
 
-#[derive(Clone, Copy)]
+/// Sort order for API results.
+#[derive(Clone, Copy, Default)]
 pub enum SortDirection {
+    /// Ascending order (oldest/smallest first).
     Asc = 0,
+    /// Descending order (newest/largest first). This is the default.
+    #[default]
     Desc = 1,
-}
-impl Default for SortDirection {
-    fn default() -> Self {
-        SortDirection::Desc
-    }
 }
 impl FromStr for SortDirection {
     type Err = ();
@@ -70,16 +80,18 @@ impl FromStr for SortDirection {
     }
 }
 
+/// Fields shared by all query types: pagination, date filters, and sort direction.
 #[derive(Clone, Copy)]
 pub struct QueryCommon {
+    /// Page number (1-indexed). Defaults to 1.
     pub page: i64,
+    /// Results per page. `None` uses the API default.
     pub page_size: Option<i64>,
-    /// Filter by the relative date of the publication date.
-    /// Example: 7 for the last 7 days.
+    /// Filter by publication date, relative days from today (e.g. 7 = last 7 days).
     pub pub_date_relative: Option<i64>,
-    /// Filter by the relative date of the publication date.
-    /// Example: 7 for the last 7 days.
+    /// Filter by transaction date, relative days from today (e.g. 30 = last 30 days).
     pub tx_date_relative: Option<i64>,
+    /// Sort direction. Defaults to descending.
     pub sort_direction: SortDirection,
 }
 
@@ -96,6 +108,7 @@ impl Default for QueryCommon {
 }
 
 impl QueryCommon {
+    /// Appends the common pagination and date parameters to the URL.
     pub fn add_to_url(&self, url: &Url) -> Url {
         let mut url = url.clone();
         url.query_pairs_mut()
