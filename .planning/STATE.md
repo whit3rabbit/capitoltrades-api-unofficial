@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 6 in progress. Plan 06-01 (concurrent enrichment) complete. Next: 06-02.
+**Current focus:** All 6 phases complete. 15/15 plans executed.
 
 ## Current Position
 
 Phase: 6 of 6 (Concurrency and Reliability)
-Plan: 1 of 2 in phase 6 (06-01 complete)
-Status: Phase 6 in progress
-Last activity: 2026-02-08 -- Completed 06-01-PLAN.md (concurrent enrichment)
+Plan: 2 of 2 in phase 6 (06-02 complete)
+Status: All phases complete
+Last activity: 2026-02-08 -- Completed 06-02-PLAN.md (committee spinner + circuit breaker tests)
 
-Progress: [##########] 93% (14 of ~15 total plans)
+Progress: [##########] 100% (15 of 15 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
-- Average duration: 3.8 min
-- Total execution time: 53 min
+- Total plans completed: 15
+- Average duration: 3.7 min
+- Total execution time: 55 min
 
 **By Phase:**
 
@@ -32,10 +32,10 @@ Progress: [##########] 93% (14 of ~15 total plans)
 | 3. Trade Sync | 3/3 | 10 min | 3.3 min |
 | 4. Politician Enrichment | 3/3 | 12 min | 4 min |
 | 5. Issuer Enrichment | 3/3 | 10 min | 3.3 min |
-| 6. Concurrency | 1/2 | 3 min | 3 min |
+| 6. Concurrency | 2/2 | 5 min | 2.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 04-03 (4 min), 05-01 (4 min), 05-02 (2 min), 05-03 (4 min), 06-01 (3 min)
+- Last 5 plans: 05-01 (4 min), 05-02 (2 min), 05-03 (4 min), 06-01 (3 min), 06-02 (2 min)
 - Trend: Consistent 2-4 min per plan
 
 *Updated after each plan completion*
@@ -89,6 +89,8 @@ Recent decisions affecting current work:
 - 06-01: DB writes remain single-threaded via mpsc channel receiver loop, avoiding SQLite contention
 - 06-01: CircuitBreaker is simple kill switch (consecutive failure counter), not full half-open/closed pattern
 - 06-01: pb.println() for warnings instead of eprintln() to avoid garbled output with progress bar
+- 06-02: Spinner shows cumulative membership total alongside per-committee count for progress context
+- 06-02: Removed redundant eprintln status lines from run() since spinner finish_with_message provides the same info
 
 ### Patterns Established
 
@@ -139,6 +141,7 @@ Phase 6:
 - CircuitBreaker struct: consecutive_failures counter with threshold, record_success resets to 0, record_failure increments, is_tripped checks >= threshold
 - Progress bar via pb.println() for warnings (avoids garbled output with indicatif)
 - join_set.abort_all() for fast shutdown when circuit breaker trips
+- indicatif spinner for sequential iteration: new_spinner with set_message per item and finish_with_message for summary
 
 ### Pending Todos
 
@@ -153,5 +156,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 06-01-PLAN.md (concurrent enrichment). Next: 06-02.
-Resume file: .planning/phases/06-concurrency-and-reliability/06-02-PLAN.md
+Stopped at: Completed 06-02-PLAN.md (committee spinner + circuit breaker tests). All plans complete.
+Resume file: N/A -- project complete
