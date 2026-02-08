@@ -46,11 +46,11 @@ Plans:
   3. trade_detail() returns filing_id and filing_url (where the detail page provides them)
   4. trade_detail() returns price data (where the detail page provides it)
   5. Committees and labels extraction from trade detail pages is attempted, with documented findings on data availability in the RSC payload
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md -- Capture HTML fixtures, extend ScrapedTradeDetail and extract_trade_detail, fixture-based tests (TRADE-01 through TRADE-06)
+- [ ] 02-02-PLAN.md -- Add Db::update_trade_detail() method with sentinel protection and comprehensive tests (TRADE-01 through TRADE-06 persistence)
 
 ### Phase 3: Trade Sync and Output
 **Goal**: Users can run sync and get fully enriched trade data in the database, with smart-skip for efficiency, crash-safe checkpointing, and enriched fields visible in all CLI output formats
@@ -121,7 +121,7 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-02-08 |
-| 2. Trade Extraction | 0/TBD | Not started | - |
+| 2. Trade Extraction | 0/2 | Not started | - |
 | 3. Trade Sync and Output | 0/TBD | Not started | - |
 | 4. Politician Enrichment | 0/TBD | Not started | - |
 | 5. Issuer Enrichment | 0/TBD | Not started | - |
