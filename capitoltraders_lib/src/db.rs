@@ -1777,4 +1777,341 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
             .expect("get_unenriched_issuer_ids");
         assert_eq!(ids, vec![10, 20]);
     }
+
+    // --- update_trade_detail tests ---
+
+    fn make_test_trade_detail() -> ScrapedTradeDetail {
+        ScrapedTradeDetail {
+            filing_url: Some("https://efts.sec.gov/12345".to_string()),
+            filing_id: Some(12345),
+            asset_type: Some("stock".to_string()),
+            size: Some(50000),
+            size_range_high: Some(100000),
+            size_range_low: Some(15001),
+            price: Some(150.50),
+            has_capital_gains: Some(false),
+            committees: vec!["ssfi".to_string()],
+            labels: vec!["faang".to_string()],
+        }
+    }
+
+    #[test]
+    fn test_update_trade_detail_basic() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(200, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        let detail = make_test_trade_detail();
+        db.update_trade_detail(200, &detail).expect("update_trade_detail");
+
+        let (price, size, size_hi, size_lo, fid, furl, hcg): (
+            Option<f64>, Option<i64>, Option<i64>, Option<i64>, i64, String, i32,
+        ) = db
+            .conn
+            .query_row(
+                "SELECT price, size, size_range_high, size_range_low,
+                        filing_id, filing_url, has_capital_gains
+                 FROM trades WHERE tx_id = 200",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                },
+            )
+            .expect("query trade");
+
+        assert!((price.unwrap() - 150.50).abs() < f64::EPSILON);
+        assert_eq!(size, Some(50000));
+        assert_eq!(size_hi, Some(100000));
+        assert_eq!(size_lo, Some(15001));
+        assert_eq!(fid, 12345);
+        assert_eq!(furl, "https://efts.sec.gov/12345");
+        assert_eq!(hcg, 0); // false
+
+        // Verify enriched_at was set
+        let enriched: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 200",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query enriched_at");
+        assert!(enriched.is_some(), "enriched_at should be set");
+    }
+
+    #[test]
+    fn test_update_trade_detail_coalesce_preserves_existing() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(201, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // First update with real values
+        let detail = ScrapedTradeDetail {
+            price: Some(50.0),
+            size: Some(100),
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(201, &detail).expect("first update");
+
+        // Second update with None values -- should not overwrite
+        let detail2 = ScrapedTradeDetail::default();
+        db.update_trade_detail(201, &detail2).expect("second update");
+
+        let (price, size): (Option<f64>, Option<i64>) = db
+            .conn
+            .query_row(
+                "SELECT price, size FROM trades WHERE tx_id = 201",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("query");
+
+        assert_eq!(price, Some(50.0), "price preserved via COALESCE");
+        assert_eq!(size, Some(100), "size preserved via COALESCE");
+    }
+
+    #[test]
+    fn test_update_trade_detail_asset_type_update() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(202, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Verify initial asset_type is "unknown"
+        let at: String = db
+            .conn
+            .query_row(
+                "SELECT asset_type FROM assets WHERE asset_id = 202",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query");
+        assert_eq!(at, "unknown");
+
+        let detail = ScrapedTradeDetail {
+            asset_type: Some("stock".to_string()),
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(202, &detail).expect("update");
+
+        let at2: String = db
+            .conn
+            .query_row(
+                "SELECT asset_type FROM assets WHERE asset_id = 202",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query after update");
+        assert_eq!(at2, "stock", "asset_type should be updated from unknown to stock");
+    }
+
+    #[test]
+    fn test_update_trade_detail_asset_type_no_overwrite() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(203, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // First update: set asset_type to "stock"
+        let detail = ScrapedTradeDetail {
+            asset_type: Some("stock".to_string()),
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(203, &detail).expect("first update");
+
+        // Second update: try to change asset_type to "etf"
+        let detail2 = ScrapedTradeDetail {
+            asset_type: Some("etf".to_string()),
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(203, &detail2).expect("second update");
+
+        let at: String = db
+            .conn
+            .query_row(
+                "SELECT asset_type FROM assets WHERE asset_id = 203",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query");
+        assert_eq!(at, "stock", "asset_type should NOT be overwritten once set to non-unknown");
+    }
+
+    #[test]
+    fn test_update_trade_detail_asset_type_unknown_ignored() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(204, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Update with asset_type = "unknown" -- should be a no-op
+        let detail = ScrapedTradeDetail {
+            asset_type: Some("unknown".to_string()),
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(204, &detail).expect("update");
+
+        let at: String = db
+            .conn
+            .query_row(
+                "SELECT asset_type FROM assets WHERE asset_id = 204",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query");
+        assert_eq!(at, "unknown", "asset_type should remain unknown when incoming is unknown");
+    }
+
+    #[test]
+    fn test_update_trade_detail_committees() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(205, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        let detail = ScrapedTradeDetail {
+            committees: vec!["ssfi".to_string(), "hsag".to_string()],
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(205, &detail).expect("update");
+
+        let mut stmt = db
+            .conn
+            .prepare("SELECT committee FROM trade_committees WHERE tx_id = 205 ORDER BY committee")
+            .expect("prepare");
+        let committees: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .expect("query")
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(committees, vec!["hsag", "ssfi"]);
+    }
+
+    #[test]
+    fn test_update_trade_detail_committees_replace() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(206, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // First: insert one committee
+        let detail = ScrapedTradeDetail {
+            committees: vec!["ssfi".to_string()],
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(206, &detail).expect("first update");
+
+        // Second: replace with two different committees
+        let detail2 = ScrapedTradeDetail {
+            committees: vec!["hsag".to_string(), "hsap".to_string()],
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(206, &detail2).expect("second update");
+
+        let mut stmt = db
+            .conn
+            .prepare("SELECT committee FROM trade_committees WHERE tx_id = 206 ORDER BY committee")
+            .expect("prepare");
+        let committees: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .expect("query")
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(committees, vec!["hsag", "hsap"], "old committee should be gone, new ones present");
+    }
+
+    #[test]
+    fn test_update_trade_detail_labels() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(207, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        let detail = ScrapedTradeDetail {
+            labels: vec!["faang".to_string(), "crypto".to_string()],
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(207, &detail).expect("update");
+
+        let mut stmt = db
+            .conn
+            .prepare("SELECT label FROM trade_labels WHERE tx_id = 207 ORDER BY label")
+            .expect("prepare");
+        let labels: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .expect("query")
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(labels, vec!["crypto", "faang"]);
+    }
+
+    #[test]
+    fn test_update_trade_detail_filing_sentinel() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(208, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // First update: set filing_id and filing_url
+        let detail = ScrapedTradeDetail {
+            filing_id: Some(12345),
+            filing_url: Some("https://example.com/12345".to_string()),
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(208, &detail).expect("first update");
+
+        // Second update: filing_id=None (sentinel 0), filing_url=None (sentinel "")
+        let detail2 = ScrapedTradeDetail::default();
+        db.update_trade_detail(208, &detail2).expect("second update");
+
+        let (fid, furl): (i64, String) = db
+            .conn
+            .query_row(
+                "SELECT filing_id, filing_url FROM trades WHERE tx_id = 208",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("query");
+
+        assert_eq!(fid, 12345, "filing_id preserved via CASE sentinel");
+        assert_eq!(furl, "https://example.com/12345", "filing_url preserved via CASE sentinel");
+    }
+
+    #[test]
+    fn test_update_trade_detail_enriched_at_set() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(209, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Verify enriched_at is initially NULL
+        let before: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 209",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query before");
+        assert!(before.is_none(), "enriched_at should start as NULL");
+
+        // Update
+        let detail = ScrapedTradeDetail::default();
+        db.update_trade_detail(209, &detail).expect("update");
+
+        // Verify enriched_at is now set
+        let after: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 209",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query after");
+        assert!(after.is_some(), "enriched_at should be set after update");
+        let ts = after.unwrap();
+        assert!(!ts.is_empty(), "enriched_at should be a non-empty timestamp");
+        // Basic sanity: should start with a year
+        assert!(ts.starts_with("20"), "enriched_at should be an RFC3339 timestamp: {}", ts);
+    }
 }
