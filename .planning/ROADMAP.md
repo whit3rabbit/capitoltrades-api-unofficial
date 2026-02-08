@@ -94,11 +94,12 @@ Plans:
   2. issuer_detail() extracts end-of-day price history from the RSC payload
   3. After sync, the issuer_performance and issuer_eod_prices tables contain data for enriched issuers
   4. Running `capitoltraders issuers --output json` (and table/csv/md/xml) shows performance and EOD price data for enriched issuers
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md -- Issuer detail extraction fixtures and DB persistence (ISS-01, ISS-02, ISS-03, ISS-04 data layer)
+- [ ] 05-02-PLAN.md -- Sync pipeline integration for issuer enrichment (ISS-03, ISS-04 pipeline)
+- [ ] 05-03-PLAN.md -- CLI issuers --db output with performance data (OUT-03)
 
 ### Phase 6: Concurrency and Reliability
 **Goal**: Enrichment runs complete in reasonable time (hours, not days) with bounded parallelism, user-visible progress, and automatic failure recovery
