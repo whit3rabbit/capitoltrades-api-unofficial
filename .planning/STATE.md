@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 4 in progress. Committee scraping and DB persistence done. Next: sync integration (04-02) and CLI output (04-03).
+**Current focus:** Phase 4 in progress. Committee scraping, DB persistence, and sync integration done. Next: CLI output (04-03).
 
 ## Current Position
 
 Phase: 4 of 6 (Politician Enrichment) -- IN PROGRESS
-Plan: 1 of 3 in phase 4 (complete)
+Plan: 2 of 3 in phase 4 (complete)
 Status: Executing Phase 4
-Last activity: 2026-02-08 -- Completed 04-01-PLAN.md (committee scraping and DB persistence)
+Last activity: 2026-02-08 -- Completed 04-02-PLAN.md (sync pipeline integration)
 
-Progress: [######----] 67% (8 of ~12 total plans)
+Progress: [########--] 75% (9 of ~12 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 4.1 min
-- Total execution time: 33 min
+- Total plans completed: 9
+- Average duration: 4.0 min
+- Total execution time: 36 min
 
 **By Phase:**
 
@@ -30,10 +30,10 @@ Progress: [######----] 67% (8 of ~12 total plans)
 | 1. Foundation | 2/2 | 6 min | 3 min |
 | 2. Trade Extraction | 2/2 | 12 min | 6 min |
 | 3. Trade Sync | 3/3 | 10 min | 3.3 min |
-| 4. Politician Enrichment | 1/3 | 5 min | 5 min |
+| 4. Politician Enrichment | 2/3 | 8 min | 4 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-01 (3 min), 03-02 (4 min), 03-03 (3 min), 04-01 (5 min)
+- Last 5 plans: 03-01 (3 min), 03-02 (4 min), 03-03 (3 min), 04-01 (5 min), 04-02 (3 min)
 - Trend: Consistent 3-5 min per plan
 
 *Updated after each plan completion*
@@ -67,6 +67,9 @@ Recent decisions affecting current work:
 - 04-01: Used real HTML fixture from live site instead of synthetic -- caught singular/plural label bug that synthetic fixtures would have missed
 - 04-01: Fixed parse_politician_cards regex to handle singular labels (Trade/Issuer) globally, not just for committee-filtered pages
 - 04-01: replace_all_politician_committees uses EXISTS subquery to silently skip unknown politician_ids (FK safety)
+- 04-02: Committee enrichment runs unconditionally (POL-03) -- no --enrich flag needed since 48 requests is fast (~25s)
+- 04-02: Throttle delay applied between committees and between pages within multi-page committees
+- 04-02: enrich_politician_committees returns inserted count (after FK filtering) rather than total collected
 
 ### Patterns Established
 
@@ -98,6 +101,7 @@ Phase 4:
 - Singular/plural label handling: Trades?/Issuers? in card regex for live site compatibility
 - FK-safe bulk insert: EXISTS subquery in INSERT OR IGNORE skips unknown politician_ids
 - Bulk replace pattern: DELETE all + INSERT with FK guard in single unchecked_transaction
+- Unconditional post-ingest enrichment: fast operations (< 30s) run every sync without opt-in flag
 
 ### Pending Todos
 
@@ -112,5 +116,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 04-01-PLAN.md (committee scraping and DB persistence). Next: 04-02 (sync integration).
-Resume file: .planning/phases/04-politician-enrichment/04-02-PLAN.md
+Stopped at: Completed 04-02-PLAN.md (sync pipeline integration). Next: 04-03 (CLI output).
+Resume file: .planning/phases/04-politician-enrichment/04-03-PLAN.md
