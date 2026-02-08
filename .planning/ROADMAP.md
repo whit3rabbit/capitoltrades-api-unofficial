@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation** - Fix upsert data corruption, add enrichment tracking, schema migration
 - [x] **Phase 2: Trade Extraction** - Extend trade_detail scraper to extract all missing fields from RSC payloads
 - [x] **Phase 3: Trade Sync and Output** - Wire trade enrichment into sync pipeline with smart-skip, checkpointing, and CLI output
-- [ ] **Phase 4: Politician Enrichment** - End-to-end politician detail extraction, sync, and CLI output
+- [ ] **Phase 4: Politician Enrichment** - End-to-end politician committee extraction via listing page committee-filter iteration, sync, and CLI output
 - [ ] **Phase 5: Issuer Enrichment** - End-to-end issuer detail extraction, sync, and CLI output
 - [ ] **Phase 6: Concurrency and Reliability** - Bounded parallel fetching, progress bars, circuit breaker
 
@@ -74,7 +74,7 @@ Plans:
 **Depends on**: Phase 1
 **Requirements**: POL-01, POL-02, POL-03, OUT-02
 **Success Criteria** (what must be TRUE):
-  1. politician_detail() extracts committee memberships from the RSC payload (or documents that the data is unavailable and an alternative approach is needed)
+  1. Committee memberships are extracted by iterating the politician listing page with each of the 48 committee codes as a server-side filter (/politicians?committee={code}), building a reverse politician-to-committee mapping. (Research confirmed politician detail pages do NOT contain committee data in their RSC payload; the listing page committee filter is the only viable source.)
   2. After sync, the politician_committees join table contains committee data for enriched politicians
   3. Politician enrichment runs automatically during sync without requiring an opt-in flag
   4. Running `capitoltraders politicians --output json` (and table/csv/md/xml) shows committee memberships for enriched politicians
