@@ -30,11 +30,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Each trade, politician, and issuer row has an enriched_at column that is NULL for un-enriched rows and contains a timestamp for enriched rows
   3. A Db query can return the list of trade/politician/issuer IDs that need enrichment (NULL enriched_at or default sentinel values)
   4. Opening an existing database (pre-migration) with the new code applies schema changes without data loss
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md -- Schema migration and enriched_at columns (FOUND-02, FOUND-04)
+- [ ] 01-02-PLAN.md -- Fix upsert sentinel protection and enrichment query methods (FOUND-01, FOUND-03)
 
 ### Phase 2: Trade Extraction
 **Goal**: The trade_detail scraper extracts every field that listing pages leave as NULL or default, with test coverage against real HTML fixtures
@@ -120,7 +120,7 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
-| 1. Foundation | 0/TBD | Not started | - |
+| 1. Foundation | 0/2 | Planned | - |
 | 2. Trade Extraction | 0/TBD | Not started | - |
 | 3. Trade Sync and Output | 0/TBD | Not started | - |
 | 4. Politician Enrichment | 0/TBD | Not started | - |
