@@ -1154,6 +1154,89 @@ mod tests {
 
     // ---- Committee-filtered politician listing fixture tests ----
 
+    // ---- Issuer detail fixture tests ----
+
+    fn load_issuer_perf_fixture() -> String {
+        let html = include_str!("../tests/fixtures/issuer_detail_with_performance.html");
+        extract_rsc_payload(html).expect("issuer perf fixture should have RSC payload")
+    }
+
+    fn load_issuer_no_perf_fixture() -> String {
+        let html = include_str!("../tests/fixtures/issuer_detail_no_performance.html");
+        extract_rsc_payload(html).expect("issuer no-perf fixture should have RSC payload")
+    }
+
+    #[test]
+    fn test_issuer_detail_with_performance() {
+        let payload = load_issuer_perf_fixture();
+        let obj = extract_json_object_after(&payload, "\"issuerData\":")
+            .expect("issuerData should be extractable from perf fixture");
+        let detail: ScrapedIssuerDetail =
+            serde_json::from_value(obj).expect("should deserialize to ScrapedIssuerDetail");
+
+        assert_eq!(detail.issuer_name, "Apple Inc.");
+        assert_eq!(detail.issuer_ticker.as_deref(), Some("AAPL"));
+        assert_eq!(detail.sector.as_deref(), Some("information-technology"));
+        assert!(
+            detail.performance.is_some(),
+            "performance should be Some for the perf fixture"
+        );
+        assert_eq!(detail.stats.count_trades, 450);
+        assert_eq!(detail.stats.count_politicians, 85);
+        assert_eq!(detail.stats.volume, 25000000);
+        assert_eq!(detail.issuer_id, 12345);
+        assert_eq!(detail.state_id.as_deref(), Some("ca"));
+        assert_eq!(detail.c2iq.as_deref(), Some("AAPL:US"));
+        assert_eq!(detail.country.as_deref(), Some("us"));
+    }
+
+    #[test]
+    fn test_issuer_detail_no_performance() {
+        let payload = load_issuer_no_perf_fixture();
+        let obj = extract_json_object_after(&payload, "\"issuerData\":")
+            .expect("issuerData should be extractable from no-perf fixture");
+        let detail: ScrapedIssuerDetail =
+            serde_json::from_value(obj).expect("should deserialize to ScrapedIssuerDetail");
+
+        assert!(
+            detail.performance.is_none(),
+            "performance should be None for the no-perf fixture"
+        );
+        assert_eq!(detail.issuer_name, "PrivateCo Holdings");
+        assert_eq!(detail.issuer_ticker, None);
+        assert_eq!(detail.sector, None);
+        assert_eq!(detail.issuer_id, 99999);
+        assert_eq!(detail.stats.count_trades, 5);
+    }
+
+    #[test]
+    fn test_issuer_detail_performance_eod_prices() {
+        let payload = load_issuer_perf_fixture();
+        let obj = extract_json_object_after(&payload, "\"issuerData\":")
+            .expect("issuerData should be extractable");
+        let detail: ScrapedIssuerDetail =
+            serde_json::from_value(obj).expect("should deserialize");
+
+        let perf = detail.performance.expect("performance should be Some");
+        let eod = perf
+            .get("eodPrices")
+            .expect("eodPrices key should exist")
+            .as_array()
+            .expect("eodPrices should be an array");
+        assert_eq!(eod.len(), 3, "eodPrices should have 3 entries");
+
+        // Verify first entry: ["2026-01-15", 225.5]
+        let first = eod[0].as_array().expect("first entry should be an array");
+        assert_eq!(first[0].as_str(), Some("2026-01-15"));
+        assert!((first[1].as_f64().unwrap() - 225.5).abs() < f64::EPSILON);
+
+        // Verify mcap
+        let mcap = perf.get("mcap").and_then(|v| v.as_i64());
+        assert_eq!(mcap, Some(3500000000000_i64), "mcap should be 3.5T");
+    }
+
+    // ---- Committee-filtered politician listing fixture tests ----
+
     #[test]
     fn test_politicians_by_committee_fixture() {
         // Fixture is real HTML from /politicians?committee=ssfi (Senate Finance).

@@ -1,0 +1,17 @@
+<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/></head><body>
+<!-- SYNTHETIC FIXTURE: Created 2026-02-08 for issuer detail page with full performance data.
+     The RSC payload structure is modeled from:
+     1. The existing issuer_detail() code which uses extract_json_object_after(payload, "\"issuerData\":")
+     2. The ScrapedIssuerDetail struct in scrape.rs
+     3. The IssuerDetail type in capitoltrades_api/src/types/issuer.rs
+     4. The normalize_performance() logic in issuers.rs command handler
+
+     This fixture represents an issuer with full performance and EOD price data.
+     Issuer ID: 12345 (Apple Inc., AAPL)
+
+     The issuerData key must appear inside a self.__next_f.push call for extract_rsc_payload to find it.
+     Performance includes all 20 required fields plus eodPrices array.
+-->
+<script>self.__next_f.push([1,"1:HL[\"/_next/static/css/test.css\",\"style\"]\n"])</script>
+<script>self.__next_f.push([1,"0:[\"$\",\"div\",null,{\"className\":\"issuer-detail\",\"issuerData\":{\"_issuerId\":12345,\"_stateId\":\"ca\",\"c2iq\":\"AAPL:US\",\"country\":\"us\",\"issuerName\":\"Apple Inc.\",\"issuerTicker\":\"AAPL\",\"sector\":\"information-technology\",\"stats\":{\"countTrades\":450,\"countPoliticians\":85,\"volume\":25000000,\"dateLastTraded\":\"2026-01-10\"},\"performance\":{\"mcap\":3500000000000,\"trailing1\":225.5,\"trailing1Change\":0.0089,\"trailing7\":224.0,\"trailing7Change\":0.0156,\"trailing30\":220.0,\"trailing30Change\":0.025,\"trailing90\":210.0,\"trailing90Change\":0.0738,\"trailing365\":180.0,\"trailing365Change\":0.2528,\"wtd\":224.5,\"wtdChange\":0.0133,\"mtd\":222.0,\"mtdChange\":0.0203,\"qtd\":218.0,\"qtdChange\":0.0344,\"ytd\":215.0,\"ytdChange\":0.0488,\"eodPrices\":[[\"2026-01-15\",225.5],[\"2026-01-16\",227.3],[\"2026-01-17\",228.1]]}}}]\n"])</script>
+</body></html>
