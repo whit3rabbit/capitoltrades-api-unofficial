@@ -109,11 +109,11 @@ Plans:
   1. Detail page fetches run with bounded concurrency (3-5 parallel requests via Semaphore) instead of sequentially
   2. During enrichment, a progress bar shows current position, total count, and estimated time remaining
   3. After N consecutive HTTP failures, the enrichment pauses or stops gracefully instead of burning through retries (circuit breaker)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md -- Bounded concurrent enrichment with progress bars and circuit breaker (PERF-01, PERF-02, PERF-03)
+- [ ] 06-02-PLAN.md -- Committee enrichment progress spinner and CircuitBreaker unit tests (PERF-02 polish)
 
 ## Progress
 
@@ -127,4 +127,4 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 | 3. Trade Sync and Output | 3/3 | Complete | 2026-02-08 |
 | 4. Politician Enrichment | 3/3 | Complete | 2026-02-08 |
 | 5. Issuer Enrichment | 3/3 | Complete | 2026-02-08 |
-| 6. Concurrency and Reliability | 0/TBD | Not started | - |
+| 6. Concurrency and Reliability | 0/2 | Not started | - |
