@@ -1043,6 +1043,225 @@ impl Db {
         Ok(count)
     }
 
+    /// Count issuers that have not yet been enriched (enriched_at IS NULL).
+    pub fn count_unenriched_issuers(&self) -> Result<i64, DbError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM issuers WHERE enriched_at IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Persist scraped issuer detail data to the database.
+    ///
+    /// Updates the issuers table (with COALESCE protection for nullable fields),
+    /// upserts issuer_stats, and writes performance + EOD prices if available.
+    /// Always sets `enriched_at` to the current UTC timestamp.
+    pub fn update_issuer_detail(
+        &self,
+        issuer_id: i64,
+        detail: &crate::scrape::ScrapedIssuerDetail,
+    ) -> Result<(), DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        // Step 1: UPDATE issuers base row with COALESCE protection
+        tx.execute(
+            "UPDATE issuers SET
+               state_id = COALESCE(?1, state_id),
+               c2iq = COALESCE(?2, c2iq),
+               country = COALESCE(?3, country),
+               issuer_name = ?4,
+               issuer_ticker = COALESCE(?5, issuer_ticker),
+               sector = COALESCE(?6, sector),
+               enriched_at = datetime('now')
+             WHERE issuer_id = ?7",
+            params![
+                detail.state_id,
+                detail.c2iq,
+                detail.country,
+                detail.issuer_name,
+                detail.issuer_ticker,
+                detail.sector,
+                issuer_id,
+            ],
+        )?;
+
+        // Step 2: UPSERT issuer_stats
+        tx.execute(
+            "INSERT INTO issuer_stats (issuer_id, count_trades, count_politicians, volume, date_last_traded)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(issuer_id) DO UPDATE SET
+               count_trades = excluded.count_trades,
+               count_politicians = excluded.count_politicians,
+               volume = excluded.volume,
+               date_last_traded = excluded.date_last_traded",
+            params![
+                issuer_id,
+                detail.stats.count_trades,
+                detail.stats.count_politicians,
+                detail.stats.volume,
+                detail.stats.date_last_traded,
+            ],
+        )?;
+
+        // Step 3: Handle performance data
+        if let Some(ref perf_value) = detail.performance {
+            if let Some(perf_obj) = perf_value.as_object() {
+                // Check all 20 required fields are present and non-null
+                let required = [
+                    "mcap",
+                    "trailing1",
+                    "trailing1Change",
+                    "trailing7",
+                    "trailing7Change",
+                    "trailing30",
+                    "trailing30Change",
+                    "trailing90",
+                    "trailing90Change",
+                    "trailing365",
+                    "trailing365Change",
+                    "wtd",
+                    "wtdChange",
+                    "mtd",
+                    "mtdChange",
+                    "qtd",
+                    "qtdChange",
+                    "ytd",
+                    "ytdChange",
+                    "eodPrices",
+                ];
+                let all_present = required
+                    .iter()
+                    .all(|key| perf_obj.get(*key).map(|v| !v.is_null()).unwrap_or(false));
+
+                if all_present {
+                    // 3a: INSERT OR REPLACE issuer_performance
+                    let mcap = perf_obj.get("mcap").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let trailing1 = perf_obj.get("trailing1").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing1_change = perf_obj.get("trailing1Change").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing7 = perf_obj.get("trailing7").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing7_change = perf_obj.get("trailing7Change").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing30 = perf_obj.get("trailing30").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing30_change = perf_obj.get("trailing30Change").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing90 = perf_obj.get("trailing90").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing90_change = perf_obj.get("trailing90Change").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing365 = perf_obj.get("trailing365").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let trailing365_change = perf_obj.get("trailing365Change").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let wtd = perf_obj.get("wtd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let wtd_change = perf_obj.get("wtdChange").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let mtd = perf_obj.get("mtd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let mtd_change = perf_obj.get("mtdChange").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let qtd = perf_obj.get("qtd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let qtd_change = perf_obj.get("qtdChange").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let ytd = perf_obj.get("ytd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let ytd_change = perf_obj.get("ytdChange").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                    tx.execute(
+                        "INSERT INTO issuer_performance (
+                           issuer_id, mcap,
+                           trailing1, trailing1_change, trailing7, trailing7_change,
+                           trailing30, trailing30_change, trailing90, trailing90_change,
+                           trailing365, trailing365_change,
+                           wtd, wtd_change, mtd, mtd_change,
+                           qtd, qtd_change, ytd, ytd_change
+                         )
+                         VALUES (
+                           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                           ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
+                         )
+                         ON CONFLICT(issuer_id) DO UPDATE SET
+                           mcap = excluded.mcap,
+                           trailing1 = excluded.trailing1,
+                           trailing1_change = excluded.trailing1_change,
+                           trailing7 = excluded.trailing7,
+                           trailing7_change = excluded.trailing7_change,
+                           trailing30 = excluded.trailing30,
+                           trailing30_change = excluded.trailing30_change,
+                           trailing90 = excluded.trailing90,
+                           trailing90_change = excluded.trailing90_change,
+                           trailing365 = excluded.trailing365,
+                           trailing365_change = excluded.trailing365_change,
+                           wtd = excluded.wtd,
+                           wtd_change = excluded.wtd_change,
+                           mtd = excluded.mtd,
+                           mtd_change = excluded.mtd_change,
+                           qtd = excluded.qtd,
+                           qtd_change = excluded.qtd_change,
+                           ytd = excluded.ytd,
+                           ytd_change = excluded.ytd_change",
+                        params![
+                            issuer_id, mcap,
+                            trailing1, trailing1_change, trailing7, trailing7_change,
+                            trailing30, trailing30_change, trailing90, trailing90_change,
+                            trailing365, trailing365_change,
+                            wtd, wtd_change, mtd, mtd_change,
+                            qtd, qtd_change, ytd, ytd_change,
+                        ],
+                    )?;
+
+                    // 3b: DELETE old EOD prices, then INSERT new ones
+                    tx.execute(
+                        "DELETE FROM issuer_eod_prices WHERE issuer_id = ?1",
+                        params![issuer_id],
+                    )?;
+
+                    if let Some(eod_arr) = perf_obj.get("eodPrices").and_then(|v| v.as_array()) {
+                        let mut stmt = tx.prepare(
+                            "INSERT INTO issuer_eod_prices (issuer_id, price_date, price)
+                             VALUES (?1, ?2, ?3)",
+                        )?;
+                        for entry in eod_arr {
+                            if let Some(pair) = entry.as_array() {
+                                // Each entry is [date_string_or_float, price_float]
+                                let eod_values: Vec<DbEodValue> = pair
+                                    .iter()
+                                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                    .collect();
+                                if let Some((date, price)) = eod_pair(&eod_values) {
+                                    stmt.execute(params![issuer_id, date, price])?;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Performance present but incomplete -- treat as no performance
+                    tx.execute(
+                        "DELETE FROM issuer_performance WHERE issuer_id = ?1",
+                        params![issuer_id],
+                    )?;
+                    tx.execute(
+                        "DELETE FROM issuer_eod_prices WHERE issuer_id = ?1",
+                        params![issuer_id],
+                    )?;
+                }
+            } else {
+                // Performance is not an object -- treat as no performance
+                tx.execute(
+                    "DELETE FROM issuer_performance WHERE issuer_id = ?1",
+                    params![issuer_id],
+                )?;
+                tx.execute(
+                    "DELETE FROM issuer_eod_prices WHERE issuer_id = ?1",
+                    params![issuer_id],
+                )?;
+            }
+        } else {
+            // Step 4: performance is None -- clean up stale data
+            tx.execute(
+                "DELETE FROM issuer_performance WHERE issuer_id = ?1",
+                params![issuer_id],
+            )?;
+            tx.execute(
+                "DELETE FROM issuer_eod_prices WHERE issuer_id = ?1",
+                params![issuer_id],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Query enriched trades with JOINed politician, issuer, asset,
     /// committee, and label data. Supports filtering by party, state,
     /// transaction type, politician name, issuer name/ticker, and date range.
@@ -3169,5 +3388,337 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         // Ordered by volume DESC: P000001 (300K), P000002 (200K)
         assert_eq!(rows[0].politician_id, "P000001");
         assert_eq!(rows[1].politician_id, "P000002");
+    }
+
+    // --- update_issuer_detail tests ---
+
+    fn make_test_scraped_issuer_detail(
+        issuer_id: i64,
+        name: &str,
+        perf: Option<serde_json::Value>,
+    ) -> crate::scrape::ScrapedIssuerDetail {
+        crate::scrape::ScrapedIssuerDetail {
+            issuer_id,
+            state_id: Some("ca".to_string()),
+            c2iq: Some("AAPL:US".to_string()),
+            country: Some("us".to_string()),
+            issuer_name: name.to_string(),
+            issuer_ticker: Some("AAPL".to_string()),
+            performance: perf,
+            sector: Some("information-technology".to_string()),
+            stats: crate::scrape::ScrapedIssuerStats {
+                count_trades: 100,
+                count_politicians: 20,
+                volume: 5000000,
+                date_last_traded: "2026-01-10".to_string(),
+            },
+        }
+    }
+
+    fn make_test_performance_json() -> serde_json::Value {
+        serde_json::json!({
+            "mcap": 3500000000000_i64,
+            "trailing1": 225.5,
+            "trailing1Change": 0.0089,
+            "trailing7": 224.0,
+            "trailing7Change": 0.0156,
+            "trailing30": 220.0,
+            "trailing30Change": 0.025,
+            "trailing90": 210.0,
+            "trailing90Change": 0.0738,
+            "trailing365": 180.0,
+            "trailing365Change": 0.2528,
+            "wtd": 224.5,
+            "wtdChange": 0.0133,
+            "mtd": 222.0,
+            "mtdChange": 0.0203,
+            "qtd": 218.0,
+            "qtdChange": 0.0344,
+            "ytd": 215.0,
+            "ytdChange": 0.0488,
+            "eodPrices": [
+                ["2026-01-15", 225.5],
+                ["2026-01-16", 227.3],
+                ["2026-01-17", 228.1]
+            ]
+        })
+    }
+
+    fn insert_bare_issuer(db: &Db, issuer_id: i64, name: &str) {
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name) VALUES (?1, ?2)",
+                params![issuer_id, name],
+            )
+            .expect("insert bare issuer");
+    }
+
+    #[test]
+    fn test_update_issuer_detail_with_performance() {
+        let db = open_test_db();
+        insert_bare_issuer(&db, 12345, "Apple Inc.");
+
+        let detail = make_test_scraped_issuer_detail(12345, "Apple Inc.", Some(make_test_performance_json()));
+        db.update_issuer_detail(12345, &detail)
+            .expect("update_issuer_detail");
+
+        // Verify enriched_at is set
+        let enriched: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM issuers WHERE issuer_id = 12345",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query enriched_at");
+        assert!(enriched.is_some(), "enriched_at should be set after update");
+
+        // Verify issuer_performance row exists with correct mcap
+        let mcap: i64 = db
+            .conn
+            .query_row(
+                "SELECT mcap FROM issuer_performance WHERE issuer_id = 12345",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query mcap");
+        assert_eq!(mcap, 3500000000000_i64, "mcap should be 3.5T");
+
+        // Verify trailing values
+        let (t1, t1c): (f64, f64) = db
+            .conn
+            .query_row(
+                "SELECT trailing1, trailing1_change FROM issuer_performance WHERE issuer_id = 12345",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("query trailing");
+        assert!((t1 - 225.5).abs() < f64::EPSILON);
+        assert!((t1c - 0.0089).abs() < f64::EPSILON);
+
+        // Verify EOD prices
+        let eod_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM issuer_eod_prices WHERE issuer_id = 12345",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count eod prices");
+        assert_eq!(eod_count, 3, "should have 3 EOD price entries");
+
+        // Verify first EOD price
+        let (date, price): (String, f64) = db
+            .conn
+            .query_row(
+                "SELECT price_date, price FROM issuer_eod_prices WHERE issuer_id = 12345 ORDER BY price_date LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("query first eod price");
+        assert_eq!(date, "2026-01-15");
+        assert!((price - 225.5).abs() < f64::EPSILON);
+
+        // Verify issuer_stats
+        let (ct, cp, vol): (i64, i64, i64) = db
+            .conn
+            .query_row(
+                "SELECT count_trades, count_politicians, volume FROM issuer_stats WHERE issuer_id = 12345",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query issuer_stats");
+        assert_eq!(ct, 100);
+        assert_eq!(cp, 20);
+        assert_eq!(vol, 5000000);
+    }
+
+    #[test]
+    fn test_update_issuer_detail_no_performance() {
+        let db = open_test_db();
+        insert_bare_issuer(&db, 99999, "PrivateCo Holdings");
+
+        let detail = make_test_scraped_issuer_detail(99999, "PrivateCo Holdings", None);
+        db.update_issuer_detail(99999, &detail)
+            .expect("update_issuer_detail");
+
+        // Verify enriched_at is still set (even with no performance)
+        let enriched: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM issuers WHERE issuer_id = 99999",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query enriched_at");
+        assert!(enriched.is_some(), "enriched_at should be set even with no performance");
+
+        // Verify no issuer_performance row
+        let perf_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM issuer_performance WHERE issuer_id = 99999",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count perf");
+        assert_eq!(perf_count, 0, "should have no performance row");
+
+        // Verify no EOD prices
+        let eod_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM issuer_eod_prices WHERE issuer_id = 99999",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count eod");
+        assert_eq!(eod_count, 0, "should have no EOD prices");
+    }
+
+    #[test]
+    fn test_update_issuer_detail_preserves_existing_fields() {
+        let db = open_test_db();
+        // Insert issuer with sector "financials"
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, sector) VALUES (55555, 'TestCorp', 'financials')",
+                [],
+            )
+            .expect("insert issuer with sector");
+
+        // Update with sector: None -- COALESCE should preserve existing
+        let detail = crate::scrape::ScrapedIssuerDetail {
+            issuer_id: 55555,
+            state_id: None,
+            c2iq: None,
+            country: None,
+            issuer_name: "TestCorp".to_string(),
+            issuer_ticker: None,
+            performance: None,
+            sector: None,
+            stats: crate::scrape::ScrapedIssuerStats {
+                count_trades: 10,
+                count_politicians: 3,
+                volume: 50000,
+                date_last_traded: "2025-01-01".to_string(),
+            },
+        };
+        db.update_issuer_detail(55555, &detail)
+            .expect("update_issuer_detail");
+
+        let sector: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT sector FROM issuers WHERE issuer_id = 55555",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query sector");
+        assert_eq!(
+            sector.as_deref(),
+            Some("financials"),
+            "sector should be preserved via COALESCE when incoming is NULL"
+        );
+    }
+
+    #[test]
+    fn test_count_unenriched_issuers() {
+        let db = open_test_db();
+        // Insert 3 issuers
+        insert_bare_issuer(&db, 1, "Corp A");
+        insert_bare_issuer(&db, 2, "Corp B");
+        insert_bare_issuer(&db, 3, "Corp C");
+
+        let count = db.count_unenriched_issuers().expect("count_unenriched_issuers");
+        assert_eq!(count, 3, "all 3 should be unenriched initially");
+
+        // Enrich one
+        db.conn
+            .execute(
+                "UPDATE issuers SET enriched_at = datetime('now') WHERE issuer_id = 2",
+                [],
+            )
+            .expect("enrich issuer 2");
+
+        let count = db.count_unenriched_issuers().expect("count after enrichment");
+        assert_eq!(count, 2, "should return 2 after enriching 1");
+    }
+
+    #[test]
+    fn test_update_issuer_detail_replaces_eod_prices() {
+        let db = open_test_db();
+        insert_bare_issuer(&db, 77777, "ReplaceCorp");
+
+        // First enrichment: 3 EOD prices
+        let detail1 = make_test_scraped_issuer_detail(77777, "ReplaceCorp", Some(make_test_performance_json()));
+        db.update_issuer_detail(77777, &detail1)
+            .expect("first update");
+
+        let eod_count1: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM issuer_eod_prices WHERE issuer_id = 77777",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count eod 1");
+        assert_eq!(eod_count1, 3, "should have 3 EOD prices after first enrichment");
+
+        // Second enrichment: 2 different EOD prices
+        let perf2 = serde_json::json!({
+            "mcap": 3500000000000_i64,
+            "trailing1": 225.5,
+            "trailing1Change": 0.0089,
+            "trailing7": 224.0,
+            "trailing7Change": 0.0156,
+            "trailing30": 220.0,
+            "trailing30Change": 0.025,
+            "trailing90": 210.0,
+            "trailing90Change": 0.0738,
+            "trailing365": 180.0,
+            "trailing365Change": 0.2528,
+            "wtd": 224.5,
+            "wtdChange": 0.0133,
+            "mtd": 222.0,
+            "mtdChange": 0.0203,
+            "qtd": 218.0,
+            "qtdChange": 0.0344,
+            "ytd": 215.0,
+            "ytdChange": 0.0488,
+            "eodPrices": [
+                ["2026-02-01", 230.0],
+                ["2026-02-02", 231.5]
+            ]
+        });
+        let detail2 = make_test_scraped_issuer_detail(77777, "ReplaceCorp", Some(perf2));
+        db.update_issuer_detail(77777, &detail2)
+            .expect("second update");
+
+        let eod_count2: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM issuer_eod_prices WHERE issuer_id = 77777",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count eod 2");
+        assert_eq!(
+            eod_count2, 2,
+            "should have 2 EOD prices after second enrichment (old ones deleted)"
+        );
+
+        // Verify the new dates are present
+        let dates: Vec<String> = {
+            let mut stmt = db
+                .conn
+                .prepare("SELECT price_date FROM issuer_eod_prices WHERE issuer_id = 77777 ORDER BY price_date")
+                .expect("prepare");
+            stmt.query_map([], |row| row.get(0))
+                .expect("query")
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        assert_eq!(dates, vec!["2026-02-01", "2026-02-02"]);
     }
 }
