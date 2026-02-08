@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::io::Cursor;
 
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
-use capitoltraders_lib::DbTradeRow;
+use capitoltraders_lib::{DbPoliticianRow, DbTradeRow};
 
 /// Singularize common array field names for XML child elements.
 fn singular(field: &str) -> &str {
@@ -120,6 +120,11 @@ pub fn issuers_to_xml(issuers: &[IssuerDetail]) -> String {
 /// Serializes a slice of DB trade rows into an XML string with `<trades>` as the root element.
 pub fn db_trades_to_xml(trades: &[DbTradeRow]) -> String {
     items_to_xml("trades", "trade", trades)
+}
+
+/// Serializes a slice of DB politician rows into an XML string with `<politicians>` as the root element.
+pub fn db_politicians_to_xml(politicians: &[DbPoliticianRow]) -> String {
+    items_to_xml("politicians", "politician", politicians)
 }
 
 #[cfg(test)]

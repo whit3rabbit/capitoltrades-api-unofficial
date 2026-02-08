@@ -1163,6 +1163,96 @@ impl Db {
         }
         Ok(result)
     }
+
+    /// Query politicians with JOINed stats and committee membership data.
+    /// Supports filtering by party, state, name, and chamber.
+    pub fn query_politicians(
+        &self,
+        filter: &DbPoliticianFilter,
+    ) -> Result<Vec<DbPoliticianRow>, DbError> {
+        let mut sql = String::from(
+            "SELECT p.politician_id,
+                    p.first_name || ' ' || p.last_name AS name,
+                    p.party, p.state_id, p.chamber, p.gender, p.enriched_at,
+                    COALESCE(ps.count_trades, 0) AS trades,
+                    COALESCE(ps.count_issuers, 0) AS issuers,
+                    COALESCE(ps.volume, 0) AS volume,
+                    ps.date_last_traded,
+                    COALESCE(GROUP_CONCAT(DISTINCT pc.committee), '') AS committees
+             FROM politicians p
+             LEFT JOIN politician_stats ps ON p.politician_id = ps.politician_id
+             LEFT JOIN politician_committees pc ON p.politician_id = pc.politician_id
+             WHERE 1=1",
+        );
+
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
+
+        if let Some(ref party) = filter.party {
+            sql.push_str(&format!(" AND p.party = ?{}", param_idx));
+            params_vec.push(Box::new(party.clone()));
+            param_idx += 1;
+        }
+        if let Some(ref state) = filter.state {
+            sql.push_str(&format!(" AND UPPER(p.state_id) = UPPER(?{})", param_idx));
+            params_vec.push(Box::new(state.clone()));
+            param_idx += 1;
+        }
+        if let Some(ref name) = filter.name {
+            sql.push_str(&format!(
+                " AND (p.first_name || ' ' || p.last_name) LIKE ?{}",
+                param_idx
+            ));
+            params_vec.push(Box::new(format!("%{}%", name)));
+            param_idx += 1;
+        }
+        if let Some(ref chamber) = filter.chamber {
+            sql.push_str(&format!(" AND p.chamber = ?{}", param_idx));
+            params_vec.push(Box::new(chamber.clone()));
+            param_idx += 1;
+        }
+
+        sql.push_str(" GROUP BY p.politician_id ORDER BY COALESCE(ps.volume, 0) DESC");
+
+        if let Some(n) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let _ = param_idx; // suppress unused warning
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            let committees_str: String = row.get(11)?;
+
+            Ok(DbPoliticianRow {
+                politician_id: row.get(0)?,
+                name: row.get(1)?,
+                party: row.get(2)?,
+                state: row.get(3)?,
+                chamber: row.get(4)?,
+                gender: row.get(5)?,
+                enriched_at: row.get(6)?,
+                trades: row.get(7)?,
+                issuers: row.get(8)?,
+                volume: row.get(9)?,
+                last_traded: row.get(10)?,
+                committees: if committees_str.is_empty() {
+                    Vec::new()
+                } else {
+                    committees_str.split(',').map(|s| s.to_string()).collect()
+                },
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -1218,6 +1308,36 @@ pub struct DbTradeFilter {
     pub issuer: Option<String>,
     pub since: Option<String>,
     pub until: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// A fully-joined politician row returned by [`Db::query_politicians`].
+///
+/// Includes stats from politician_stats and committee memberships from
+/// politician_committees via SQL JOINs and GROUP_CONCAT.
+#[derive(Debug, Clone, Serialize)]
+pub struct DbPoliticianRow {
+    pub politician_id: String,
+    pub name: String,
+    pub party: String,
+    pub state: String,
+    pub chamber: String,
+    pub gender: String,
+    pub committees: Vec<String>,
+    pub trades: i64,
+    pub issuers: i64,
+    pub volume: i64,
+    pub last_traded: Option<String>,
+    pub enriched_at: Option<String>,
+}
+
+/// Filter parameters for [`Db::query_politicians`].
+#[derive(Debug, Default)]
+pub struct DbPoliticianFilter {
+    pub party: Option<String>,
+    pub state: Option<String>,
+    pub name: Option<String>,
+    pub chamber: Option<String>,
     pub limit: Option<i64>,
 }
 

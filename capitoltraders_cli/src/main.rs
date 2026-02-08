@@ -80,7 +80,13 @@ async fn main() -> Result<()> {
                 commands::trades::run(args.as_ref(), &scraper, &format).await?
             }
         }
-        Commands::Politicians(args) => commands::politicians::run(args, &scraper, &format).await?,
+        Commands::Politicians(args) => {
+            if let Some(ref db_path) = args.db {
+                commands::politicians::run_db(args, db_path, &format).await?
+            } else {
+                commands::politicians::run(args, &scraper, &format).await?
+            }
+        }
         Commands::Issuers(args) => commands::issuers::run(args, &scraper, &format).await?,
         Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,
     }

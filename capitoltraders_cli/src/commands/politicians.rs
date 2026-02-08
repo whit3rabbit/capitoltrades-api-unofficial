@@ -1,15 +1,18 @@
 //! The `politicians` subcommand: lists and filters politicians who trade.
 
+use std::path::PathBuf;
+
 use anyhow::{bail, Result};
 use capitoltraders_lib::types::PoliticianDetail;
 use capitoltraders_lib::validation;
-use capitoltraders_lib::{ScrapeClient, ScrapedPoliticianCard};
+use capitoltraders_lib::{Db, DbPoliticianFilter, ScrapeClient, ScrapedPoliticianCard};
 use chrono::NaiveDate;
 use clap::Args;
 
 use crate::output::{
-    print_json, print_politicians_csv, print_politicians_markdown, print_politicians_table,
-    print_politicians_xml, OutputFormat,
+    print_db_politicians_csv, print_db_politicians_markdown, print_db_politicians_table,
+    print_db_politicians_xml, print_json, print_politicians_csv, print_politicians_markdown,
+    print_politicians_table, print_politicians_xml, OutputFormat,
 };
 
 /// Arguments for the `politicians` subcommand.
@@ -56,6 +59,10 @@ pub struct PoliticiansArgs {
     /// Sort ascending instead of descending
     #[arg(long)]
     pub asc: bool,
+
+    /// Read politicians from local SQLite database (requires prior sync)
+    #[arg(long)]
+    pub db: Option<PathBuf>,
 }
 
 /// Executes the politicians subcommand: validates inputs, scrapes results,
@@ -151,6 +158,87 @@ pub async fn run(
         OutputFormat::Csv => print_politicians_csv(&out)?,
         OutputFormat::Markdown => print_politicians_markdown(&out),
         OutputFormat::Xml => print_politicians_xml(&out),
+    }
+
+    Ok(())
+}
+
+/// Capitalize a validated party string to match DB storage format.
+///
+/// The validation module returns lowercase ("democrat", "republican", "other")
+/// but the database stores the capitalized form from the API ("Democrat", etc.).
+fn capitalize_party(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+/// Executes the politicians subcommand against the local SQLite database.
+///
+/// Builds a [`DbPoliticianFilter`] from the subset of CLI flags supported on the
+/// DB path, then calls [`Db::query_politicians`] and dispatches to output formatting.
+pub async fn run_db(
+    args: &PoliticiansArgs,
+    db_path: &std::path::Path,
+    format: &OutputFormat,
+) -> Result<()> {
+    // Bail on filters not supported by the DB query path
+    let unsupported: &[(&str, bool)] = &[
+        ("--committee", args.committee.is_some()),
+        ("--issuer-id", args.issuer_id.is_some()),
+    ];
+    for (flag, present) in unsupported {
+        if *present {
+            bail!(
+                "{} is not supported with --db. Supported filters: \
+                 --party, --state, --name, --chamber",
+                flag
+            );
+        }
+    }
+
+    let db = Db::open(db_path)?;
+
+    // Build filter from supported args
+    let mut filter = DbPoliticianFilter::default();
+
+    if let Some(ref val) = args.party {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_party(item.trim())?;
+            parts.push(capitalize_party(&validated.to_string()));
+        }
+        filter.party = Some(parts.join(","));
+    }
+
+    if let Some(ref val) = args.state {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_state(item.trim())?;
+            parts.push(validated);
+        }
+        filter.state = Some(parts.join(","));
+    }
+
+    let search_input = args.name.as_ref().or(args.search.as_ref());
+    if let Some(search) = search_input {
+        let validated = validation::validate_search(search)?;
+        filter.name = Some(validated.to_string());
+    }
+
+    filter.limit = Some(args.page_size);
+
+    let rows = db.query_politicians(&filter)?;
+    eprintln!("{} politicians from database", rows.len());
+
+    match format {
+        OutputFormat::Table => print_db_politicians_table(&rows),
+        OutputFormat::Json => print_json(&rows),
+        OutputFormat::Csv => print_db_politicians_csv(&rows)?,
+        OutputFormat::Markdown => print_db_politicians_markdown(&rows),
+        OutputFormat::Xml => print_db_politicians_xml(&rows),
     }
 
     Ok(())

@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
-use capitoltraders_lib::DbTradeRow;
+use capitoltraders_lib::{DbPoliticianRow, DbTradeRow};
 use serde::Serialize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
@@ -346,6 +346,81 @@ pub fn print_db_trades_csv(trades: &[DbTradeRow]) -> Result<()> {
 /// Prints DB trades as a well-formed XML document to stdout.
 pub fn print_db_trades_xml(trades: &[DbTradeRow]) {
     println!("{}", xml_output::db_trades_to_xml(trades));
+}
+
+// -- DB politician output --
+
+/// Flattened row representation of a DB politician for tabular output.
+///
+/// Includes committee membership data from the politician_committees table
+/// and trade stats from the politician_stats table.
+#[derive(Tabled, Serialize)]
+struct DbPoliticianOutputRow {
+    #[tabled(rename = "Name")]
+    #[serde(rename = "Name")]
+    name: String,
+    #[tabled(rename = "Party")]
+    #[serde(rename = "Party")]
+    party: String,
+    #[tabled(rename = "State")]
+    #[serde(rename = "State")]
+    state: String,
+    #[tabled(rename = "Chamber")]
+    #[serde(rename = "Chamber")]
+    chamber: String,
+    #[tabled(rename = "Committees")]
+    #[serde(rename = "Committees")]
+    committees: String,
+    #[tabled(rename = "Trades")]
+    #[serde(rename = "Trades")]
+    trades: i64,
+    #[tabled(rename = "Volume")]
+    #[serde(rename = "Volume")]
+    volume: String,
+}
+
+fn build_db_politician_rows(politicians: &[DbPoliticianRow]) -> Vec<DbPoliticianOutputRow> {
+    politicians
+        .iter()
+        .map(|p| DbPoliticianOutputRow {
+            name: p.name.clone(),
+            party: p.party.clone(),
+            state: p.state.clone(),
+            chamber: p.chamber.clone(),
+            committees: p.committees.join(", "),
+            trades: p.trades,
+            volume: format_value(p.volume),
+        })
+        .collect()
+}
+
+/// Prints DB politicians as an ASCII table to stdout.
+pub fn print_db_politicians_table(politicians: &[DbPoliticianRow]) {
+    println!("{}", Table::new(build_db_politician_rows(politicians)));
+}
+
+/// Prints DB politicians as a GitHub-flavored Markdown table to stdout.
+pub fn print_db_politicians_markdown(politicians: &[DbPoliticianRow]) {
+    let mut table = Table::new(build_db_politician_rows(politicians));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints DB politicians as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_db_politicians_csv(politicians: &[DbPoliticianRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_db_politician_rows(politicians) {
+        row.name = sanitize_csv_field(&row.name);
+        row.committees = sanitize_csv_field(&row.committees);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints DB politicians as a well-formed XML document to stdout.
+pub fn print_db_politicians_xml(politicians: &[DbPoliticianRow]) {
+    println!("{}", xml_output::db_politicians_to_xml(politicians));
 }
 
 // -- JSON output --
