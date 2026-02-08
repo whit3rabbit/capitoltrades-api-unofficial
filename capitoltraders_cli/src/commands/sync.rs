@@ -137,6 +137,18 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         );
     }
 
+    eprintln!("Syncing politician committee memberships...");
+    let committee_count = enrich_politician_committees(
+        &scraper,
+        &db,
+        args.details_delay_ms,
+    )
+    .await?;
+    eprintln!(
+        "Committee enrichment complete: {} memberships persisted",
+        committee_count
+    );
+
     Ok(())
 }
 
@@ -223,6 +235,55 @@ async fn enrich_trades(
         failed,
         total,
     })
+}
+
+async fn enrich_politician_committees(
+    scraper: &ScrapeClient,
+    db: &Db,
+    throttle_ms: u64,
+) -> Result<usize> {
+    let mut memberships: Vec<(String, String)> = Vec::new();
+
+    for &(code, name) in validation::COMMITTEE_MAP {
+        let mut page = 1;
+        let mut committee_member_count = 0;
+
+        loop {
+            let resp = scraper.politicians_by_committee(code, page).await?;
+            for card in &resp.data {
+                memberships.push((card.politician_id.clone(), code.to_string()));
+                committee_member_count += 1;
+            }
+
+            let total_pages = resp.total_pages.unwrap_or(1);
+            if page >= total_pages {
+                break;
+            }
+
+            page += 1;
+
+            if throttle_ms > 0 {
+                sleep(Duration::from_millis(throttle_ms)).await;
+            }
+        }
+
+        eprintln!("  {}: {} members", name, committee_member_count);
+
+        if throttle_ms > 0 {
+            sleep(Duration::from_millis(throttle_ms)).await;
+        }
+    }
+
+    let inserted = db.replace_all_politician_committees(&memberships)?;
+    db.mark_politicians_enriched()?;
+
+    eprintln!(
+        "Committee enrichment: {} memberships across {} committees",
+        memberships.len(),
+        validation::COMMITTEE_MAP.len()
+    );
+
+    Ok(inserted)
 }
 
 struct TradeSyncResult {
