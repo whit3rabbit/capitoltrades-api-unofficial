@@ -1472,6 +1472,133 @@ impl Db {
         }
         Ok(result)
     }
+
+    /// Query issuers with LEFT JOINed stats and performance data.
+    /// Supports filtering by search term, sector, state, and country.
+    pub fn query_issuers(&self, filter: &DbIssuerFilter) -> Result<Vec<DbIssuerRow>, DbError> {
+        let mut sql = String::from(
+            "SELECT i.issuer_id, i.issuer_name, i.issuer_ticker, i.sector,
+                    i.state_id, i.country, i.enriched_at,
+                    COALESCE(s.count_trades, 0),
+                    COALESCE(s.count_politicians, 0),
+                    COALESCE(s.volume, 0),
+                    s.date_last_traded,
+                    p.mcap, p.trailing1, p.trailing1_change,
+                    p.trailing7, p.trailing7_change,
+                    p.trailing30, p.trailing30_change,
+                    p.trailing90, p.trailing90_change,
+                    p.trailing365, p.trailing365_change
+             FROM issuers i
+             LEFT JOIN issuer_stats s ON i.issuer_id = s.issuer_id
+             LEFT JOIN issuer_performance p ON i.issuer_id = p.issuer_id
+             WHERE 1=1",
+        );
+
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
+
+        if let Some(ref search) = filter.search {
+            sql.push_str(&format!(
+                " AND (i.issuer_name LIKE ?{n} OR i.issuer_ticker LIKE ?{n})",
+                n = param_idx
+            ));
+            params_vec.push(Box::new(format!("%{}%", search)));
+            param_idx += 1;
+        }
+        if let Some(ref sectors) = filter.sector {
+            if !sectors.is_empty() {
+                let placeholders: Vec<String> = sectors
+                    .iter()
+                    .map(|_| {
+                        let ph = format!("?{}", param_idx);
+                        param_idx += 1;
+                        ph
+                    })
+                    .collect();
+                sql.push_str(&format!(" AND i.sector IN ({})", placeholders.join(",")));
+                for s in sectors {
+                    params_vec.push(Box::new(s.clone()));
+                }
+            }
+        }
+        if let Some(ref states) = filter.state {
+            if !states.is_empty() {
+                let placeholders: Vec<String> = states
+                    .iter()
+                    .map(|_| {
+                        let ph = format!("?{}", param_idx);
+                        param_idx += 1;
+                        ph
+                    })
+                    .collect();
+                sql.push_str(&format!(" AND i.state_id IN ({})", placeholders.join(",")));
+                for s in states {
+                    params_vec.push(Box::new(s.clone()));
+                }
+            }
+        }
+        if let Some(ref countries) = filter.country {
+            if !countries.is_empty() {
+                let placeholders: Vec<String> = countries
+                    .iter()
+                    .map(|_| {
+                        let ph = format!("?{}", param_idx);
+                        param_idx += 1;
+                        ph
+                    })
+                    .collect();
+                sql.push_str(&format!(" AND i.country IN ({})", placeholders.join(",")));
+                for c in countries {
+                    params_vec.push(Box::new(c.clone()));
+                }
+            }
+        }
+
+        sql.push_str(" ORDER BY COALESCE(s.volume, 0) DESC");
+
+        if let Some(n) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let _ = param_idx; // suppress unused warning
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(DbIssuerRow {
+                issuer_id: row.get(0)?,
+                issuer_name: row.get(1)?,
+                issuer_ticker: row.get(2)?,
+                sector: row.get(3)?,
+                state: row.get(4)?,
+                country: row.get(5)?,
+                enriched_at: row.get(6)?,
+                trades: row.get(7)?,
+                politicians: row.get(8)?,
+                volume: row.get(9)?,
+                last_traded: row.get(10)?,
+                mcap: row.get(11)?,
+                trailing1: row.get(12)?,
+                trailing1_change: row.get(13)?,
+                trailing7: row.get(14)?,
+                trailing7_change: row.get(15)?,
+                trailing30: row.get(16)?,
+                trailing30_change: row.get(17)?,
+                trailing90: row.get(18)?,
+                trailing90_change: row.get(19)?,
+                trailing365: row.get(20)?,
+                trailing365_change: row.get(21)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -1557,6 +1684,46 @@ pub struct DbPoliticianFilter {
     pub state: Option<String>,
     pub name: Option<String>,
     pub chamber: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// A fully-joined issuer row returned by [`Db::query_issuers`].
+///
+/// Includes stats from issuer_stats and performance data from
+/// issuer_performance via SQL LEFT JOINs.
+#[derive(Debug, Clone, Serialize)]
+pub struct DbIssuerRow {
+    pub issuer_id: i64,
+    pub issuer_name: String,
+    pub issuer_ticker: Option<String>,
+    pub sector: Option<String>,
+    pub state: Option<String>,
+    pub country: Option<String>,
+    pub trades: i64,
+    pub politicians: i64,
+    pub volume: i64,
+    pub last_traded: Option<String>,
+    pub mcap: Option<i64>,
+    pub trailing1: Option<f64>,
+    pub trailing1_change: Option<f64>,
+    pub trailing7: Option<f64>,
+    pub trailing7_change: Option<f64>,
+    pub trailing30: Option<f64>,
+    pub trailing30_change: Option<f64>,
+    pub trailing90: Option<f64>,
+    pub trailing90_change: Option<f64>,
+    pub trailing365: Option<f64>,
+    pub trailing365_change: Option<f64>,
+    pub enriched_at: Option<String>,
+}
+
+/// Filter parameters for [`Db::query_issuers`].
+#[derive(Debug, Default)]
+pub struct DbIssuerFilter {
+    pub search: Option<String>,
+    pub sector: Option<Vec<String>>,
+    pub state: Option<Vec<String>>,
+    pub country: Option<Vec<String>>,
     pub limit: Option<i64>,
 }
 

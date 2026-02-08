@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
-use capitoltraders_lib::{DbPoliticianRow, DbTradeRow};
+use capitoltraders_lib::{DbIssuerRow, DbPoliticianRow, DbTradeRow};
 use serde::Serialize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
@@ -421,6 +421,122 @@ pub fn print_db_politicians_csv(politicians: &[DbPoliticianRow]) -> Result<()> {
 /// Prints DB politicians as a well-formed XML document to stdout.
 pub fn print_db_politicians_xml(politicians: &[DbPoliticianRow]) {
     println!("{}", xml_output::db_politicians_to_xml(politicians));
+}
+
+// -- DB issuer output --
+
+/// Flattened row representation of a DB issuer for tabular output.
+///
+/// Includes performance data (market cap, trailing returns) and trade
+/// statistics from issuer_stats and issuer_performance tables.
+#[derive(Tabled, Serialize)]
+struct DbIssuerOutputRow {
+    #[tabled(rename = "Name")]
+    #[serde(rename = "Name")]
+    name: String,
+    #[tabled(rename = "Ticker")]
+    #[serde(rename = "Ticker")]
+    ticker: String,
+    #[tabled(rename = "Sector")]
+    #[serde(rename = "Sector")]
+    sector: String,
+    #[tabled(rename = "Mcap")]
+    #[serde(rename = "Mcap")]
+    mcap: String,
+    #[tabled(rename = "30D Return")]
+    #[serde(rename = "30D Return")]
+    trailing30: String,
+    #[tabled(rename = "YTD")]
+    #[serde(rename = "YTD")]
+    trailing365: String,
+    #[tabled(rename = "Trades")]
+    #[serde(rename = "Trades")]
+    trades: i64,
+    #[tabled(rename = "Volume")]
+    #[serde(rename = "Volume")]
+    volume: String,
+    #[tabled(rename = "Last Traded")]
+    #[serde(rename = "Last Traded")]
+    last_traded: String,
+}
+
+/// Format a large number with T/B/M suffixes for readability.
+fn format_large_number(value: i64) -> String {
+    let v = value as f64;
+    if v >= 1_000_000_000_000.0 {
+        format!("${:.1}T", v / 1_000_000_000_000.0)
+    } else if v >= 1_000_000_000.0 {
+        format!("${:.1}B", v / 1_000_000_000.0)
+    } else if v >= 1_000_000.0 {
+        format!("${:.1}M", v / 1_000_000.0)
+    } else {
+        format!("${}", value)
+    }
+}
+
+/// Format a trailing return value as a percentage string (e.g., "+2.5%" or "-1.3%").
+fn format_percent(value: f64) -> String {
+    if value >= 0.0 {
+        format!("+{:.1}%", value * 100.0)
+    } else {
+        format!("{:.1}%", value * 100.0)
+    }
+}
+
+fn build_db_issuer_rows(issuers: &[DbIssuerRow]) -> Vec<DbIssuerOutputRow> {
+    issuers
+        .iter()
+        .map(|i| DbIssuerOutputRow {
+            name: i.issuer_name.clone(),
+            ticker: i.issuer_ticker.clone().unwrap_or_else(|| "-".to_string()),
+            sector: i.sector.clone().unwrap_or_else(|| "-".to_string()),
+            mcap: i
+                .mcap
+                .map(format_large_number)
+                .unwrap_or_else(|| "-".to_string()),
+            trailing30: i
+                .trailing30_change
+                .map(format_percent)
+                .unwrap_or_else(|| "-".to_string()),
+            trailing365: i
+                .trailing365_change
+                .map(format_percent)
+                .unwrap_or_else(|| "-".to_string()),
+            trades: i.trades,
+            volume: format_value(i.volume),
+            last_traded: i.last_traded.clone().unwrap_or_else(|| "-".to_string()),
+        })
+        .collect()
+}
+
+/// Prints DB issuers as an ASCII table to stdout.
+pub fn print_db_issuers_table(issuers: &[DbIssuerRow]) {
+    println!("{}", Table::new(build_db_issuer_rows(issuers)));
+}
+
+/// Prints DB issuers as a GitHub-flavored Markdown table to stdout.
+pub fn print_db_issuers_markdown(issuers: &[DbIssuerRow]) {
+    let mut table = Table::new(build_db_issuer_rows(issuers));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints DB issuers as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_db_issuers_csv(issuers: &[DbIssuerRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_db_issuer_rows(issuers) {
+        row.name = sanitize_csv_field(&row.name);
+        row.ticker = sanitize_csv_field(&row.ticker);
+        row.sector = sanitize_csv_field(&row.sector);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints DB issuers as a well-formed XML document to stdout.
+pub fn print_db_issuers_xml(issuers: &[DbIssuerRow]) {
+    println!("{}", xml_output::db_issuers_to_xml(issuers));
 }
 
 // -- JSON output --

@@ -1,14 +1,17 @@
 //! The `issuers` subcommand: lists and filters companies/funds traded by politicians.
 
+use std::path::PathBuf;
+
 use anyhow::{bail, Result};
 use capitoltraders_lib::types::IssuerDetail;
 use capitoltraders_lib::validation;
-use capitoltraders_lib::{ScrapeClient, ScrapedIssuerDetail, ScrapedIssuerList};
+use capitoltraders_lib::{Db, DbIssuerFilter, ScrapeClient, ScrapedIssuerDetail, ScrapedIssuerList};
 use clap::Args;
 
 use crate::output::{
-    print_issuers_csv, print_issuers_markdown, print_issuers_table, print_issuers_xml, print_json,
-    OutputFormat,
+    print_db_issuers_csv, print_db_issuers_markdown, print_db_issuers_table,
+    print_db_issuers_xml, print_issuers_csv, print_issuers_markdown, print_issuers_table,
+    print_issuers_xml, print_json, OutputFormat,
 };
 
 /// Arguments for the `issuers` subcommand.
@@ -59,6 +62,14 @@ pub struct IssuersArgs {
     /// Sort ascending instead of descending
     #[arg(long)]
     pub asc: bool,
+
+    /// Read issuers from local SQLite database (requires prior sync)
+    #[arg(long)]
+    pub db: Option<PathBuf>,
+
+    /// Maximum results to return (DB mode only)
+    #[arg(long)]
+    pub limit: Option<i64>,
 }
 
 /// Executes the issuers subcommand: validates inputs, scrapes results,
@@ -201,6 +212,85 @@ fn scraped_issuer_detail_to_detail(detail: &ScrapedIssuerDetail) -> Result<Issue
     });
     let detail: IssuerDetail = serde_json::from_value(json)?;
     Ok(detail)
+}
+
+/// Executes the issuers subcommand against the local SQLite database.
+///
+/// Builds a [`DbIssuerFilter`] from the subset of CLI flags supported on the
+/// DB path, then calls [`Db::query_issuers`] and dispatches to output formatting.
+pub fn run_db(
+    args: &IssuersArgs,
+    db_path: &std::path::Path,
+    format: &OutputFormat,
+) -> Result<()> {
+    // Bail on filters not supported by the DB query path
+    let unsupported: &[(&str, bool)] = &[
+        ("--market-cap", args.market_cap.is_some()),
+        ("--politician-id", args.politician_id.is_some()),
+        ("--id", args.id.is_some()),
+    ];
+    for (flag, present) in unsupported {
+        if *present {
+            bail!(
+                "{} is not supported with --db. Supported filters: \
+                 --search, --sector, --state, --country, --limit",
+                flag
+            );
+        }
+    }
+
+    let db = Db::open(db_path)?;
+
+    let mut filter = DbIssuerFilter::default();
+
+    if let Some(ref search) = args.search {
+        let validated = validation::validate_search(search)?;
+        filter.search = Some(validated.to_string());
+    }
+
+    if let Some(ref val) = args.sector {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_sector(item.trim())?;
+            parts.push(validated.to_string());
+        }
+        filter.sector = Some(parts);
+    }
+
+    if let Some(ref val) = args.state {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_issuer_state(item.trim())?;
+            parts.push(validated.to_string());
+        }
+        filter.state = Some(parts);
+    }
+
+    if let Some(ref val) = args.country {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_country(item.trim())?;
+            parts.push(validated.to_string());
+        }
+        filter.country = Some(parts);
+    }
+
+    if let Some(limit) = args.limit {
+        filter.limit = Some(limit);
+    }
+
+    let rows = db.query_issuers(&filter)?;
+    eprintln!("{} issuers", rows.len());
+
+    match format {
+        OutputFormat::Table => print_db_issuers_table(&rows),
+        OutputFormat::Json => print_json(&rows),
+        OutputFormat::Csv => print_db_issuers_csv(&rows)?,
+        OutputFormat::Markdown => print_db_issuers_markdown(&rows),
+        OutputFormat::Xml => print_db_issuers_xml(&rows),
+    }
+
+    Ok(())
 }
 
 fn normalize_performance(value: Option<serde_json::Value>) -> serde_json::Value {

@@ -20,8 +20,8 @@ pub use capitoltrades_api::{
 
 pub use client::CachedClient;
 pub use db::{
-    Db, DbError, DbPoliticianFilter, DbPoliticianRow, DbTradeFilter, DbTradeRow, IssuerStatsRow,
-    PoliticianStatsRow,
+    Db, DbError, DbIssuerFilter, DbIssuerRow, DbPoliticianFilter, DbPoliticianRow, DbTradeFilter,
+    DbTradeRow, IssuerStatsRow, PoliticianStatsRow,
 };
 pub use error::CapitolTradesError;
 pub use scrape::{
