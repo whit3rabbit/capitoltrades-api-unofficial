@@ -380,3 +380,74 @@ fn test_db_trade_xml_structure() {
     assert!(xml.contains("<labels>"));
     assert!(xml.contains("<label>faang</label>"));
 }
+
+// -- DB politician output tests --
+
+fn sample_db_politician_row() -> DbPoliticianRow {
+    DbPoliticianRow {
+        politician_id: "P000001".to_string(),
+        name: "Jane Smith".to_string(),
+        party: "Democrat".to_string(),
+        state: "CA".to_string(),
+        chamber: "senate".to_string(),
+        gender: "female".to_string(),
+        committees: vec!["Finance".to_string(), "Agriculture".to_string()],
+        trades: 150,
+        issuers: 45,
+        volume: 5_000_000,
+        last_traded: Some("2024-03-10".to_string()),
+        enriched_at: Some("2024-03-16T00:00:00Z".to_string()),
+    }
+}
+
+#[test]
+fn test_db_politician_row_mapping() {
+    let politicians = vec![sample_db_politician_row()];
+    let rows = build_db_politician_rows(&politicians);
+    assert_eq!(rows.len(), 1);
+
+    let row = &rows[0];
+    assert_eq!(row.name, "Jane Smith");
+    assert_eq!(row.party, "Democrat");
+    assert_eq!(row.state, "CA");
+    assert_eq!(row.chamber, "senate");
+    assert_eq!(row.committees, "Finance, Agriculture");
+    assert_eq!(row.trades, 150);
+    assert_eq!(row.volume, "$5.0M");
+}
+
+#[test]
+fn test_db_politician_empty_committees() {
+    let mut politician = sample_db_politician_row();
+    politician.committees = vec![];
+    let rows = build_db_politician_rows(&[politician]);
+    assert_eq!(rows[0].committees, "");
+}
+
+#[test]
+fn test_db_politician_json_serialization() {
+    let politician = sample_db_politician_row();
+    let val = serde_json::to_value(&politician).unwrap();
+    let obj = val.as_object().unwrap();
+
+    // committees should be a JSON array
+    let committees = obj.get("committees").unwrap();
+    assert!(committees.is_array());
+    assert_eq!(committees.as_array().unwrap().len(), 2);
+
+    // trades and volume present
+    assert_eq!(obj.get("trades").unwrap().as_i64().unwrap(), 150);
+    assert_eq!(obj.get("volume").unwrap().as_i64().unwrap(), 5_000_000);
+}
+
+#[test]
+fn test_db_politician_csv_headers() {
+    let politicians = vec![sample_db_politician_row()];
+    let rows = build_db_politician_rows(&politicians);
+    let csv = csv_from_rows(&rows);
+    let header = csv.lines().next().unwrap();
+    assert_eq!(
+        header,
+        "Name,Party,State,Chamber,Committees,Trades,Volume"
+    );
+}

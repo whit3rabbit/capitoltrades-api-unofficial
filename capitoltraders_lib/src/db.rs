@@ -3024,4 +3024,150 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
             .expect("count_unenriched_politicians after one enriched");
         assert_eq!(count, 1, "only one should remain unenriched");
     }
+
+    // --- query_politicians tests ---
+
+    fn insert_test_politician_full(
+        db: &Db,
+        id: &str,
+        first_name: &str,
+        last_name: &str,
+        party: &str,
+        state: &str,
+        chamber: &str,
+    ) {
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES (?1, ?2, ?3, ?4, ?5, '1970-01-01', 'female', ?6)",
+                params![id, state, party, first_name, last_name, chamber],
+            )
+            .expect("insert test politician");
+    }
+
+    fn insert_test_politician_stats(
+        db: &Db,
+        id: &str,
+        trades: i64,
+        issuers: i64,
+        volume: i64,
+        last_traded: Option<&str>,
+    ) {
+        db.conn
+            .execute(
+                "INSERT INTO politician_stats (politician_id, count_trades, count_issuers, volume, date_last_traded)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, trades, issuers, volume, last_traded],
+            )
+            .expect("insert test politician stats");
+    }
+
+    #[test]
+    fn test_query_politicians_no_filter() {
+        let db = open_test_db();
+        insert_test_politician_full(&db, "P000001", "John", "Smith", "Democrat", "CA", "senate");
+        insert_test_politician_full(&db, "P000002", "Jane", "Doe", "Republican", "TX", "house");
+        insert_test_politician_stats(&db, "P000001", 10, 5, 100000, Some("2024-03-10"));
+        insert_test_politician_stats(&db, "P000002", 20, 8, 200000, Some("2024-04-15"));
+
+        let rows = db
+            .query_politicians(&DbPoliticianFilter::default())
+            .expect("query_politicians");
+        assert_eq!(rows.len(), 2, "should return all 2 politicians");
+        // Ordered by volume DESC: P000002 (200000) first, P000001 (100000) second
+        assert_eq!(rows[0].politician_id, "P000002");
+        assert_eq!(rows[0].name, "Jane Doe");
+        assert_eq!(rows[0].volume, 200000);
+        assert_eq!(rows[1].politician_id, "P000001");
+        assert_eq!(rows[1].name, "John Smith");
+        assert_eq!(rows[1].volume, 100000);
+    }
+
+    #[test]
+    fn test_query_politicians_party_filter() {
+        let db = open_test_db();
+        insert_test_politician_full(&db, "P000001", "John", "Smith", "Democrat", "CA", "senate");
+        insert_test_politician_full(&db, "P000002", "Jane", "Doe", "Republican", "TX", "house");
+        insert_test_politician_stats(&db, "P000001", 10, 5, 100000, Some("2024-03-10"));
+        insert_test_politician_stats(&db, "P000002", 20, 8, 200000, Some("2024-04-15"));
+
+        let rows = db
+            .query_politicians(&DbPoliticianFilter {
+                party: Some("Democrat".to_string()),
+                ..DbPoliticianFilter::default()
+            })
+            .expect("query_politicians");
+        assert_eq!(rows.len(), 1, "should return 1 Democrat");
+        assert_eq!(rows[0].politician_id, "P000001");
+        assert_eq!(rows[0].party, "Democrat");
+    }
+
+    #[test]
+    fn test_query_politicians_name_filter() {
+        let db = open_test_db();
+        insert_test_politician_full(&db, "P000001", "John", "Smith", "Democrat", "CA", "senate");
+        insert_test_politician_full(&db, "P000002", "Jane", "Doe", "Republican", "TX", "house");
+        insert_test_politician_stats(&db, "P000001", 10, 5, 100000, None);
+        insert_test_politician_stats(&db, "P000002", 20, 8, 200000, None);
+
+        let rows = db
+            .query_politicians(&DbPoliticianFilter {
+                name: Some("john".to_string()),
+                ..DbPoliticianFilter::default()
+            })
+            .expect("query_politicians");
+        assert_eq!(rows.len(), 1, "should return 1 matching 'john' (case-insensitive LIKE)");
+        assert_eq!(rows[0].name, "John Smith");
+    }
+
+    #[test]
+    fn test_query_politicians_with_committees() {
+        let db = open_test_db();
+        insert_test_politician_full(&db, "P000001", "John", "Smith", "Democrat", "CA", "senate");
+        insert_test_politician_stats(&db, "P000001", 10, 5, 100000, Some("2024-03-10"));
+
+        // Add committee memberships
+        db.replace_all_politician_committees(&[
+            ("P000001".to_string(), "ssfi".to_string()),
+            ("P000001".to_string(), "hsag".to_string()),
+        ])
+        .expect("replace committees");
+
+        let rows = db
+            .query_politicians(&DbPoliticianFilter::default())
+            .expect("query_politicians");
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].committees.is_empty(), "committees should be populated");
+        // GROUP_CONCAT with DISTINCT - order may vary, check both present
+        assert!(
+            rows[0].committees.contains(&"ssfi".to_string()),
+            "should contain ssfi"
+        );
+        assert!(
+            rows[0].committees.contains(&"hsag".to_string()),
+            "should contain hsag"
+        );
+    }
+
+    #[test]
+    fn test_query_politicians_limit() {
+        let db = open_test_db();
+        insert_test_politician_full(&db, "P000001", "Alice", "A", "Democrat", "CA", "senate");
+        insert_test_politician_full(&db, "P000002", "Bob", "B", "Republican", "TX", "house");
+        insert_test_politician_full(&db, "P000003", "Carol", "C", "Democrat", "NY", "senate");
+        insert_test_politician_stats(&db, "P000001", 10, 5, 300000, None);
+        insert_test_politician_stats(&db, "P000002", 20, 8, 200000, None);
+        insert_test_politician_stats(&db, "P000003", 5, 3, 100000, None);
+
+        let rows = db
+            .query_politicians(&DbPoliticianFilter {
+                limit: Some(2),
+                ..DbPoliticianFilter::default()
+            })
+            .expect("query_politicians");
+        assert_eq!(rows.len(), 2, "should return exactly 2 with limit=2");
+        // Ordered by volume DESC: P000001 (300K), P000002 (200K)
+        assert_eq!(rows[0].politician_id, "P000001");
+        assert_eq!(rows[1].politician_id, "P000002");
+    }
 }
