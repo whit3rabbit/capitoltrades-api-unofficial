@@ -1,0 +1,25 @@
+<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/></head><body>
+<!-- SYNTHETIC FIXTURE: Created 2026-02-08 because the live capitoltrades.com
+     trade detail pages return client-side loading states when fetched via curl.
+     The RSC payload structure is modeled from:
+     1. The existing extract_trade_detail() code which searches for "tradeId":XXXXX
+     2. The BFF API Trade struct (capitoltrades_api/src/types/trade.rs)
+     3. The existing trades.json test fixture
+     4. The ScrapedTrade struct in scrape.rs which uses camelCase field names
+
+     This fixture represents a stock trade with all fields populated.
+     Trade ID: 172000 (stock purchase of AAPL by a senator)
+
+     RSC payload findings documented here:
+     - The existing code uses "tradeId" as the needle, NOT "_txId" (listing pages use _txId)
+     - The RSC payload embeds the trade as a JSON object with camelCase field names
+     - The detail page object contains: tradeId, filingUrl, filingId, asset (nested),
+       size, sizeRangeHigh, sizeRangeLow, price, hasCapitalGains, committees, labels
+     - committees: Based on BFF API structure, committees are a Vec<String> on the trade object.
+       The live site could not be verified, so availability is UNCONFIRMED.
+     - labels: Based on BFF API structure, labels are a Vec<String> on the trade object.
+       The live site could not be verified, so availability is UNCONFIRMED.
+-->
+<script>self.__next_f.push([1,"1:HL[\"/_next/static/css/test.css\",\"style\"]\n"])</script>
+<script>self.__next_f.push([1,"0:[\"$\",\"div\",null,{\"className\":\"trade-detail\",\"tradeData\":{\"tradeId\":172000,\"_politicianId\":\"P000197\",\"_assetId\":172000,\"_issuerId\":5678,\"pubDate\":\"2024-03-15T10:30:00Z\",\"filingDate\":\"2024-03-10\",\"txDate\":\"2024-03-01\",\"txType\":\"buy\",\"txTypeExtended\":null,\"hasCapitalGains\":false,\"owner\":\"self\",\"chamber\":\"senate\",\"price\":185.50,\"size\":4,\"sizeRangeHigh\":100000,\"sizeRangeLow\":50001,\"value\":75000,\"filingId\":99001,\"filingUrl\":\"https://efts.sec.gov/LATEST/search-index?q=%2F99001\",\"reportingGap\":14,\"comment\":null,\"committees\":[\"Finance\",\"Banking\"],\"asset\":{\"assetType\":\"stock\",\"assetTicker\":\"AAPL\",\"instrument\":\"Stock\"},\"issuer\":{\"_stateId\":null,\"c2iq\":\"AAPL:US\",\"country\":\"US\",\"issuerName\":\"Apple Inc\",\"issuerTicker\":\"AAPL\",\"sector\":\"information-technology\"},\"politician\":{\"_stateId\":\"CA\",\"chamber\":\"senate\",\"dob\":\"1960-01-01\",\"firstName\":\"Jane\",\"gender\":\"female\",\"lastName\":\"Smith\",\"nickname\":null,\"party\":\"democrat\"},\"labels\":[\"faang\"]}}]\n"])</script>
+</body></html>
