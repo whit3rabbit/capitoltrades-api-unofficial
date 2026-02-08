@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 5 complete. All 3 plans done (05-01 fixtures/DB, 05-02 sync pipeline, 05-03 CLI output). Next: Phase 6.
+**Current focus:** Phase 6 in progress. Plan 06-01 (concurrent enrichment) complete. Next: 06-02.
 
 ## Current Position
 
-Phase: 5 of 6 (Issuer Enrichment) -- COMPLETE
-Plan: 3 of 3 in phase 5 (05-03 complete)
-Status: Phase 5 complete, ready for Phase 6
-Last activity: 2026-02-08 -- Completed 05-03-PLAN.md (CLI issuer DB output)
+Phase: 6 of 6 (Concurrency and Reliability)
+Plan: 1 of 2 in phase 6 (06-01 complete)
+Status: Phase 6 in progress
+Last activity: 2026-02-08 -- Completed 06-01-PLAN.md (concurrent enrichment)
 
-Progress: [##########] 100% (13 of ~13 total plans)
+Progress: [##########] 93% (14 of ~15 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
+- Total plans completed: 14
 - Average duration: 3.8 min
-- Total execution time: 50 min
+- Total execution time: 53 min
 
 **By Phase:**
 
@@ -32,9 +32,10 @@ Progress: [##########] 100% (13 of ~13 total plans)
 | 3. Trade Sync | 3/3 | 10 min | 3.3 min |
 | 4. Politician Enrichment | 3/3 | 12 min | 4 min |
 | 5. Issuer Enrichment | 3/3 | 10 min | 3.3 min |
+| 6. Concurrency | 1/2 | 3 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 04-02 (3 min), 04-03 (4 min), 05-01 (4 min), 05-02 (2 min), 05-03 (4 min)
+- Last 5 plans: 04-03 (4 min), 05-01 (4 min), 05-02 (2 min), 05-03 (4 min), 06-01 (3 min)
 - Trend: Consistent 2-4 min per plan
 
 *Updated after each plan completion*
@@ -83,6 +84,11 @@ Recent decisions affecting current work:
 - 05-03: Table output uses trailing30_change and trailing365_change (percentage returns) not raw trailing values
 - 05-03: JSON/XML serializes full DbIssuerRow directly (21 fields) while table uses curated 9-column subset
 - 05-03: format_large_number (T/B/M suffixes) and format_percent (+/-X.X%) helper functions for performance data display
+- 06-01: Clone on ScrapeClient is cheap (reqwest::Client is Arc-backed), safe to clone for spawned tasks
+- 06-01: Throttle delay is per-task, not global -- with concurrency=3 and delay=500ms, effective rate up to ~6 req/s
+- 06-01: DB writes remain single-threaded via mpsc channel receiver loop, avoiding SQLite contention
+- 06-01: CircuitBreaker is simple kill switch (consecutive failure counter), not full half-open/closed pattern
+- 06-01: pb.println() for warnings instead of eprintln() to avoid garbled output with progress bar
 
 ### Patterns Established
 
@@ -128,6 +134,12 @@ Phase 5:
 - DbIssuerRow as canonical read-side issuer type (vs IssuerDetail for API)
 - IN clause multi-value filter: Vec<String> params with dynamic placeholder generation for multi-value IN clauses
 
+Phase 6:
+- Semaphore+JoinSet+mpsc pattern: spawn tasks with semaphore-guarded concurrency, collect results via mpsc channel, process in single receive loop
+- CircuitBreaker struct: consecutive_failures counter with threshold, record_success resets to 0, record_failure increments, is_tripped checks >= threshold
+- Progress bar via pb.println() for warnings (avoids garbled output with indicatif)
+- join_set.abort_all() for fast shutdown when circuit breaker trips
+
 ### Pending Todos
 
 None.
@@ -141,5 +153,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 05-03-PLAN.md (CLI issuer DB output). Phase 5 complete. Next: Phase 6 (concurrency and polish).
-Resume file: .planning/phases/06-concurrency-and-polish/ (needs planning)
+Stopped at: Completed 06-01-PLAN.md (concurrent enrichment). Next: 06-02.
+Resume file: .planning/phases/06-concurrency-and-reliability/06-02-PLAN.md
