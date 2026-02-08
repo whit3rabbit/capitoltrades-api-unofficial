@@ -84,41 +84,41 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FOUND-01 | Phase ? | Pending |
-| FOUND-02 | Phase ? | Pending |
-| FOUND-03 | Phase ? | Pending |
-| FOUND-04 | Phase ? | Pending |
-| TRADE-01 | Phase ? | Pending |
-| TRADE-02 | Phase ? | Pending |
-| TRADE-03 | Phase ? | Pending |
-| TRADE-04 | Phase ? | Pending |
-| TRADE-05 | Phase ? | Pending |
-| TRADE-06 | Phase ? | Pending |
-| TRADE-07 | Phase ? | Pending |
-| TRADE-08 | Phase ? | Pending |
-| TRADE-09 | Phase ? | Pending |
-| TRADE-10 | Phase ? | Pending |
-| TRADE-11 | Phase ? | Pending |
-| POL-01 | Phase ? | Pending |
-| POL-02 | Phase ? | Pending |
-| POL-03 | Phase ? | Pending |
-| ISS-01 | Phase ? | Pending |
-| ISS-02 | Phase ? | Pending |
-| ISS-03 | Phase ? | Pending |
-| ISS-04 | Phase ? | Pending |
-| PERF-01 | Phase ? | Pending |
-| PERF-02 | Phase ? | Pending |
-| PERF-03 | Phase ? | Pending |
-| PERF-04 | Phase ? | Pending |
-| OUT-01 | Phase ? | Pending |
-| OUT-02 | Phase ? | Pending |
-| OUT-03 | Phase ? | Pending |
+| FOUND-01 | Phase 1 | Pending |
+| FOUND-02 | Phase 1 | Pending |
+| FOUND-03 | Phase 1 | Pending |
+| FOUND-04 | Phase 1 | Pending |
+| TRADE-01 | Phase 2 | Pending |
+| TRADE-02 | Phase 2 | Pending |
+| TRADE-03 | Phase 2 | Pending |
+| TRADE-04 | Phase 2 | Pending |
+| TRADE-05 | Phase 2 | Pending |
+| TRADE-06 | Phase 2 | Pending |
+| TRADE-07 | Phase 3 | Pending |
+| TRADE-08 | Phase 3 | Pending |
+| TRADE-09 | Phase 3 | Pending |
+| TRADE-10 | Phase 3 | Pending |
+| TRADE-11 | Phase 3 | Pending |
+| POL-01 | Phase 4 | Pending |
+| POL-02 | Phase 4 | Pending |
+| POL-03 | Phase 4 | Pending |
+| ISS-01 | Phase 5 | Pending |
+| ISS-02 | Phase 5 | Pending |
+| ISS-03 | Phase 5 | Pending |
+| ISS-04 | Phase 5 | Pending |
+| PERF-01 | Phase 6 | Pending |
+| PERF-02 | Phase 6 | Pending |
+| PERF-03 | Phase 6 | Pending |
+| PERF-04 | Phase 3 | Pending |
+| OUT-01 | Phase 3 | Pending |
+| OUT-02 | Phase 4 | Pending |
+| OUT-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 29 total
-- Mapped to phases: 0
-- Unmapped: 29
+- Mapped to phases: 29
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-07*
-*Last updated: 2026-02-07 after initial definition*
+*Last updated: 2026-02-07 after roadmap creation*
