@@ -245,9 +245,7 @@ fn update_stats(
     let tx_date = NaiveDate::parse_from_str(&trade.tx_date, "%Y-%m-%d")
         .map_err(|e| anyhow!("invalid txDate {}: {}", trade.tx_date, e))?;
 
-    let issuer_entry = issuer_stats
-        .entry(trade.issuer_id)
-        .or_insert_with(IssuerAgg::default);
+    let issuer_entry = issuer_stats.entry(trade.issuer_id).or_default();
     issuer_entry.count_trades += 1;
     issuer_entry.volume += trade.value;
     issuer_entry.politicians.insert(trade.politician_id.clone());
@@ -258,7 +256,7 @@ fn update_stats(
 
     let pol_entry = politician_stats
         .entry(trade.politician_id.clone())
-        .or_insert_with(PoliticianAgg::default);
+        .or_default();
     pol_entry.count_trades += 1;
     pol_entry.volume += trade.value;
     pol_entry.issuers.insert(trade.issuer_id);
