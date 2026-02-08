@@ -988,6 +988,61 @@ impl Db {
         Ok(ids)
     }
 
+    /// Atomically replace all politician-committee memberships.
+    ///
+    /// Clears the entire politician_committees table and inserts the provided
+    /// memberships. Uses an EXISTS subquery to silently skip politician_ids
+    /// not present in the politicians table (handles politicians with no
+    /// trades who appear on committee lists but have no DB record).
+    ///
+    /// Returns the number of rows actually inserted.
+    pub fn replace_all_politician_committees(
+        &self,
+        memberships: &[(String, String)],
+    ) -> Result<usize, DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        tx.execute("DELETE FROM politician_committees", [])?;
+
+        let mut inserted = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR IGNORE INTO politician_committees (politician_id, committee)
+                 SELECT ?1, ?2 WHERE EXISTS (
+                     SELECT 1 FROM politicians WHERE politician_id = ?1
+                 )",
+            )?;
+
+            for (pol_id, committee) in memberships {
+                let rows = stmt.execute(params![pol_id, committee])?;
+                inserted += rows;
+            }
+        }
+
+        tx.commit()?;
+        Ok(inserted)
+    }
+
+    /// Mark all politicians as enriched by setting enriched_at on rows
+    /// where it is currently NULL.
+    pub fn mark_politicians_enriched(&self) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE politicians SET enriched_at = datetime('now') WHERE enriched_at IS NULL",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Count politicians that have not yet been enriched.
+    pub fn count_unenriched_politicians(&self) -> Result<i64, DbError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM politicians WHERE enriched_at IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
     /// Query enriched trades with JOINed politician, issuer, asset,
     /// committee, and label data. Supports filtering by party, state,
     /// transaction type, politician name, issuer name/ticker, and date range.
@@ -2690,5 +2745,163 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
             assert_eq!(row.party, "Democrat");
             assert_eq!(row.tx_type, "buy");
         }
+    }
+
+    // ---- Politician committee persistence tests ----
+
+    fn insert_test_politician(db: &Db, id: &str, first_name: &str) {
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES (?1, 'CA', 'Democrat', ?2, 'Test', '1970-01-01', 'female', 'senate')",
+                params![id, first_name],
+            )
+            .expect("insert test politician");
+    }
+
+    #[test]
+    fn test_replace_all_politician_committees_basic() {
+        let db = open_test_db();
+        insert_test_politician(&db, "P000001", "Alice");
+        insert_test_politician(&db, "P000002", "Bob");
+
+        // 3 memberships: 2 for known politicians, 1 for unknown
+        let memberships = vec![
+            ("P000001".to_string(), "ssfi".to_string()),
+            ("P000002".to_string(), "ssfi".to_string()),
+            ("P999999".to_string(), "ssfi".to_string()), // unknown politician
+        ];
+        let inserted = db
+            .replace_all_politician_committees(&memberships)
+            .expect("replace_all_politician_committees");
+        assert_eq!(inserted, 2, "should insert 2, skip unknown P999999");
+
+        // Verify the rows exist
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM politician_committees",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count committees");
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_replace_all_politician_committees_replaces() {
+        let db = open_test_db();
+        insert_test_politician(&db, "P000001", "Alice");
+        insert_test_politician(&db, "P000002", "Bob");
+
+        // First call: both on ssfi
+        let memberships1 = vec![
+            ("P000001".to_string(), "ssfi".to_string()),
+            ("P000002".to_string(), "ssfi".to_string()),
+        ];
+        db.replace_all_politician_committees(&memberships1)
+            .expect("first replace");
+
+        // Second call: only P000001 on hsag, P000002 not on any committee
+        let memberships2 = vec![("P000001".to_string(), "hsag".to_string())];
+        let inserted = db
+            .replace_all_politician_committees(&memberships2)
+            .expect("second replace");
+        assert_eq!(inserted, 1, "should insert 1 after replacing all");
+
+        // Verify old data is gone
+        let committees: Vec<String> = {
+            let mut stmt = db
+                .conn
+                .prepare("SELECT committee FROM politician_committees ORDER BY committee")
+                .expect("prepare");
+            stmt.query_map([], |row| row.get(0))
+                .expect("query")
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        assert_eq!(committees, vec!["hsag"], "only hsag should remain");
+    }
+
+    #[test]
+    fn test_replace_all_politician_committees_empty() {
+        let db = open_test_db();
+        insert_test_politician(&db, "P000001", "Alice");
+
+        // First populate some data
+        let memberships = vec![("P000001".to_string(), "ssfi".to_string())];
+        db.replace_all_politician_committees(&memberships)
+            .expect("populate");
+
+        // Now call with empty slice -- should clear all
+        let inserted = db
+            .replace_all_politician_committees(&[])
+            .expect("empty replace");
+        assert_eq!(inserted, 0);
+
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM politician_committees",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count");
+        assert_eq!(count, 0, "table should be empty after replace with empty slice");
+    }
+
+    #[test]
+    fn test_mark_politicians_enriched() {
+        let db = open_test_db();
+        insert_test_politician(&db, "P000001", "Alice");
+
+        // Verify enriched_at starts NULL
+        let before: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM politicians WHERE politician_id = 'P000001'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query before");
+        assert!(before.is_none(), "enriched_at should start as NULL");
+
+        db.mark_politicians_enriched()
+            .expect("mark_politicians_enriched");
+
+        let after: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM politicians WHERE politician_id = 'P000001'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query after");
+        assert!(after.is_some(), "enriched_at should be set after marking");
+    }
+
+    #[test]
+    fn test_count_unenriched_politicians() {
+        let db = open_test_db();
+        insert_test_politician(&db, "P000001", "Alice");
+        insert_test_politician(&db, "P000002", "Bob");
+
+        let count = db
+            .count_unenriched_politicians()
+            .expect("count_unenriched_politicians");
+        assert_eq!(count, 2, "both politicians should be unenriched");
+
+        // Mark one as enriched
+        db.conn
+            .execute(
+                "UPDATE politicians SET enriched_at = datetime('now') WHERE politician_id = 'P000001'",
+                [],
+            )
+            .expect("manual enrich");
+
+        let count = db
+            .count_unenriched_politicians()
+            .expect("count_unenriched_politicians after one enriched");
+        assert_eq!(count, 1, "only one should remain unenriched");
     }
 }
