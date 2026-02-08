@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Trade Extraction** - Extend trade_detail scraper to extract all missing fields from RSC payloads
 - [x] **Phase 3: Trade Sync and Output** - Wire trade enrichment into sync pipeline with smart-skip, checkpointing, and CLI output
 - [x] **Phase 4: Politician Enrichment** - End-to-end politician committee extraction via listing page committee-filter iteration, sync, and CLI output
-- [ ] **Phase 5: Issuer Enrichment** - End-to-end issuer detail extraction, sync, and CLI output
+- [x] **Phase 5: Issuer Enrichment** - End-to-end issuer detail extraction, sync, and CLI output
 - [ ] **Phase 6: Concurrency and Reliability** - Bounded parallel fetching, progress bars, circuit breaker
 
 ## Phase Details
@@ -97,9 +97,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- Issuer detail extraction fixtures and DB persistence (ISS-01, ISS-02, ISS-03, ISS-04 data layer)
-- [ ] 05-02-PLAN.md -- Sync pipeline integration for issuer enrichment (ISS-03, ISS-04 pipeline)
-- [ ] 05-03-PLAN.md -- CLI issuers --db output with performance data (OUT-03)
+- [x] 05-01-PLAN.md -- Issuer detail extraction fixtures and DB persistence (ISS-01, ISS-02, ISS-03, ISS-04 data layer)
+- [x] 05-02-PLAN.md -- Sync pipeline integration for issuer enrichment (ISS-03, ISS-04 pipeline)
+- [x] 05-03-PLAN.md -- CLI issuers --db output with performance data (OUT-03)
 
 ### Phase 6: Concurrency and Reliability
 **Goal**: Enrichment runs complete in reasonable time (hours, not days) with bounded parallelism, user-visible progress, and automatic failure recovery
@@ -126,5 +126,5 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 | 2. Trade Extraction | 2/2 | Complete | 2026-02-08 |
 | 3. Trade Sync and Output | 3/3 | Complete | 2026-02-08 |
 | 4. Politician Enrichment | 3/3 | Complete | 2026-02-08 |
-| 5. Issuer Enrichment | 0/TBD | Not started | - |
+| 5. Issuer Enrichment | 3/3 | Complete | 2026-02-08 |
 | 6. Concurrency and Reliability | 0/TBD | Not started | - |
