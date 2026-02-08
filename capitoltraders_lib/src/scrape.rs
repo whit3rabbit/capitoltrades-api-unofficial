@@ -808,3 +808,308 @@ fn parse_compact_number(raw: &str) -> Option<i64> {
     let num: f64 = num_str.parse().ok()?;
     Some((num * mult).round() as i64)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- Fixture loading helpers ----
+
+    fn load_stock_fixture() -> (String, i64) {
+        let html = include_str!("../tests/fixtures/trade_detail_stock.html");
+        let payload = extract_rsc_payload(html).expect("stock fixture should have RSC payload");
+        (payload, 172000)
+    }
+
+    fn load_option_fixture() -> (String, i64) {
+        let html = include_str!("../tests/fixtures/trade_detail_option.html");
+        let payload = extract_rsc_payload(html).expect("option fixture should have RSC payload");
+        (payload, 171500)
+    }
+
+    fn load_minimal_fixture() -> (String, i64) {
+        let html = include_str!("../tests/fixtures/trade_detail_minimal.html");
+        let payload = extract_rsc_payload(html).expect("minimal fixture should have RSC payload");
+        (payload, 3000)
+    }
+
+    // ---- TRADE-01: Asset type extraction ----
+
+    #[test]
+    fn test_extract_trade_detail_asset_type_stock() {
+        // TRADE-01: Verify asset_type is extracted from the nested asset object
+        let (payload, trade_id) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.asset_type.as_deref(),
+            Some("stock"),
+            "stock fixture should yield asset_type = 'stock'"
+        );
+    }
+
+    #[test]
+    fn test_extract_trade_detail_asset_type_option() {
+        // TRADE-01: Verify non-stock asset types are extracted correctly
+        let (payload, trade_id) = load_option_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.asset_type.as_deref(),
+            Some("stock-option"),
+            "option fixture should yield asset_type = 'stock-option'"
+        );
+    }
+
+    #[test]
+    fn test_extract_trade_detail_asset_type_minimal() {
+        // TRADE-01: Verify asset_type extraction works even for uncommon types
+        let (payload, trade_id) = load_minimal_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.asset_type.as_deref(),
+            Some("mutual-fund"),
+            "minimal fixture should yield asset_type = 'mutual-fund'"
+        );
+    }
+
+    // ---- TRADE-02: Trade sizing ----
+
+    #[test]
+    fn test_extract_trade_detail_size_fields() {
+        // TRADE-02: Verify size, sizeRangeHigh, sizeRangeLow extraction
+        let (payload, trade_id) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(detail.size, Some(4), "stock fixture should have size = 4");
+        assert_eq!(
+            detail.size_range_high,
+            Some(100000),
+            "stock fixture should have sizeRangeHigh = 100000"
+        );
+        assert_eq!(
+            detail.size_range_low,
+            Some(50001),
+            "stock fixture should have sizeRangeLow = 50001"
+        );
+    }
+
+    #[test]
+    fn test_extract_trade_detail_size_fields_null() {
+        // TRADE-02: Verify null size fields are handled gracefully
+        let (payload, trade_id) = load_minimal_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.size, None,
+            "minimal fixture should have null size"
+        );
+        assert_eq!(
+            detail.size_range_high, None,
+            "minimal fixture should have null sizeRangeHigh"
+        );
+        assert_eq!(
+            detail.size_range_low, None,
+            "minimal fixture should have null sizeRangeLow"
+        );
+    }
+
+    // ---- TRADE-03: Price extraction ----
+
+    #[test]
+    fn test_extract_trade_detail_price() {
+        // TRADE-03: Verify price extraction as f64
+        let (payload, trade_id) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert!(detail.price.is_some(), "stock fixture should have a price");
+        let price = detail.price.unwrap();
+        assert!(
+            (price - 185.5).abs() < 0.01,
+            "stock fixture price should be ~185.50, got {}",
+            price
+        );
+    }
+
+    #[test]
+    fn test_extract_trade_detail_price_null() {
+        // TRADE-03: Verify null price is handled gracefully
+        let (payload, trade_id) = load_minimal_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.price, None,
+            "minimal fixture should have null price"
+        );
+    }
+
+    // ---- Filing URL and filing ID regression ----
+
+    #[test]
+    fn test_extract_trade_detail_filing_url_regression() {
+        // Regression test: filing_url and filing_id must still be extracted
+        // (this functionality existed before the rewrite)
+        let (payload, trade_id) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert!(
+            detail.filing_url.is_some(),
+            "stock fixture should have a filing_url"
+        );
+        let url = detail.filing_url.as_deref().unwrap();
+        assert!(
+            url.contains("efts.sec.gov"),
+            "filing URL should point to SEC EFTS, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_extract_trade_detail_filing_id_from_path() {
+        // Regression: filing_id derived from URL path segment
+        let (payload, trade_id) = load_option_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.filing_id,
+            Some(88002),
+            "option fixture filing_id should be 88002 (extracted from path)"
+        );
+    }
+
+    #[test]
+    fn test_extract_trade_detail_filing_empty() {
+        // Regression: empty filing_url yields None for both url and id
+        let (payload, trade_id) = load_minimal_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.filing_url, None,
+            "minimal fixture with empty filingUrl should yield None"
+        );
+        assert_eq!(
+            detail.filing_id, None,
+            "minimal fixture with empty filingUrl should yield None filing_id"
+        );
+    }
+
+    // ---- has_capital_gains ----
+
+    #[test]
+    fn test_extract_trade_detail_has_capital_gains_false() {
+        // Verify hasCapitalGains extraction when false
+        let (payload, trade_id) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.has_capital_gains,
+            Some(false),
+            "stock fixture should have hasCapitalGains = false"
+        );
+    }
+
+    #[test]
+    fn test_extract_trade_detail_has_capital_gains_true() {
+        // Verify hasCapitalGains extraction when true
+        let (payload, trade_id) = load_option_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert_eq!(
+            detail.has_capital_gains,
+            Some(true),
+            "option fixture should have hasCapitalGains = true"
+        );
+    }
+
+    // ---- TRADE-05: Committees availability ----
+
+    #[test]
+    fn test_extract_trade_detail_committees_availability() {
+        // TRADE-05 finding: Committees ARE present in the synthetic trade detail fixture
+        // as a Vec<String> on the trade object under the "committees" key.
+        //
+        // IMPORTANT: These are SYNTHETIC fixtures. The live capitoltrades.com trade detail
+        // pages could NOT be fetched with full RSC data (they return loading states via curl).
+        // The BFF API Trade struct includes a committees field, and the synthetic fixtures
+        // model that structure. Whether the actual live RSC payload includes committees
+        // remains UNCONFIRMED and should be verified when live site access is available.
+        //
+        // If committees are NOT present in the live RSC payload, they should be obtained
+        // through politician enrichment (Phase 4) instead.
+        let (payload, trade_id) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        eprintln!(
+            "TRADE-05: committees from stock fixture: {:?} (count: {})",
+            detail.committees,
+            detail.committees.len()
+        );
+        assert_eq!(
+            detail.committees.len(),
+            2,
+            "stock fixture has 2 committees: Finance, Banking"
+        );
+        assert_eq!(detail.committees[0], "Finance");
+        assert_eq!(detail.committees[1], "Banking");
+
+        // Option fixture has empty committees
+        let (payload, trade_id) = load_option_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert!(
+            detail.committees.is_empty(),
+            "option fixture should have empty committees"
+        );
+    }
+
+    // ---- TRADE-06: Labels availability ----
+
+    #[test]
+    fn test_extract_trade_detail_labels_availability() {
+        // TRADE-06 finding: Labels ARE present in the synthetic trade detail fixture
+        // as a Vec<String> on the trade object under the "labels" key.
+        //
+        // IMPORTANT: Same caveat as TRADE-05. These are SYNTHETIC fixtures. The live
+        // RSC payload structure is UNCONFIRMED. The BFF API Trade struct includes a
+        // labels field with values like "faang", "crypto", "memestock", "spac".
+        //
+        // If labels are NOT present in the live RSC payload, they may need to be
+        // sourced from the issuer entity or a separate enrichment pass.
+        let (payload, trade_id) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        eprintln!(
+            "TRADE-06: labels from stock fixture: {:?} (count: {})",
+            detail.labels,
+            detail.labels.len()
+        );
+        assert_eq!(
+            detail.labels.len(),
+            1,
+            "stock fixture has 1 label: faang"
+        );
+        assert_eq!(detail.labels[0], "faang");
+
+        // Minimal fixture has empty labels
+        let (payload, trade_id) = load_minimal_fixture();
+        let detail = extract_trade_detail(&payload, trade_id);
+        assert!(
+            detail.labels.is_empty(),
+            "minimal fixture should have empty labels"
+        );
+    }
+
+    // ---- Graceful degradation ----
+
+    #[test]
+    fn test_extract_trade_detail_nonexistent_id() {
+        // Verify graceful degradation: a trade_id that does not appear in the
+        // fixture payload returns a default ScrapedTradeDetail with no panic.
+        let (payload, _) = load_stock_fixture();
+        let detail = extract_trade_detail(&payload, 999999);
+        assert_eq!(detail.filing_url, None);
+        assert_eq!(detail.filing_id, None);
+        assert_eq!(detail.asset_type, None);
+        assert_eq!(detail.size, None);
+        assert_eq!(detail.size_range_high, None);
+        assert_eq!(detail.size_range_low, None);
+        assert_eq!(detail.price, None);
+        assert_eq!(detail.has_capital_gains, None);
+        assert!(detail.committees.is_empty());
+        assert!(detail.labels.is_empty());
+    }
+
+    #[test]
+    fn test_extract_trade_detail_empty_payload() {
+        // Verify graceful degradation with completely empty payload
+        let detail = extract_trade_detail("", 172000);
+        assert_eq!(detail.filing_url, None);
+        assert_eq!(detail.asset_type, None);
+    }
+}
