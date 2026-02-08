@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 2 complete. Ready for Phase 3 (Trade Sync).
+**Current focus:** Phase 3 in progress. Enrichment pipeline wired into sync command.
 
 ## Current Position
 
-Phase: 2 of 6 (Trade Extraction) -- COMPLETE
-Plan: 2 of 2 in phase 2 (complete)
-Status: Phase complete
-Last activity: 2026-02-08 -- Completed 02-02-PLAN.md (trade detail DB persistence)
+Phase: 3 of 6 (Trade Sync and Output)
+Plan: 1 of 3 in phase 3 (complete)
+Status: Executing phase 3
+Last activity: 2026-02-08 -- Completed 03-01-PLAN.md (trade enrichment pipeline)
 
-Progress: [####------] 33% (4 of ~12 total plans)
+Progress: [#####-----] 42% (5 of ~12 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 5 min
-- Total execution time: 18 min
+- Total plans completed: 5
+- Average duration: 4 min
+- Total execution time: 21 min
 
 **By Phase:**
 
@@ -29,9 +29,10 @@ Progress: [####------] 33% (4 of ~12 total plans)
 |-------|-------|-------|----------|
 | 1. Foundation | 2/2 | 6 min | 3 min |
 | 2. Trade Extraction | 2/2 | 12 min | 6 min |
+| 3. Trade Sync | 1/3 | 3 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (3 min), 01-02 (3 min), 02-01 (8 min), 02-02 (4 min)
+- Last 5 plans: 01-02 (3 min), 02-01 (8 min), 02-02 (4 min), 03-01 (3 min)
 - Trend: Consistent 3-8 min per plan
 
 *Updated after each plan completion*
@@ -54,6 +55,8 @@ Recent decisions affecting current work:
 - 02-02: Used unchecked_transaction() for &self receiver consistency with get_unenriched_*_ids methods
 - 02-02: Asset type one-way upgrade: only updates from "unknown", never overwrites enriched values
 - 02-02: Empty committees/labels treated as no-op, not clear-all, to protect previously extracted data
+- 03-01: Enrichment runs post-ingest (after sync_trades) rather than inline, keeping existing --with-trade-details unchanged
+- 03-01: Integration tests in db.rs rather than sync.rs since they exercise DB methods and reuse existing helpers
 
 ### Patterns Established
 
@@ -71,6 +74,11 @@ Phase 2:
 - asset_type one-way upgrade: WHERE asset_type = 'unknown' guard prevents overwrite of enriched values
 - Join table refresh: delete+insert when new data available, skip when empty
 
+Phase 3:
+- Post-ingest enrichment: sync trades first, then loop over unenriched queue with configurable batch_size and throttle delay
+- Hidden CLI alias: deprecated flags marked with hide=true and aliased to new flags in run()
+- Dry-run pattern: check count_unenriched_trades() and report without HTTP calls
+
 ### Pending Todos
 
 None.
@@ -84,5 +92,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 02-02-PLAN.md (trade detail DB persistence). Phase 2 complete. Next: Phase 3 planning.
-Resume file: .planning/ROADMAP.md (next phase planning)
+Stopped at: Completed 03-01-PLAN.md (trade enrichment pipeline). Next: 03-02-PLAN.md.
+Resume file: .planning/phases/03-trade-sync-and-output/03-02-PLAN.md
