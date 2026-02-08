@@ -40,11 +40,23 @@ pub struct SyncArgs {
     pub page_size: i64,
 
     /// Fetch per-trade detail pages to capture filing URLs (slow)
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub with_trade_details: bool,
 
+    /// Enrich trade details after sync (fetches individual trade pages)
+    #[arg(long)]
+    pub enrich: bool,
+
+    /// Show how many trades would be enriched without fetching
+    #[arg(long, requires = "enrich")]
+    pub dry_run: bool,
+
+    /// Maximum trades to enrich per run (default: all)
+    #[arg(long)]
+    pub batch_size: Option<i64>,
+
     /// Delay between trade detail requests in milliseconds
-    #[arg(long, default_value = "250")]
+    #[arg(long, default_value = "500")]
     pub details_delay_ms: u64,
 }
 
@@ -107,7 +119,110 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         "Sync complete: {} trades ingested",
         trade_result.trade_count
     );
+
+    // Treat --with-trade-details as alias for --enrich
+    let should_enrich = args.enrich || args.with_trade_details;
+    if should_enrich {
+        let result = enrich_trades(
+            &scraper,
+            &db,
+            args.batch_size,
+            args.details_delay_ms,
+            args.dry_run,
+        )
+        .await?;
+        eprintln!(
+            "Enrichment: {}/{} trades processed ({} failed)",
+            result.enriched, result.total, result.failed
+        );
+    }
+
     Ok(())
+}
+
+struct EnrichmentResult {
+    enriched: usize,
+    #[allow(dead_code)]
+    skipped: usize,
+    failed: usize,
+    total: usize,
+}
+
+async fn enrich_trades(
+    scraper: &ScrapeClient,
+    db: &Db,
+    batch_size: Option<i64>,
+    detail_delay_ms: u64,
+    dry_run: bool,
+) -> Result<EnrichmentResult> {
+    if dry_run {
+        let total = db.count_unenriched_trades()?;
+        let selected = match batch_size {
+            Some(n) => n.min(total),
+            None => total,
+        };
+        eprintln!(
+            "{} trades would be enriched ({} selected)",
+            total, selected
+        );
+        return Ok(EnrichmentResult {
+            enriched: 0,
+            skipped: 0,
+            failed: 0,
+            total: total as usize,
+        });
+    }
+
+    let queue = db.get_unenriched_trade_ids(batch_size)?;
+    if queue.is_empty() {
+        eprintln!("No trades need enrichment");
+        return Ok(EnrichmentResult {
+            enriched: 0,
+            skipped: 0,
+            failed: 0,
+            total: 0,
+        });
+    }
+
+    let total = queue.len();
+    eprintln!("Enriching {} trades...", total);
+
+    let mut enriched = 0usize;
+    let mut failed = 0usize;
+
+    for (i, tx_id) in queue.iter().enumerate() {
+        match scraper.trade_detail(*tx_id).await {
+            Ok(detail) => {
+                db.update_trade_detail(*tx_id, &detail)?;
+                enriched += 1;
+            }
+            Err(err) => {
+                eprintln!("  Warning: trade {} failed: {}", tx_id, err);
+                failed += 1;
+            }
+        }
+
+        if detail_delay_ms > 0 && i + 1 < total {
+            sleep(Duration::from_millis(detail_delay_ms)).await;
+        }
+
+        if (i + 1) % 50 == 0 || i + 1 == total {
+            eprintln!(
+                "  Progress: {}/{} ({} enriched, {} failed)",
+                i + 1,
+                total,
+                enriched,
+                failed
+            );
+        }
+    }
+
+    Ok(EnrichmentResult {
+        enriched,
+        skipped: 0,
+        failed,
+        total,
+    })
 }
 
 struct TradeSyncResult {

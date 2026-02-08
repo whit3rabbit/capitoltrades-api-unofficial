@@ -4,7 +4,7 @@ use std::path::Path;
 
 use chrono::NaiveDate;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::scrape::{ScrapedTrade, ScrapedTradeDetail};
 use crate::types::{IssuerDetail, PoliticianDetail, Trade};
@@ -928,6 +928,15 @@ impl Db {
         Ok(())
     }
 
+    pub fn count_unenriched_trades(&self) -> Result<i64, DbError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM trades WHERE enriched_at IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
     pub fn get_unenriched_trade_ids(&self, limit: Option<i64>) -> Result<Vec<i64>, DbError> {
         let sql = match limit {
             Some(n) => format!(
@@ -978,6 +987,127 @@ impl Db {
             .collect::<Result<Vec<i64>, _>>()?;
         Ok(ids)
     }
+
+    /// Query enriched trades with JOINed politician, issuer, asset,
+    /// committee, and label data. Supports filtering by party, state,
+    /// transaction type, politician name, issuer name/ticker, and date range.
+    pub fn query_trades(&self, filter: &DbTradeFilter) -> Result<Vec<DbTradeRow>, DbError> {
+        let mut sql = String::from(
+            "SELECT t.tx_id, t.pub_date, t.tx_date, t.tx_type, t.value,
+                    t.price, t.size, t.filing_url, t.reporting_gap, t.enriched_at,
+                    p.first_name || ' ' || p.last_name AS politician_name,
+                    p.party, p.state_id, p.chamber,
+                    i.issuer_name, i.issuer_ticker,
+                    a.asset_type,
+                    COALESCE(GROUP_CONCAT(DISTINCT tc.committee), '') AS committees,
+                    COALESCE(GROUP_CONCAT(DISTINCT tl.label), '') AS labels
+             FROM trades t
+             JOIN politicians p ON t.politician_id = p.politician_id
+             JOIN issuers i ON t.issuer_id = i.issuer_id
+             JOIN assets a ON t.asset_id = a.asset_id
+             LEFT JOIN trade_committees tc ON t.tx_id = tc.tx_id
+             LEFT JOIN trade_labels tl ON t.tx_id = tl.tx_id
+             WHERE 1=1",
+        );
+
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
+
+        if let Some(ref party) = filter.party {
+            sql.push_str(&format!(" AND p.party = ?{}", param_idx));
+            params_vec.push(Box::new(party.clone()));
+            param_idx += 1;
+        }
+        if let Some(ref state) = filter.state {
+            sql.push_str(&format!(" AND UPPER(p.state_id) = UPPER(?{})", param_idx));
+            params_vec.push(Box::new(state.clone()));
+            param_idx += 1;
+        }
+        if let Some(ref tx_type) = filter.tx_type {
+            sql.push_str(&format!(" AND t.tx_type = ?{}", param_idx));
+            params_vec.push(Box::new(tx_type.clone()));
+            param_idx += 1;
+        }
+        if let Some(ref name) = filter.name {
+            sql.push_str(&format!(
+                " AND (p.first_name || ' ' || p.last_name) LIKE ?{}",
+                param_idx
+            ));
+            params_vec.push(Box::new(format!("%{}%", name)));
+            param_idx += 1;
+        }
+        if let Some(ref issuer) = filter.issuer {
+            sql.push_str(&format!(
+                " AND (i.issuer_name LIKE ?{n} OR i.issuer_ticker LIKE ?{n})",
+                n = param_idx
+            ));
+            params_vec.push(Box::new(format!("%{}%", issuer)));
+            param_idx += 1;
+        }
+        if let Some(ref since) = filter.since {
+            sql.push_str(&format!(" AND t.pub_date >= ?{}", param_idx));
+            params_vec.push(Box::new(since.clone()));
+            param_idx += 1;
+        }
+        if let Some(ref until) = filter.until {
+            sql.push_str(&format!(" AND t.pub_date <= ?{}", param_idx));
+            params_vec.push(Box::new(until.clone()));
+            param_idx += 1;
+        }
+
+        sql.push_str(" GROUP BY t.tx_id ORDER BY t.pub_date DESC");
+
+        if let Some(n) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let _ = param_idx; // suppress unused warning
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            let committees_str: String = row.get(17)?;
+            let labels_str: String = row.get(18)?;
+
+            Ok(DbTradeRow {
+                tx_id: row.get(0)?,
+                pub_date: row.get(1)?,
+                tx_date: row.get(2)?,
+                tx_type: row.get(3)?,
+                value: row.get(4)?,
+                price: row.get(5)?,
+                size: row.get(6)?,
+                filing_url: row.get(7)?,
+                reporting_gap: row.get(8)?,
+                enriched_at: row.get(9)?,
+                politician_name: row.get(10)?,
+                party: row.get(11)?,
+                state: row.get(12)?,
+                chamber: row.get(13)?,
+                issuer_name: row.get(14)?,
+                issuer_ticker: row.get::<_, Option<String>>(15)?.unwrap_or_default(),
+                asset_type: row.get(16)?,
+                committees: if committees_str.is_empty() {
+                    Vec::new()
+                } else {
+                    committees_str.split(',').map(|s| s.to_string()).collect()
+                },
+                labels: if labels_str.is_empty() {
+                    Vec::new()
+                } else {
+                    labels_str.split(',').map(|s| s.to_string()).collect()
+                },
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -994,6 +1124,46 @@ pub struct IssuerStatsRow {
     pub count_politicians: i64,
     pub volume: i64,
     pub date_last_traded: String,
+}
+
+/// A fully-joined trade row returned by [`Db::query_trades`].
+///
+/// Includes politician, issuer, asset, committee, and label data merged
+/// from six tables via SQL JOINs and GROUP_CONCAT.
+#[derive(Debug, Clone, Serialize)]
+pub struct DbTradeRow {
+    pub tx_id: i64,
+    pub pub_date: String,
+    pub tx_date: String,
+    pub tx_type: String,
+    pub value: i64,
+    pub price: Option<f64>,
+    pub size: Option<i64>,
+    pub filing_url: String,
+    pub reporting_gap: i64,
+    pub enriched_at: Option<String>,
+    pub politician_name: String,
+    pub party: String,
+    pub state: String,
+    pub chamber: String,
+    pub issuer_name: String,
+    pub issuer_ticker: String,
+    pub asset_type: String,
+    pub committees: Vec<String>,
+    pub labels: Vec<String>,
+}
+
+/// Filter parameters for [`Db::query_trades`].
+#[derive(Debug, Default)]
+pub struct DbTradeFilter {
+    pub party: Option<String>,
+    pub state: Option<String>,
+    pub tx_type: Option<String>,
+    pub name: Option<String>,
+    pub issuer: Option<String>,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub limit: Option<i64>,
 }
 
 fn normalize_empty(value: Option<&str>) -> Option<String> {
@@ -2113,5 +2283,55 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         assert!(!ts.is_empty(), "enriched_at should be a non-empty timestamp");
         // Basic sanity: should start with a year
         assert!(ts.starts_with("20"), "enriched_at should be an RFC3339 timestamp: {}", ts);
+    }
+
+    // --- count_unenriched_trades tests ---
+
+    #[test]
+    fn test_count_unenriched_trades_zero() {
+        let mut db = open_test_db();
+        // Insert a trade and mark it enriched
+        let trade = make_test_scraped_trade(300, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+        db.conn
+            .execute(
+                "UPDATE trades SET enriched_at = '2026-01-15T12:00:00Z' WHERE tx_id = 300",
+                [],
+            )
+            .expect("set enriched_at");
+
+        let count = db.count_unenriched_trades().expect("count");
+        assert_eq!(count, 0, "all trades enriched, count should be 0");
+    }
+
+    #[test]
+    fn test_count_unenriched_trades_some() {
+        let mut db = open_test_db();
+        for i in 1..=5 {
+            let trade = make_test_scraped_trade(310 + i, &format!("P00000{}", i), i);
+            db.upsert_scraped_trades(&[trade]).expect("upsert");
+        }
+        // Enrich 2 of the 5
+        db.conn
+            .execute(
+                "UPDATE trades SET enriched_at = '2026-01-15T12:00:00Z' WHERE tx_id IN (311, 313)",
+                [],
+            )
+            .expect("set enriched_at");
+
+        let count = db.count_unenriched_trades().expect("count");
+        assert_eq!(count, 3, "3 of 5 trades should be unenriched");
+    }
+
+    #[test]
+    fn test_count_unenriched_trades_all() {
+        let mut db = open_test_db();
+        for i in 1..=4 {
+            let trade = make_test_scraped_trade(320 + i, &format!("P00000{}", i), i);
+            db.upsert_scraped_trades(&[trade]).expect("upsert");
+        }
+
+        let count = db.count_unenriched_trades().expect("count");
+        assert_eq!(count, 4, "all 4 trades should be unenriched");
     }
 }

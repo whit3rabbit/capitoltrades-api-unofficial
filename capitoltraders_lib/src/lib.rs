@@ -19,9 +19,9 @@ pub use capitoltrades_api::{
 };
 
 pub use client::CachedClient;
-pub use db::{Db, DbError, IssuerStatsRow, PoliticianStatsRow};
+pub use db::{Db, DbError, DbTradeFilter, DbTradeRow, IssuerStatsRow, PoliticianStatsRow};
 pub use error::CapitolTradesError;
 pub use scrape::{
     ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
-    ScrapedPoliticianCard, ScrapedTrade,
+    ScrapedPoliticianCard, ScrapedTrade, ScrapedTradeDetail,
 };
