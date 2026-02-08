@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 4 complete. All 3 plans done: committee scraping (04-01), sync integration (04-02), CLI output (04-03). Next: Phase 5 (Issuer Enrichment).
+**Current focus:** Phase 5 in progress. Plan 1 of 3 done: issuer detail fixtures and DB persistence (05-01). Next: 05-02 (sync pipeline).
 
 ## Current Position
 
-Phase: 4 of 6 (Politician Enrichment) -- COMPLETE
-Plan: 3 of 3 in phase 4 (complete)
-Status: Phase 4 Complete
-Last activity: 2026-02-08 -- Completed 04-03-PLAN.md (CLI politicians --db with committee output)
+Phase: 5 of 6 (Issuer Enrichment) -- IN PROGRESS
+Plan: 1 of 3 in phase 5 (05-01 complete)
+Status: Executing Phase 5
+Last activity: 2026-02-08 -- Completed 05-01-PLAN.md (issuer detail fixtures and DB persistence)
 
-Progress: [########--] 83% (10 of ~12 total plans)
+Progress: [#########-] 92% (11 of ~12 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: 4.0 min
-- Total execution time: 40 min
+- Total execution time: 44 min
 
 **By Phase:**
 
@@ -31,9 +31,10 @@ Progress: [########--] 83% (10 of ~12 total plans)
 | 2. Trade Extraction | 2/2 | 12 min | 6 min |
 | 3. Trade Sync | 3/3 | 10 min | 3.3 min |
 | 4. Politician Enrichment | 3/3 | 12 min | 4 min |
+| 5. Issuer Enrichment | 1/3 | 4 min | 4 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-02 (4 min), 03-03 (3 min), 04-01 (5 min), 04-02 (3 min), 04-03 (4 min)
+- Last 5 plans: 03-03 (3 min), 04-01 (5 min), 04-02 (3 min), 04-03 (4 min), 05-01 (4 min)
 - Trend: Consistent 3-5 min per plan
 
 *Updated after each plan completion*
@@ -73,6 +74,9 @@ Recent decisions affecting current work:
 - 04-03: Copied capitalize_party() to politicians.rs rather than factoring shared utility -- 6-line function not worth coupling
 - 04-03: Unsupported filters (--committee, --issuer-id) bail with supported-filter list on DB path
 - 04-03: query_politicians uses same dynamic filter pattern as query_trades (Vec of Box dyn ToSql, param_idx)
+- 05-01: Performance JSON parsed inline from serde_json::Value rather than deserializing to DbPerformance struct
+- 05-01: COALESCE on nullable issuer fields but direct overwrite on issuer_name (detail page authoritative)
+- 05-01: Incomplete performance (missing required fields) treated same as null -- DELETE existing rows
 
 ### Patterns Established
 
@@ -109,6 +113,11 @@ Phase 4:
 - DbPoliticianRow as canonical read-side politician type (vs PoliticianDetail for API)
 - DbPoliticianOutputRow with Committees column for all 5 output formats
 
+Phase 5:
+- Issuer enrichment COALESCE: nullable fields protected, issuer_name always overwritten, enriched_at set via datetime('now')
+- Performance validation inline: check all 20 required fields present and non-null before persisting
+- EOD price refresh: DELETE all for issuer_id then INSERT new entries in same transaction
+
 ### Pending Todos
 
 None.
@@ -122,5 +131,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 04-03-PLAN.md (CLI politicians --db with committee output). Phase 4 complete. Next: Phase 5 (Issuer Enrichment).
-Resume file: .planning/phases/05-issuer-enrichment/ (not yet created)
+Stopped at: Completed 05-01-PLAN.md (issuer detail fixtures and DB persistence). Next: 05-02 (issuer enrichment sync pipeline).
+Resume file: .planning/phases/05-issuer-enrichment/05-02-PLAN.md
