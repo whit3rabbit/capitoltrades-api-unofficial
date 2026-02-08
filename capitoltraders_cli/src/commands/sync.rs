@@ -688,3 +688,64 @@ fn build_issuer_rows(stats: HashMap<i64, IssuerAgg>) -> Vec<IssuerStatsRow> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn circuit_breaker_new_not_tripped() {
+        let cb = CircuitBreaker::new(3);
+        assert!(!cb.is_tripped());
+    }
+
+    #[test]
+    fn circuit_breaker_trips_at_threshold() {
+        let mut cb = CircuitBreaker::new(3);
+        cb.record_failure();
+        cb.record_failure();
+        assert!(!cb.is_tripped());
+        cb.record_failure();
+        assert!(cb.is_tripped());
+    }
+
+    #[test]
+    fn circuit_breaker_success_resets_count() {
+        let mut cb = CircuitBreaker::new(3);
+        cb.record_failure();
+        cb.record_failure();
+        cb.record_success();
+        cb.record_failure();
+        cb.record_failure();
+        assert!(!cb.is_tripped());
+    }
+
+    #[test]
+    fn circuit_breaker_stays_tripped() {
+        let mut cb = CircuitBreaker::new(2);
+        cb.record_failure();
+        cb.record_failure();
+        assert!(cb.is_tripped());
+        // Recording more failures keeps it tripped
+        cb.record_failure();
+        assert!(cb.is_tripped());
+    }
+
+    #[test]
+    fn circuit_breaker_threshold_one() {
+        let mut cb = CircuitBreaker::new(1);
+        assert!(!cb.is_tripped());
+        cb.record_failure();
+        assert!(cb.is_tripped());
+    }
+
+    #[test]
+    fn circuit_breaker_alternating_success_failure() {
+        let mut cb = CircuitBreaker::new(3);
+        for _ in 0..10 {
+            cb.record_failure();
+            cb.record_success();
+        }
+        assert!(!cb.is_tripped());
+    }
+}
