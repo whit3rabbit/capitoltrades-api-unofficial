@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 5 in progress. Plan 1 of 3 done: issuer detail fixtures and DB persistence (05-01). Next: 05-02 (sync pipeline).
+**Current focus:** Phase 5 in progress. Plan 2 of 3 done: sync pipeline integration (05-02). Next: 05-03 (CLI output).
 
 ## Current Position
 
 Phase: 5 of 6 (Issuer Enrichment) -- IN PROGRESS
-Plan: 1 of 3 in phase 5 (05-01 complete)
+Plan: 2 of 3 in phase 5 (05-02 complete)
 Status: Executing Phase 5
-Last activity: 2026-02-08 -- Completed 05-01-PLAN.md (issuer detail fixtures and DB persistence)
+Last activity: 2026-02-08 -- Completed 05-02-PLAN.md (issuer enrichment sync pipeline)
 
-Progress: [#########-] 92% (11 of ~12 total plans)
+Progress: [##########] 95% (12 of ~13 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: 4.0 min
-- Total execution time: 44 min
+- Total plans completed: 12
+- Average duration: 3.8 min
+- Total execution time: 46 min
 
 **By Phase:**
 
@@ -31,11 +31,11 @@ Progress: [#########-] 92% (11 of ~12 total plans)
 | 2. Trade Extraction | 2/2 | 12 min | 6 min |
 | 3. Trade Sync | 3/3 | 10 min | 3.3 min |
 | 4. Politician Enrichment | 3/3 | 12 min | 4 min |
-| 5. Issuer Enrichment | 1/3 | 4 min | 4 min |
+| 5. Issuer Enrichment | 2/3 | 6 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-03 (3 min), 04-01 (5 min), 04-02 (3 min), 04-03 (4 min), 05-01 (4 min)
-- Trend: Consistent 3-5 min per plan
+- Last 5 plans: 04-01 (5 min), 04-02 (3 min), 04-03 (4 min), 05-01 (4 min), 05-02 (2 min)
+- Trend: Consistent 2-5 min per plan
 
 *Updated after each plan completion*
 
@@ -77,6 +77,8 @@ Recent decisions affecting current work:
 - 05-01: Performance JSON parsed inline from serde_json::Value rather than deserializing to DbPerformance struct
 - 05-01: COALESCE on nullable issuer fields but direct overwrite on issuer_name (detail page authoritative)
 - 05-01: Incomplete performance (missing required fields) treated same as null -- DELETE existing rows
+- 05-02: Batch size shared independently: --batch-size N enriches up to N trades AND up to N issuers per run
+- 05-02: Issuer enrichment placed after trade enrichment but before committee enrichment in sync pipeline
 
 ### Patterns Established
 
@@ -117,6 +119,7 @@ Phase 5:
 - Issuer enrichment COALESCE: nullable fields protected, issuer_name always overwritten, enriched_at set via datetime('now')
 - Performance validation inline: check all 20 required fields present and non-null before persisting
 - EOD price refresh: DELETE all for issuer_id then INSERT new entries in same transaction
+- Shared enrichment flags: single --enrich/--dry-run/--batch-size flags control multiple enrichment passes, each getting independent limits
 
 ### Pending Todos
 
@@ -131,5 +134,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 05-01-PLAN.md (issuer detail fixtures and DB persistence). Next: 05-02 (issuer enrichment sync pipeline).
-Resume file: .planning/phases/05-issuer-enrichment/05-02-PLAN.md
+Stopped at: Completed 05-02-PLAN.md (issuer enrichment sync pipeline). Next: 05-03 (CLI issuer output).
+Resume file: .planning/phases/05-issuer-enrichment/05-03-PLAN.md
