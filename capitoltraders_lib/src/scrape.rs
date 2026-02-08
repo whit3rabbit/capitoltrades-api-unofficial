@@ -76,8 +76,23 @@ impl RetryConfig {
 
 #[derive(Debug, Default)]
 pub struct ScrapedTradeDetail {
+    // Existing fields
     pub filing_url: Option<String>,
     pub filing_id: Option<i64>,
+    // TRADE-01: asset type (e.g. "stock", "stock-option", "etf")
+    pub asset_type: Option<String>,
+    // TRADE-02: trade sizing
+    pub size: Option<i64>,
+    pub size_range_high: Option<i64>,
+    pub size_range_low: Option<i64>,
+    // TRADE-03: price per share at time of trade
+    pub price: Option<f64>,
+    // Additional enrichment
+    pub has_capital_gains: Option<bool>,
+    // TRADE-05: committees (may be empty if not in RSC payload)
+    pub committees: Vec<String>,
+    // TRADE-06: labels (may be empty if not in RSC payload)
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -471,6 +486,21 @@ fn extract_trade_detail(payload: &str, trade_id: i64) -> ScrapedTradeDetail {
     let mut cursor = 0;
     while let Some(pos) = payload[cursor..].find(&trade_needle) {
         let idx = cursor + pos;
+
+        // Strategy: walk backwards from the match to find the enclosing JSON object,
+        // then use extract_json_object to get the complete object and parse all fields.
+        if let Some(obj_start) = payload[..idx].rfind('{') {
+            if let Some(obj_str) = extract_json_object(payload, obj_start) {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&obj_str) {
+                    // Verify this object actually contains our tradeId (not a parent object)
+                    if parsed.get("tradeId").and_then(|v| v.as_i64()) == Some(trade_id) {
+                        return extract_fields_from_trade_object(&parsed);
+                    }
+                }
+            }
+        }
+
+        // Fallback: try the old window-based approach for filing_url only
         let window_start = idx.saturating_sub(500);
         let window_end = (idx + 500).min(payload.len());
         let window = &payload[window_start..window_end];
@@ -482,6 +512,60 @@ fn extract_trade_detail(payload: &str, trade_id: i64) -> ScrapedTradeDetail {
         cursor = idx + trade_needle.len();
     }
     detail
+}
+
+/// Extract all enrichable fields from a parsed trade JSON object.
+fn extract_fields_from_trade_object(parsed: &serde_json::Value) -> ScrapedTradeDetail {
+    // Helper to extract string arrays (for committees/labels)
+    let extract_string_vec = |key: &str| -> Vec<String> {
+        parsed
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    // Filing URL: try "filingUrl" (RSC style) then "filingURL" (BFF API style)
+    let filing_url = parsed
+        .get("filingUrl")
+        .or_else(|| parsed.get("filingURL"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let filing_id = filing_url
+        .as_ref()
+        .and_then(|url| filing_id_from_url(url));
+
+    // TRADE-01: asset type from nested "asset" object, fallback to direct key
+    let asset_type = parsed
+        .get("asset")
+        .and_then(|a| a.get("assetType"))
+        .or_else(|| parsed.get("assetType"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    ScrapedTradeDetail {
+        filing_url,
+        filing_id,
+        asset_type,
+        // TRADE-02: trade sizing
+        size: parsed.get("size").and_then(|v| v.as_i64()),
+        size_range_high: parsed.get("sizeRangeHigh").and_then(|v| v.as_i64()),
+        size_range_low: parsed.get("sizeRangeLow").and_then(|v| v.as_i64()),
+        // TRADE-03: price
+        price: parsed.get("price").and_then(|v| v.as_f64()),
+        // has_capital_gains
+        has_capital_gains: parsed.get("hasCapitalGains").and_then(|v| v.as_bool()),
+        // TRADE-05: committees
+        committees: extract_string_vec("committees"),
+        // TRADE-06: labels
+        labels: extract_string_vec("labels"),
+    }
 }
 
 fn extract_array_with_key(payload: &str, key: &str) -> Option<serde_json::Value> {
