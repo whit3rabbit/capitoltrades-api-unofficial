@@ -12,7 +12,7 @@ This project extends the Capitol Traders scraper to populate missing data by fet
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - Fix upsert data corruption, add enrichment tracking, schema migration
+- [x] **Phase 1: Foundation** - Fix upsert data corruption, add enrichment tracking, schema migration
 - [ ] **Phase 2: Trade Extraction** - Extend trade_detail scraper to extract all missing fields from RSC payloads
 - [ ] **Phase 3: Trade Sync and Output** - Wire trade enrichment into sync pipeline with smart-skip, checkpointing, and CLI output
 - [ ] **Phase 4: Politician Enrichment** - End-to-end politician detail extraction, sync, and CLI output
@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md -- Schema migration and enriched_at columns (FOUND-02, FOUND-04)
-- [ ] 01-02-PLAN.md -- Fix upsert sentinel protection and enrichment query methods (FOUND-01, FOUND-03)
+- [x] 01-02-PLAN.md -- Fix upsert sentinel protection and enrichment query methods (FOUND-01, FOUND-03)
 
 ### Phase 2: Trade Extraction
 **Goal**: The trade_detail scraper extracts every field that listing pages leave as NULL or default, with test coverage against real HTML fixtures
@@ -120,7 +120,7 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
-| 1. Foundation | 1/2 | In progress | - |
+| 1. Foundation | 2/2 | Complete | 2026-02-08 |
 | 2. Trade Extraction | 0/TBD | Not started | - |
 | 3. Trade Sync and Output | 0/TBD | Not started | - |
 | 4. Politician Enrichment | 0/TBD | Not started | - |

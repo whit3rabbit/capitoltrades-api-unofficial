@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 1 - Foundation
+**Current focus:** Phase 2 - Trade Extraction (Phase 1 complete)
 
 ## Current Position
 
-Phase: 1 of 6 (Foundation)
-Plan: 1 of 2 in current phase
-Status: In progress
-Last activity: 2026-02-08 -- Completed 01-01-PLAN.md (schema migration and enriched_at columns)
+Phase: 1 of 6 (Foundation) -- COMPLETE
+Plan: 2 of 2 in phase 1 (complete)
+Status: Phase 1 complete, ready for Phase 2
+Last activity: 2026-02-08 -- Completed 01-02-PLAN.md (upsert sentinel protection and enrichment queries)
 
-Progress: [#---------] 8% (1 of ~12 total plans)
+Progress: [##--------] 17% (2 of ~12 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: 3 min
-- Total execution time: 3 min
+- Total execution time: 6 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1. Foundation | 1/2 | 3 min | 3 min |
+| 1. Foundation | 2/2 | 6 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (3 min)
-- Trend: N/A (first plan)
+- Last 5 plans: 01-01 (3 min), 01-02 (3 min)
+- Trend: Consistent
 
 *Updated after each plan completion*
 
@@ -48,18 +48,24 @@ Recent decisions affecting current work:
 - 01-01: Run migration before schema batch in init() so enrichment indexes can reference enriched_at on pre-migration databases
 - 01-01: Schema versioning pattern established: PRAGMA user_version tracks migration state, numbered private methods (migrate_v1, migrate_v2, etc.)
 
+### Patterns Established (Phase 1)
+
+- Schema versioning: PRAGMA user_version tracks migration state
+- Sentinel CASE pattern: WHEN excluded.field != sentinel THEN excluded.field ELSE table.field END
+- enriched_at pinning: every upsert ON CONFLICT clause includes enriched_at = table.enriched_at
+- Enrichment queue pattern: SELECT id FROM table WHERE enriched_at IS NULL ORDER BY id [LIMIT n]
+
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
 - Research flagged that politician detail page RSC payload may not contain committee data (POL-01 risk). Needs verification during Phase 4 planning.
 - Research flagged that trade detail page RSC payload may not contain committees/labels (TRADE-05, TRADE-06 risk). Needs verification during Phase 2 planning.
-- COALESCE upsert bug (FOUND-01) is a data corruption risk. Must be fixed in 01-02 before any enrichment runs.
 
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 01-01-PLAN.md, ready to execute 01-02-PLAN.md
-Resume file: .planning/phases/01-foundation/01-02-PLAN.md
+Stopped at: Completed Phase 1 (both plans). Ready to plan Phase 2 (Trade Extraction).
+Resume file: .planning/ROADMAP.md (Phase 2 section)
