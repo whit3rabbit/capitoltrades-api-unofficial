@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Fix upsert data corruption, add enrichment tracking, schema migration
 - [x] **Phase 2: Trade Extraction** - Extend trade_detail scraper to extract all missing fields from RSC payloads
-- [ ] **Phase 3: Trade Sync and Output** - Wire trade enrichment into sync pipeline with smart-skip, checkpointing, and CLI output
+- [x] **Phase 3: Trade Sync and Output** - Wire trade enrichment into sync pipeline with smart-skip, checkpointing, and CLI output
 - [ ] **Phase 4: Politician Enrichment** - End-to-end politician detail extraction, sync, and CLI output
 - [ ] **Phase 5: Issuer Enrichment** - End-to-end issuer detail extraction, sync, and CLI output
 - [ ] **Phase 6: Concurrency and Reliability** - Bounded parallel fetching, progress bars, circuit breaker
@@ -65,9 +65,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md -- Sync enrichment pipeline with --enrich, --dry-run, --batch-size, smart-skip, and 500ms throttle (TRADE-07 through TRADE-11, PERF-04)
-- [ ] 03-02-PLAN.md -- Database trade query with JOINed committees/labels and basic filters (OUT-01 data layer)
-- [ ] 03-03-PLAN.md -- CLI trades --db output extension for all formats with enriched columns (OUT-01 presentation)
+- [x] 03-01-PLAN.md -- Sync enrichment pipeline with --enrich, --dry-run, --batch-size, smart-skip, and 500ms throttle (TRADE-07 through TRADE-11, PERF-04)
+- [x] 03-02-PLAN.md -- Database trade query with JOINed committees/labels and basic filters (OUT-01 data layer)
+- [x] 03-03-PLAN.md -- CLI trades --db output extension for all formats with enriched columns (OUT-01 presentation)
 
 ### Phase 4: Politician Enrichment
 **Goal**: Users get complete politician records with committee memberships populated from detail pages, visible in all CLI output formats
@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 |-------|---------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-02-08 |
 | 2. Trade Extraction | 2/2 | Complete | 2026-02-08 |
-| 3. Trade Sync and Output | 0/3 | Not started | - |
+| 3. Trade Sync and Output | 3/3 | Complete | 2026-02-08 |
 | 4. Politician Enrichment | 0/TBD | Not started | - |
 | 5. Issuer Enrichment | 0/TBD | Not started | - |
 | 6. Concurrency and Reliability | 0/TBD | Not started | - |
