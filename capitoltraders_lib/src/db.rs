@@ -2334,4 +2334,66 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         let count = db.count_unenriched_trades().expect("count");
         assert_eq!(count, 4, "all 4 trades should be unenriched");
     }
+
+    // --- Enrichment pipeline integration tests ---
+
+    #[test]
+    fn test_enrichment_queue_empty() {
+        let db = open_test_db();
+        // No trades inserted at all
+        let count = db.count_unenriched_trades().expect("count");
+        assert_eq!(count, 0, "empty db should have 0 unenriched trades");
+
+        let ids = db.get_unenriched_trade_ids(None).expect("get ids");
+        assert!(ids.is_empty(), "empty db should return empty queue");
+    }
+
+    #[test]
+    fn test_enrichment_queue_partial_enrichment() {
+        let mut db = open_test_db();
+        // Insert 3 trades with tx_ids 100, 200, 300
+        let trades: Vec<ScrapedTrade> = vec![
+            make_test_scraped_trade(100, "P000001", 1),
+            make_test_scraped_trade(200, "P000002", 2),
+            make_test_scraped_trade(300, "P000003", 3),
+        ];
+        db.upsert_scraped_trades(&trades).expect("upsert");
+
+        // All 3 should be unenriched initially
+        let ids = db.get_unenriched_trade_ids(None).expect("get ids");
+        assert_eq!(ids, vec![100, 200, 300], "all 3 trades should be in queue");
+
+        // Enrich trade 100 using update_trade_detail
+        let detail = ScrapedTradeDetail::default();
+        db.update_trade_detail(100, &detail).expect("enrich trade 100");
+
+        // Now queue should exclude trade 100
+        let ids = db.get_unenriched_trade_ids(None).expect("get ids after enrichment");
+        assert_eq!(ids, vec![200, 300], "trade 100 should be skipped after enrichment");
+
+        // Count should be 2
+        let count = db.count_unenriched_trades().expect("count");
+        assert_eq!(count, 2, "2 trades remain unenriched");
+    }
+
+    #[test]
+    fn test_enrichment_queue_batch_size_limiting() {
+        let mut db = open_test_db();
+        // Insert 3 unenriched trades
+        let trades: Vec<ScrapedTrade> = vec![
+            make_test_scraped_trade(400, "P000001", 1),
+            make_test_scraped_trade(500, "P000002", 2),
+            make_test_scraped_trade(600, "P000003", 3),
+        ];
+        db.upsert_scraped_trades(&trades).expect("upsert");
+
+        // batch_size=2 should return only 2 IDs
+        let ids = db.get_unenriched_trade_ids(Some(2)).expect("get ids with limit");
+        assert_eq!(ids.len(), 2, "batch_size=2 should return exactly 2 IDs");
+        assert_eq!(ids, vec![400, 500], "should return lowest tx_ids first");
+
+        // count_unenriched_trades is independent of limit
+        let count = db.count_unenriched_trades().expect("count");
+        assert_eq!(count, 3, "count should still be 3 regardless of batch_size");
+    }
 }
