@@ -265,37 +265,69 @@ async fn enrich_trades(
     }
 
     let total = queue.len();
-    eprintln!("Enriching {} trades...", total);
+    let pb = ProgressBar::new(total as u64);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}",
+        )
+        .unwrap(),
+    );
+    pb.set_message("enriching trades...");
+
+    let semaphore = Arc::new(Semaphore::new(concurrency));
+    let (tx, mut rx) = mpsc::channel::<FetchResult<ScrapedTradeDetail>>(concurrency * 2);
+    let mut join_set = JoinSet::new();
+
+    for tx_id in &queue {
+        let sem = Arc::clone(&semaphore);
+        let sender = tx.clone();
+        let scraper_clone = scraper.clone();
+        let id = *tx_id;
+        let delay = detail_delay_ms;
+
+        join_set.spawn(async move {
+            let _permit = sem.acquire().await.expect("semaphore closed");
+            if delay > 0 {
+                sleep(Duration::from_millis(delay)).await;
+            }
+            let result = scraper_clone.trade_detail(id).await;
+            let _ = sender.send(FetchResult { id, result }).await;
+        });
+    }
+    // Drop original sender so rx.recv() returns None when all spawned senders are dropped
+    drop(tx);
 
     let mut enriched = 0usize;
     let mut failed = 0usize;
+    let mut breaker = CircuitBreaker::new(max_failures);
 
-    for (i, tx_id) in queue.iter().enumerate() {
-        match scraper.trade_detail(*tx_id).await {
-            Ok(detail) => {
-                db.update_trade_detail(*tx_id, &detail)?;
+    while let Some(fetch) = rx.recv().await {
+        match fetch.result {
+            Ok(ref detail) => {
+                db.update_trade_detail(fetch.id, detail)?;
                 enriched += 1;
+                breaker.record_success();
             }
-            Err(err) => {
-                eprintln!("  Warning: trade {} failed: {}", tx_id, err);
+            Err(ref err) => {
+                pb.println(format!("  Warning: trade {} failed: {}", fetch.id, err));
                 failed += 1;
+                breaker.record_failure();
             }
         }
+        pb.set_message(format!("{} ok, {} err", enriched, failed));
+        pb.inc(1);
 
-        if detail_delay_ms > 0 && i + 1 < total {
-            sleep(Duration::from_millis(detail_delay_ms)).await;
-        }
-
-        if (i + 1) % 50 == 0 || i + 1 == total {
-            eprintln!(
-                "  Progress: {}/{} ({} enriched, {} failed)",
-                i + 1,
-                total,
-                enriched,
-                failed
-            );
+        if breaker.is_tripped() {
+            pb.println(format!(
+                "Circuit breaker tripped after {} consecutive failures, stopping enrichment",
+                max_failures
+            ));
+            join_set.abort_all();
+            break;
         }
     }
+
+    pb.finish_with_message(format!("done: {} enriched, {} failed", enriched, failed));
 
     Ok(EnrichmentResult {
         enriched,
@@ -344,37 +376,69 @@ async fn enrich_issuers(
     }
 
     let total = queue.len();
-    eprintln!("Enriching {} issuers...", total);
+    let pb = ProgressBar::new(total as u64);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}",
+        )
+        .unwrap(),
+    );
+    pb.set_message("enriching issuers...");
+
+    let semaphore = Arc::new(Semaphore::new(concurrency));
+    let (tx, mut rx) = mpsc::channel::<FetchResult<ScrapedIssuerDetail>>(concurrency * 2);
+    let mut join_set = JoinSet::new();
+
+    for issuer_id in &queue {
+        let sem = Arc::clone(&semaphore);
+        let sender = tx.clone();
+        let scraper_clone = scraper.clone();
+        let id = *issuer_id;
+        let delay = detail_delay_ms;
+
+        join_set.spawn(async move {
+            let _permit = sem.acquire().await.expect("semaphore closed");
+            if delay > 0 {
+                sleep(Duration::from_millis(delay)).await;
+            }
+            let result = scraper_clone.issuer_detail(id).await;
+            let _ = sender.send(FetchResult { id, result }).await;
+        });
+    }
+    // Drop original sender so rx.recv() returns None when all spawned senders are dropped
+    drop(tx);
 
     let mut enriched = 0usize;
     let mut failed = 0usize;
+    let mut breaker = CircuitBreaker::new(max_failures);
 
-    for (i, issuer_id) in queue.iter().enumerate() {
-        match scraper.issuer_detail(*issuer_id).await {
-            Ok(detail) => {
-                db.update_issuer_detail(*issuer_id, &detail)?;
+    while let Some(fetch) = rx.recv().await {
+        match fetch.result {
+            Ok(ref detail) => {
+                db.update_issuer_detail(fetch.id, detail)?;
                 enriched += 1;
+                breaker.record_success();
             }
-            Err(err) => {
-                eprintln!("  Warning: issuer {} failed: {}", issuer_id, err);
+            Err(ref err) => {
+                pb.println(format!("  Warning: issuer {} failed: {}", fetch.id, err));
                 failed += 1;
+                breaker.record_failure();
             }
         }
+        pb.set_message(format!("{} ok, {} err", enriched, failed));
+        pb.inc(1);
 
-        if detail_delay_ms > 0 && i + 1 < total {
-            sleep(Duration::from_millis(detail_delay_ms)).await;
-        }
-
-        if (i + 1) % 50 == 0 || i + 1 == total {
-            eprintln!(
-                "  Progress: {}/{} ({} enriched, {} failed)",
-                i + 1,
-                total,
-                enriched,
-                failed
-            );
+        if breaker.is_tripped() {
+            pb.println(format!(
+                "Circuit breaker tripped after {} consecutive failures, stopping enrichment",
+                max_failures
+            ));
+            join_set.abort_all();
+            break;
         }
     }
+
+    pb.finish_with_message(format!("done: {} enriched, {} failed", enriched, failed));
 
     Ok(EnrichmentResult {
         enriched,
