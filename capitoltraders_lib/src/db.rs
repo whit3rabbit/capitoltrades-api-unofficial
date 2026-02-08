@@ -34,10 +34,20 @@ impl Db {
         Ok(Self { conn })
     }
 
-    pub fn init(&self) -> Result<(), DbError> {
-        let schema = include_str!("../../schema/sqlite.sql");
-        self.conn.execute_batch(schema)?;
+    #[cfg(test)]
+    pub fn open_in_memory() -> Result<Self, DbError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;",
+        )?;
+        Ok(Self { conn })
+    }
 
+    pub fn init(&self) -> Result<(), DbError> {
+        // Check schema version before applying DDL so migrations can add
+        // columns that new indexes reference.
         let version: i32 = self
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -46,6 +56,9 @@ impl Db {
             self.migrate_v1()?;
             self.conn.pragma_update(None, "user_version", 1)?;
         }
+
+        let schema = include_str!("../../schema/sqlite.sql");
+        self.conn.execute_batch(schema)?;
 
         Ok(())
     }
@@ -59,7 +72,8 @@ impl Db {
             match self.conn.execute(sql, []) {
                 Ok(_) => {}
                 Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
-                    if msg.contains("duplicate column name") => {}
+                    if msg.contains("duplicate column name")
+                        || msg.contains("no such table") => {}
                 Err(e) => return Err(e.into()),
             }
         }
@@ -1003,4 +1017,283 @@ struct DbPerformance {
 enum DbEodValue {
     Price(f64),
     Date(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_test_db() -> Db {
+        let db = Db::open_in_memory().expect("open in-memory db");
+        db.init().expect("init schema");
+        db
+    }
+
+    fn has_column(db: &Db, table: &str, column: &str) -> bool {
+        let sql = format!("PRAGMA table_info({})", table);
+        let mut stmt = db.conn.prepare(&sql).expect("prepare pragma");
+        let names: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query")
+            .filter_map(|r| r.ok())
+            .collect();
+        names.contains(&column.to_string())
+    }
+
+    fn get_user_version(db: &Db) -> i32 {
+        db.conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("read user_version")
+    }
+
+    /// The OLD schema without enriched_at columns, used for migration tests.
+    const OLD_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS assets (
+    asset_id INTEGER PRIMARY KEY,
+    asset_type TEXT NOT NULL,
+    asset_ticker TEXT,
+    instrument TEXT
+);
+CREATE TABLE IF NOT EXISTS issuers (
+    issuer_id INTEGER PRIMARY KEY,
+    state_id TEXT,
+    c2iq TEXT,
+    country TEXT,
+    issuer_name TEXT NOT NULL,
+    issuer_ticker TEXT,
+    sector TEXT
+);
+CREATE TABLE IF NOT EXISTS politicians (
+    politician_id TEXT PRIMARY KEY,
+    state_id TEXT NOT NULL,
+    party TEXT NOT NULL,
+    party_other TEXT,
+    district TEXT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    nickname TEXT,
+    middle_name TEXT,
+    full_name TEXT,
+    dob TEXT NOT NULL,
+    gender TEXT NOT NULL,
+    social_facebook TEXT,
+    social_twitter TEXT,
+    social_youtube TEXT,
+    website TEXT,
+    chamber TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS trades (
+    tx_id INTEGER PRIMARY KEY,
+    politician_id TEXT NOT NULL,
+    asset_id INTEGER NOT NULL,
+    issuer_id INTEGER NOT NULL,
+    pub_date TEXT NOT NULL,
+    filing_date TEXT NOT NULL,
+    tx_date TEXT NOT NULL,
+    tx_type TEXT NOT NULL,
+    tx_type_extended TEXT,
+    has_capital_gains INTEGER NOT NULL,
+    owner TEXT NOT NULL,
+    chamber TEXT NOT NULL,
+    price REAL,
+    size INTEGER,
+    size_range_high INTEGER,
+    size_range_low INTEGER,
+    value INTEGER NOT NULL,
+    filing_id INTEGER NOT NULL,
+    filing_url TEXT NOT NULL,
+    reporting_gap INTEGER NOT NULL,
+    comment TEXT,
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE,
+    FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
+    FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS trade_committees (
+    tx_id INTEGER NOT NULL,
+    committee TEXT NOT NULL,
+    PRIMARY KEY (tx_id, committee),
+    FOREIGN KEY (tx_id) REFERENCES trades(tx_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS trade_labels (
+    tx_id INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    PRIMARY KEY (tx_id, label),
+    FOREIGN KEY (tx_id) REFERENCES trades(tx_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS politician_committees (
+    politician_id TEXT NOT NULL,
+    committee TEXT NOT NULL,
+    PRIMARY KEY (politician_id, committee),
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS politician_stats (
+    politician_id TEXT PRIMARY KEY,
+    date_last_traded TEXT,
+    count_trades INTEGER NOT NULL,
+    count_issuers INTEGER NOT NULL,
+    volume INTEGER NOT NULL,
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS issuer_stats (
+    issuer_id INTEGER PRIMARY KEY,
+    count_trades INTEGER NOT NULL,
+    count_politicians INTEGER NOT NULL,
+    volume INTEGER NOT NULL,
+    date_last_traded TEXT NOT NULL,
+    FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS issuer_performance (
+    issuer_id INTEGER PRIMARY KEY,
+    mcap INTEGER NOT NULL,
+    trailing1 REAL NOT NULL,
+    trailing1_change REAL NOT NULL,
+    trailing7 REAL NOT NULL,
+    trailing7_change REAL NOT NULL,
+    trailing30 REAL NOT NULL,
+    trailing30_change REAL NOT NULL,
+    trailing90 REAL NOT NULL,
+    trailing90_change REAL NOT NULL,
+    trailing365 REAL NOT NULL,
+    trailing365_change REAL NOT NULL,
+    wtd REAL NOT NULL,
+    wtd_change REAL NOT NULL,
+    mtd REAL NOT NULL,
+    mtd_change REAL NOT NULL,
+    qtd REAL NOT NULL,
+    qtd_change REAL NOT NULL,
+    ytd REAL NOT NULL,
+    ytd_change REAL NOT NULL,
+    FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS issuer_eod_prices (
+    issuer_id INTEGER NOT NULL,
+    price_date TEXT NOT NULL,
+    price REAL NOT NULL,
+    PRIMARY KEY (issuer_id, price_date),
+    FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS ingest_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trades_politician ON trades(politician_id);
+CREATE INDEX IF NOT EXISTS idx_trades_issuer ON trades(issuer_id);
+CREATE INDEX IF NOT EXISTS idx_trades_pub_date ON trades(pub_date);
+CREATE INDEX IF NOT EXISTS idx_trades_tx_date ON trades(tx_date);
+CREATE INDEX IF NOT EXISTS idx_politicians_party ON politicians(party);
+CREATE INDEX IF NOT EXISTS idx_politicians_state ON politicians(state_id);
+CREATE INDEX IF NOT EXISTS idx_issuers_sector ON issuers(sector);
+CREATE INDEX IF NOT EXISTS idx_trade_labels_label ON trade_labels(label);
+CREATE INDEX IF NOT EXISTS idx_trade_committees_committee ON trade_committees(committee);
+CREATE INDEX IF NOT EXISTS idx_politician_committees_committee ON politician_committees(committee);
+CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
+";
+
+    #[test]
+    fn test_init_creates_enriched_at_columns() {
+        let db = open_test_db();
+        assert!(has_column(&db, "trades", "enriched_at"), "trades missing enriched_at");
+        assert!(has_column(&db, "politicians", "enriched_at"), "politicians missing enriched_at");
+        assert!(has_column(&db, "issuers", "enriched_at"), "issuers missing enriched_at");
+    }
+
+    #[test]
+    fn test_init_idempotent() {
+        let db = open_test_db();
+        // Call init a second time -- must not error
+        db.init().expect("second init should not error");
+        assert_eq!(get_user_version(&db), 1);
+    }
+
+    #[test]
+    fn test_migration_on_existing_db() {
+        // Simulate a pre-migration database: create old schema, leave user_version at 0
+        let db = Db::open_in_memory().expect("open in-memory db");
+        db.conn.execute_batch(OLD_SCHEMA).expect("create old schema");
+
+        // Verify no enriched_at columns yet
+        assert!(!has_column(&db, "trades", "enriched_at"));
+        assert!(!has_column(&db, "politicians", "enriched_at"));
+        assert!(!has_column(&db, "issuers", "enriched_at"));
+        assert_eq!(get_user_version(&db), 0);
+
+        // Insert a test politician row before migration
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'senate')",
+                [],
+            )
+            .expect("insert test politician");
+
+        // Run init which should apply migration
+        db.init().expect("init with migration");
+
+        // Verify enriched_at columns exist
+        assert!(has_column(&db, "trades", "enriched_at"));
+        assert!(has_column(&db, "politicians", "enriched_at"));
+        assert!(has_column(&db, "issuers", "enriched_at"));
+
+        // Verify user_version is now 1
+        assert_eq!(get_user_version(&db), 1);
+
+        // Verify pre-existing data is preserved
+        let name: String = db
+            .conn
+            .query_row(
+                "SELECT first_name FROM politicians WHERE politician_id = 'P000001'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query test politician");
+        assert_eq!(name, "Jane");
+    }
+
+    #[test]
+    fn test_enriched_at_defaults_to_null() {
+        let db = open_test_db();
+
+        // Insert required parent rows first (foreign keys are ON)
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'TestCorp')",
+                [],
+            )
+            .expect("insert issuer");
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert a trade row without specifying enriched_at
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date,
+                 tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (1, 'P000001', 1, 1, '2025-01-01', '2025-01-01', '2025-01-01', 'buy', 0,
+                 'self', 'senate', 50000, 100, 'https://example.com', 5)",
+                [],
+            )
+            .expect("insert trade");
+
+        // Verify enriched_at is NULL
+        let enriched: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query enriched_at");
+        assert!(enriched.is_none(), "enriched_at should default to NULL");
+    }
 }
