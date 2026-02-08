@@ -73,7 +73,13 @@ async fn main() -> Result<()> {
     };
 
     match &cli.command {
-        Commands::Trades(args) => commands::trades::run(args.as_ref(), &scraper, &format).await?,
+        Commands::Trades(args) => {
+            if let Some(ref db_path) = args.db {
+                commands::trades::run_db(args.as_ref(), db_path, &format).await?
+            } else {
+                commands::trades::run(args.as_ref(), &scraper, &format).await?
+            }
+        }
         Commands::Politicians(args) => commands::politicians::run(args, &scraper, &format).await?,
         Commands::Issuers(args) => commands::issuers::run(args, &scraper, &format).await?,
         Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,

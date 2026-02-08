@@ -3,13 +3,15 @@
 use anyhow::{bail, Result};
 use capitoltraders_lib::types::Trade;
 use capitoltraders_lib::validation;
-use capitoltraders_lib::{ScrapeClient, ScrapedTrade};
+use capitoltraders_lib::{Db, DbTradeFilter, ScrapeClient, ScrapedTrade};
 use chrono::{NaiveDate, Utc};
 use clap::Args;
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::output::{
+    print_db_trades_csv, print_db_trades_markdown, print_db_trades_table, print_db_trades_xml,
     print_json, print_trades_csv, print_trades_markdown, print_trades_table, print_trades_xml,
     OutputFormat,
 };
@@ -136,6 +138,10 @@ pub struct TradesArgs {
     /// Delay between trade detail requests in milliseconds
     #[arg(long, default_value = "250")]
     pub details_delay_ms: u64,
+
+    /// Read trades from local SQLite database (requires prior sync)
+    #[arg(long)]
+    pub db: Option<PathBuf>,
 }
 
 /// Executes the trades subcommand: validates inputs, scrapes results,
@@ -441,6 +447,140 @@ fn parse_date(value: &str) -> Option<NaiveDate> {
         .split('T')
         .next()
         .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+}
+
+/// Capitalize a validated party string to match DB storage format.
+///
+/// The validation module returns lowercase ("democrat", "republican", "other")
+/// but the database stores the capitalized form from the API ("Democrat", etc.).
+fn capitalize_party(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+/// Executes the trades subcommand against the local SQLite database.
+///
+/// Builds a [`DbTradeFilter`] from the subset of CLI flags supported on the
+/// DB path, then calls [`Db::query_trades`] and dispatches to output formatting.
+pub async fn run_db(
+    args: &TradesArgs,
+    db_path: &std::path::Path,
+    format: &OutputFormat,
+) -> Result<()> {
+    // Bail on filters not supported by the DB query path
+    let unsupported: &[(&str, bool)] = &[
+        ("--committee", args.committee.is_some()),
+        ("--trade-size", args.trade_size.is_some()),
+        ("--market-cap", args.market_cap.is_some()),
+        ("--asset-type", args.asset_type.is_some()),
+        ("--label", args.label.is_some()),
+        ("--sector", args.sector.is_some()),
+        ("--gender", args.gender.is_some()),
+        ("--chamber", args.chamber.is_some()),
+        ("--politician-id", args.politician_id.is_some()),
+        ("--issuer-state", args.issuer_state.is_some()),
+        ("--country", args.country.is_some()),
+        ("--issuer-id", args.issuer_id.is_some()),
+        ("--politician", args.politician.is_some()),
+        ("--tx-days", args.tx_days.is_some()),
+        ("--tx-since", args.tx_since.is_some()),
+        ("--tx-until", args.tx_until.is_some()),
+    ];
+    for (flag, present) in unsupported {
+        if *present {
+            bail!(
+                "{} is not yet supported with --db. Supported filters: \
+                 --party, --state, --tx-type, --name, --issuer, --since, --until, --days",
+                flag
+            );
+        }
+    }
+
+    let db = Db::open(db_path)?;
+
+    // Build filter from supported args
+    let mut filter = DbTradeFilter::default();
+
+    if let Some(ref val) = args.party {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_party(item.trim())?;
+            parts.push(capitalize_party(&validated.to_string()));
+        }
+        filter.party = Some(parts.join(","));
+    }
+
+    if let Some(ref val) = args.state {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_state(item.trim())?;
+            parts.push(validated);
+        }
+        filter.state = Some(parts.join(","));
+    }
+
+    if let Some(ref val) = args.tx_type {
+        let mut parts = Vec::new();
+        for item in val.split(',') {
+            let validated = validation::validate_tx_type(item.trim())?;
+            parts.push(validated.to_string());
+        }
+        filter.tx_type = Some(parts.join(","));
+    }
+
+    if let Some(ref val) = args.name {
+        let validated = validation::validate_search(val)?;
+        filter.name = Some(validated.to_string());
+    }
+
+    if let Some(ref val) = args.issuer {
+        let validated = validation::validate_search(val)?;
+        filter.issuer = Some(validated.to_string());
+    }
+
+    // Handle date filters: --days converts to --since
+    let today = Utc::now().date_naive();
+
+    if let Some(days) = args.days {
+        let validated = validation::validate_days(days)?;
+        let since_date = today - chrono::Duration::days(validated);
+        filter.since = Some(since_date.format("%Y-%m-%d").to_string());
+    } else if let Some(ref val) = args.since {
+        let d = validation::validate_date(val)?;
+        filter.since = Some(d.format("%Y-%m-%d").to_string());
+    }
+
+    if let Some(ref val) = args.until {
+        let d = validation::validate_date(val)?;
+        filter.until = Some(d.format("%Y-%m-%d").to_string());
+    }
+
+    // Validate date range consistency
+    if let (Some(ref s), Some(ref u)) = (&filter.since, &filter.until) {
+        let since_d = NaiveDate::parse_from_str(s, "%Y-%m-%d")?;
+        let until_d = NaiveDate::parse_from_str(u, "%Y-%m-%d")?;
+        if since_d > until_d {
+            bail!("--since ({}) must be on or before --until ({})", s, u);
+        }
+    }
+
+    filter.limit = Some(args.page_size);
+
+    let rows = db.query_trades(&filter)?;
+    eprintln!("{} trades from database", rows.len());
+
+    match format {
+        OutputFormat::Table => print_db_trades_table(&rows),
+        OutputFormat::Json => print_json(&rows),
+        OutputFormat::Csv => print_db_trades_csv(&rows)?,
+        OutputFormat::Markdown => print_db_trades_markdown(&rows),
+        OutputFormat::Xml => print_db_trades_xml(&rows),
+    }
+
+    Ok(())
 }
 
 fn scraped_trade_to_trade(trade: &ScrapedTrade) -> Result<Trade> {

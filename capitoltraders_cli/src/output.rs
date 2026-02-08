@@ -5,6 +5,7 @@
 
 use anyhow::Result;
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
+use capitoltraders_lib::DbTradeRow;
 use serde::Serialize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
@@ -255,6 +256,96 @@ pub fn print_politicians_xml(politicians: &[PoliticianDetail]) {
 /// Prints issuers as a well-formed XML document to stdout.
 pub fn print_issuers_xml(issuers: &[IssuerDetail]) {
     println!("{}", xml_output::issuers_to_xml(issuers));
+}
+
+// -- DB trade output --
+
+/// Flattened row representation of a DB trade for tabular output.
+///
+/// Includes enriched fields (asset type, committees, labels) not present
+/// in the API-based [`TradeRow`].
+#[derive(Tabled, Serialize)]
+struct DbTradeOutputRow {
+    #[tabled(rename = "Date")]
+    #[serde(rename = "Date")]
+    tx_date: String,
+    #[tabled(rename = "Politician")]
+    #[serde(rename = "Politician")]
+    politician: String,
+    #[tabled(rename = "Party")]
+    #[serde(rename = "Party")]
+    party: String,
+    #[tabled(rename = "Issuer")]
+    #[serde(rename = "Issuer")]
+    issuer: String,
+    #[tabled(rename = "Ticker")]
+    #[serde(rename = "Ticker")]
+    ticker: String,
+    #[tabled(rename = "Type")]
+    #[serde(rename = "Type")]
+    tx_type: String,
+    #[tabled(rename = "Asset")]
+    #[serde(rename = "Asset")]
+    asset_type: String,
+    #[tabled(rename = "Value")]
+    #[serde(rename = "Value")]
+    value: String,
+    #[tabled(rename = "Committees")]
+    #[serde(rename = "Committees")]
+    committees: String,
+    #[tabled(rename = "Labels")]
+    #[serde(rename = "Labels")]
+    labels: String,
+}
+
+fn build_db_trade_rows(trades: &[DbTradeRow]) -> Vec<DbTradeOutputRow> {
+    trades
+        .iter()
+        .map(|t| DbTradeOutputRow {
+            tx_date: t.tx_date.clone(),
+            politician: t.politician_name.clone(),
+            party: t.party.clone(),
+            issuer: t.issuer_name.clone(),
+            ticker: t.issuer_ticker.clone(),
+            tx_type: t.tx_type.clone(),
+            asset_type: t.asset_type.clone(),
+            value: format_value(t.value),
+            committees: t.committees.join(", "),
+            labels: t.labels.join(", "),
+        })
+        .collect()
+}
+
+/// Prints DB trades as an ASCII table to stdout.
+pub fn print_db_trades_table(trades: &[DbTradeRow]) {
+    println!("{}", Table::new(build_db_trade_rows(trades)));
+}
+
+/// Prints DB trades as a GitHub-flavored Markdown table to stdout.
+pub fn print_db_trades_markdown(trades: &[DbTradeRow]) {
+    let mut table = Table::new(build_db_trade_rows(trades));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints DB trades as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_db_trades_csv(trades: &[DbTradeRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_db_trade_rows(trades) {
+        row.politician = sanitize_csv_field(&row.politician);
+        row.issuer = sanitize_csv_field(&row.issuer);
+        row.ticker = sanitize_csv_field(&row.ticker);
+        row.committees = sanitize_csv_field(&row.committees);
+        row.labels = sanitize_csv_field(&row.labels);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints DB trades as a well-formed XML document to stdout.
+pub fn print_db_trades_xml(trades: &[DbTradeRow]) {
+    println!("{}", xml_output::db_trades_to_xml(trades));
 }
 
 // -- JSON output --
