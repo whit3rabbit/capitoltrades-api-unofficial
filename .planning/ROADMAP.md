@@ -62,12 +62,12 @@ Plans:
   3. If a sync run is interrupted mid-enrichment, restarting picks up where it left off rather than re-fetching already-enriched trades (batch checkpointing)
   4. Running `capitoltraders trades --output json` (and table/csv/md/xml) shows asset_type, committees, and labels from enriched data
   5. A dry-run mode reports how many trades would be enriched without making HTTP requests
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
-- [ ] 03-03: TBD
+- [ ] 03-01-PLAN.md -- Sync enrichment pipeline with --enrich, --dry-run, --batch-size, smart-skip, and 500ms throttle (TRADE-07 through TRADE-11, PERF-04)
+- [ ] 03-02-PLAN.md -- Database trade query with JOINed committees/labels and basic filters (OUT-01 data layer)
+- [ ] 03-03-PLAN.md -- CLI trades --db output extension for all formats with enriched columns (OUT-01 presentation)
 
 ### Phase 4: Politician Enrichment
 **Goal**: Users get complete politician records with committee memberships populated from detail pages, visible in all CLI output formats
@@ -122,7 +122,7 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 |-------|---------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-02-08 |
 | 2. Trade Extraction | 2/2 | Complete | 2026-02-08 |
-| 3. Trade Sync and Output | 0/TBD | Not started | - |
+| 3. Trade Sync and Output | 0/3 | Not started | - |
 | 4. Politician Enrichment | 0/TBD | Not started | - |
 | 5. Issuer Enrichment | 0/TBD | Not started | - |
 | 6. Concurrency and Reliability | 0/TBD | Not started | - |
