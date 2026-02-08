@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-07)
 
 **Core value:** Every synced record has complete data populated from detail pages, so downstream analysis works with real values instead of placeholders.
-**Current focus:** Phase 3 in progress. DB query layer complete, CLI output next.
+**Current focus:** Phase 3 complete. Ready for Phase 4 (politician enrichment) or Phase 5 (issuer enrichment).
 
 ## Current Position
 
-Phase: 3 of 6 (Trade Sync and Output)
-Plan: 2 of 3 in phase 3 (complete)
-Status: Executing phase 3
-Last activity: 2026-02-08 -- Completed 03-02-PLAN.md (DB trade query with JOINs)
+Phase: 3 of 6 (Trade Sync and Output) -- COMPLETE
+Plan: 3 of 3 in phase 3 (complete)
+Status: Phase 3 complete
+Last activity: 2026-02-08 -- Completed 03-03-PLAN.md (CLI db output)
 
-Progress: [#####-----] 50% (6 of ~12 total plans)
+Progress: [######----] 58% (7 of ~12 total plans)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: 4 min
-- Total execution time: 25 min
+- Total execution time: 28 min
 
 **By Phase:**
 
@@ -29,11 +29,11 @@ Progress: [#####-----] 50% (6 of ~12 total plans)
 |-------|-------|-------|----------|
 | 1. Foundation | 2/2 | 6 min | 3 min |
 | 2. Trade Extraction | 2/2 | 12 min | 6 min |
-| 3. Trade Sync | 2/3 | 7 min | 3.5 min |
+| 3. Trade Sync | 3/3 | 10 min | 3.3 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (8 min), 02-02 (4 min), 03-01 (3 min), 03-02 (4 min)
-- Trend: Consistent 3-8 min per plan
+- Last 5 plans: 02-02 (4 min), 03-01 (3 min), 03-02 (4 min), 03-03 (3 min)
+- Trend: Consistent 3-4 min per plan
 
 *Updated after each plan completion*
 
@@ -60,6 +60,9 @@ Recent decisions affecting current work:
 - 03-02: Used WHERE 1=1 idiom for clean dynamic clause appending without first-condition tracking
 - 03-02: GROUP_CONCAT with DISTINCT and COALESCE for comma-separated join table values (empty string, not NULL)
 - 03-02: issuer_ticker uses unwrap_or_default() since some issuers lack tickers
+- 03-03: Unsupported DB filters bail with explicit supported-filter list rather than silently ignoring
+- 03-03: capitalize_party() maps validation lowercase to DB capitalized format (Democrat not democrat)
+- 03-03: Reused items_to_xml generic function for DbTradeRow XML serialization
 
 ### Patterns Established
 
@@ -83,6 +86,8 @@ Phase 3:
 - Dry-run pattern: check count_unenriched_trades() and report without HTTP calls
 - Dynamic filter builder: push WHERE clauses and params into vecs, join at end
 - DbTradeRow as canonical read-side trade type (vs Trade for API, ScrapedTrade for scraping)
+- DB command path: --db flag routes to run_db() bypassing scraper entirely
+- Filter validation reuse: same validation functions for both scrape and DB paths
 
 ### Pending Todos
 
@@ -97,5 +102,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-08
-Stopped at: Completed 03-02-PLAN.md (DB trade query with JOINs). Next: 03-03-PLAN.md (CLI db output).
-Resume file: .planning/phases/03-trade-sync-and-output/03-03-PLAN.md
+Stopped at: Completed 03-03-PLAN.md (CLI db output). Phase 3 complete. Next: Phase 4 or Phase 5.
+Resume file: .planning/ROADMAP.md
