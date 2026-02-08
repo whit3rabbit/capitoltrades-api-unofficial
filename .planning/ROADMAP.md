@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Schema migration and enriched_at columns (FOUND-02, FOUND-04)
+- [x] 01-01-PLAN.md -- Schema migration and enriched_at columns (FOUND-02, FOUND-04)
 - [ ] 01-02-PLAN.md -- Fix upsert sentinel protection and enrichment query methods (FOUND-01, FOUND-03)
 
 ### Phase 2: Trade Extraction
@@ -120,7 +120,7 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
-| 1. Foundation | 0/2 | Planned | - |
+| 1. Foundation | 1/2 | In progress | - |
 | 2. Trade Extraction | 0/TBD | Not started | - |
 | 3. Trade Sync and Output | 0/TBD | Not started | - |
 | 4. Politician Enrichment | 0/TBD | Not started | - |
