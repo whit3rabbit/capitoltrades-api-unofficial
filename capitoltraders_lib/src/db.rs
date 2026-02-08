@@ -2396,4 +2396,299 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         let count = db.count_unenriched_trades().expect("count");
         assert_eq!(count, 3, "count should still be 3 regardless of batch_size");
     }
+
+    // --- query_trades tests ---
+
+    /// Set up a test database with 3 trades for query_trades testing.
+    ///
+    /// Trade 100: John Smith (Democrat, CA, senate), Apple Inc (AAPL), buy, 2024-01-15, value 50000
+    /// Trade 200: Jane Doe (Republican, TX, house), Microsoft Corp (MSFT), sell, 2024-02-20, value 100000
+    /// Trade 300: John Smith (Democrat, CA, senate), Tesla Inc (TSLA), buy, 2024-03-10, value 25000
+    ///
+    /// Trade 100 is enriched with asset_type="stock", committees=["ssfi"], labels=["faang"].
+    fn setup_test_db_with_trades() -> Db {
+        use crate::scrape::{ScrapedIssuer, ScrapedPolitician};
+
+        let mut db = open_test_db();
+
+        let trade100 = ScrapedTrade {
+            tx_id: 100,
+            politician_id: "P000001".to_string(),
+            issuer_id: 1,
+            chamber: "senate".to_string(),
+            comment: None,
+            issuer: ScrapedIssuer {
+                state_id: Some("CA".to_string()),
+                c2iq: None,
+                country: Some("US".to_string()),
+                issuer_name: "Apple Inc".to_string(),
+                issuer_ticker: Some("AAPL".to_string()),
+                sector: Some("technology".to_string()),
+            },
+            owner: "self".to_string(),
+            politician: ScrapedPolitician {
+                state_id: "CA".to_string(),
+                chamber: "senate".to_string(),
+                dob: "1960-05-10".to_string(),
+                first_name: "John".to_string(),
+                gender: "male".to_string(),
+                last_name: "Smith".to_string(),
+                nickname: None,
+                party: "Democrat".to_string(),
+            },
+            price: None,
+            pub_date: "2024-01-15T00:00:00Z".to_string(),
+            reporting_gap: 5,
+            tx_date: "2024-01-10".to_string(),
+            tx_type: "buy".to_string(),
+            tx_type_extended: None,
+            value: 50000,
+            filing_url: Some("https://example.com/100".to_string()),
+            filing_id: Some(100),
+        };
+
+        let trade200 = ScrapedTrade {
+            tx_id: 200,
+            politician_id: "P000002".to_string(),
+            issuer_id: 2,
+            chamber: "house".to_string(),
+            comment: None,
+            issuer: ScrapedIssuer {
+                state_id: Some("WA".to_string()),
+                c2iq: None,
+                country: Some("US".to_string()),
+                issuer_name: "Microsoft Corp".to_string(),
+                issuer_ticker: Some("MSFT".to_string()),
+                sector: Some("technology".to_string()),
+            },
+            owner: "self".to_string(),
+            politician: ScrapedPolitician {
+                state_id: "TX".to_string(),
+                chamber: "house".to_string(),
+                dob: "1975-03-22".to_string(),
+                first_name: "Jane".to_string(),
+                gender: "female".to_string(),
+                last_name: "Doe".to_string(),
+                nickname: None,
+                party: "Republican".to_string(),
+            },
+            price: None,
+            pub_date: "2024-02-20T00:00:00Z".to_string(),
+            reporting_gap: 10,
+            tx_date: "2024-02-10".to_string(),
+            tx_type: "sell".to_string(),
+            tx_type_extended: None,
+            value: 100000,
+            filing_url: Some("https://example.com/200".to_string()),
+            filing_id: Some(200),
+        };
+
+        let trade300 = ScrapedTrade {
+            tx_id: 300,
+            politician_id: "P000001".to_string(),
+            issuer_id: 3,
+            chamber: "senate".to_string(),
+            comment: None,
+            issuer: ScrapedIssuer {
+                state_id: Some("CA".to_string()),
+                c2iq: None,
+                country: Some("US".to_string()),
+                issuer_name: "Tesla Inc".to_string(),
+                issuer_ticker: Some("TSLA".to_string()),
+                sector: Some("consumer-discretionary".to_string()),
+            },
+            owner: "self".to_string(),
+            politician: ScrapedPolitician {
+                state_id: "CA".to_string(),
+                chamber: "senate".to_string(),
+                dob: "1960-05-10".to_string(),
+                first_name: "John".to_string(),
+                gender: "male".to_string(),
+                last_name: "Smith".to_string(),
+                nickname: None,
+                party: "Democrat".to_string(),
+            },
+            price: None,
+            pub_date: "2024-03-10T00:00:00Z".to_string(),
+            reporting_gap: 3,
+            tx_date: "2024-03-07".to_string(),
+            tx_type: "buy".to_string(),
+            tx_type_extended: None,
+            value: 25000,
+            filing_url: Some("https://example.com/300".to_string()),
+            filing_id: Some(300),
+        };
+
+        db.upsert_scraped_trades(&[trade100, trade200, trade300])
+            .expect("upsert test trades");
+
+        // Enrich trade 100 with asset_type, committees, labels
+        let detail = ScrapedTradeDetail {
+            asset_type: Some("stock".to_string()),
+            committees: vec!["ssfi".to_string()],
+            labels: vec!["faang".to_string()],
+            ..ScrapedTradeDetail::default()
+        };
+        db.update_trade_detail(100, &detail)
+            .expect("enrich trade 100");
+
+        db
+    }
+
+    #[test]
+    fn test_query_trades_no_filter() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter::default())
+            .expect("query_trades");
+        assert_eq!(rows.len(), 3, "should return all 3 trades");
+        // Ordering: pub_date DESC -> trade 300 (2024-03-10), 200 (2024-02-20), 100 (2024-01-15)
+        assert_eq!(rows[0].tx_id, 300);
+        assert_eq!(rows[1].tx_id, 200);
+        assert_eq!(rows[2].tx_id, 100);
+    }
+
+    #[test]
+    fn test_query_trades_filter_party() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                party: Some("Democrat".to_string()),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 2, "should return 2 Democrat trades");
+        // Both should be John Smith
+        for row in &rows {
+            assert_eq!(row.party, "Democrat");
+        }
+    }
+
+    #[test]
+    fn test_query_trades_filter_state() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                state: Some("TX".to_string()),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 1, "should return 1 TX trade");
+        assert_eq!(rows[0].tx_id, 200);
+        assert_eq!(rows[0].state, "TX");
+    }
+
+    #[test]
+    fn test_query_trades_filter_tx_type() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                tx_type: Some("sell".to_string()),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 1, "should return 1 sell trade");
+        assert_eq!(rows[0].tx_id, 200);
+    }
+
+    #[test]
+    fn test_query_trades_filter_name() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                name: Some("john".to_string()),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 2, "should return 2 trades for John (case-insensitive LIKE)");
+        for row in &rows {
+            assert_eq!(row.politician_name, "John Smith");
+        }
+    }
+
+    #[test]
+    fn test_query_trades_filter_issuer() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                issuer: Some("AAPL".to_string()),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 1, "should return 1 trade matching AAPL ticker");
+        assert_eq!(rows[0].tx_id, 100);
+        assert_eq!(rows[0].issuer_ticker, "AAPL");
+    }
+
+    #[test]
+    fn test_query_trades_filter_date_range() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                since: Some("2024-02-01".to_string()),
+                until: Some("2024-02-28".to_string()),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 1, "should return 1 trade in Feb 2024");
+        assert_eq!(rows[0].tx_id, 200);
+    }
+
+    #[test]
+    fn test_query_trades_limit() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                limit: Some(2),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 2, "should return exactly 2 rows");
+    }
+
+    #[test]
+    fn test_query_trades_enriched_fields() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter::default())
+            .expect("query_trades");
+
+        // Find each trade by tx_id
+        let trade100 = rows.iter().find(|r| r.tx_id == 100).expect("trade 100");
+        let trade200 = rows.iter().find(|r| r.tx_id == 200).expect("trade 200");
+        let trade300 = rows.iter().find(|r| r.tx_id == 300).expect("trade 300");
+
+        // Trade 100 is enriched
+        assert_eq!(trade100.asset_type, "stock", "enriched trade should have asset_type=stock");
+        assert_eq!(trade100.committees, vec!["ssfi"], "enriched trade should have committees");
+        assert_eq!(trade100.labels, vec!["faang"], "enriched trade should have labels");
+        assert!(trade100.enriched_at.is_some(), "enriched trade should have enriched_at timestamp");
+
+        // Trade 200 is NOT enriched
+        assert_eq!(trade200.asset_type, "unknown", "unenriched trade should have asset_type=unknown");
+        assert!(trade200.committees.is_empty(), "unenriched trade should have empty committees");
+        assert!(trade200.labels.is_empty(), "unenriched trade should have empty labels");
+
+        // Trade 300 is NOT enriched
+        assert_eq!(trade300.asset_type, "unknown", "unenriched trade should have asset_type=unknown");
+        assert!(trade300.committees.is_empty(), "unenriched trade should have empty committees");
+        assert!(trade300.labels.is_empty(), "unenriched trade should have empty labels");
+    }
+
+    #[test]
+    fn test_query_trades_combined_filters() {
+        let db = setup_test_db_with_trades();
+        let rows = db
+            .query_trades(&DbTradeFilter {
+                party: Some("Democrat".to_string()),
+                tx_type: Some("buy".to_string()),
+                ..DbTradeFilter::default()
+            })
+            .expect("query_trades");
+        assert_eq!(rows.len(), 2, "should return 2 Democrat buy trades");
+        for row in &rows {
+            assert_eq!(row.party, "Democrat");
+            assert_eq!(row.tx_type, "buy");
+        }
+    }
 }
