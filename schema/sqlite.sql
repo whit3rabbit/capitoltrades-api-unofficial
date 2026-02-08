@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS issuers (
     country TEXT,
     issuer_name TEXT NOT NULL,
     issuer_ticker TEXT,
-    sector TEXT
+    sector TEXT,
+    enriched_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS politicians (
@@ -32,7 +33,8 @@ CREATE TABLE IF NOT EXISTS politicians (
     social_twitter TEXT,
     social_youtube TEXT,
     website TEXT,
-    chamber TEXT NOT NULL
+    chamber TEXT NOT NULL,
+    enriched_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS trades (
@@ -57,6 +59,7 @@ CREATE TABLE IF NOT EXISTS trades (
     filing_url TEXT NOT NULL,
     reporting_gap INTEGER NOT NULL,
     comment TEXT,
+    enriched_at TEXT,
     FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE,
     FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
     FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
@@ -149,3 +152,6 @@ CREATE INDEX IF NOT EXISTS idx_trade_labels_label ON trade_labels(label);
 CREATE INDEX IF NOT EXISTS idx_trade_committees_committee ON trade_committees(committee);
 CREATE INDEX IF NOT EXISTS idx_politician_committees_committee ON politician_committees(committee);
 CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
+CREATE INDEX IF NOT EXISTS idx_trades_enriched ON trades(enriched_at);
+CREATE INDEX IF NOT EXISTS idx_politicians_enriched ON politicians(enriched_at);
+CREATE INDEX IF NOT EXISTS idx_issuers_enriched ON issuers(enriched_at);

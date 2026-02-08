@@ -37,6 +37,32 @@ impl Db {
     pub fn init(&self) -> Result<(), DbError> {
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
+
+        let version: i32 = self
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))?;
+
+        if version < 1 {
+            self.migrate_v1()?;
+            self.conn.pragma_update(None, "user_version", 1)?;
+        }
+
+        Ok(())
+    }
+
+    fn migrate_v1(&self) -> Result<(), DbError> {
+        for sql in &[
+            "ALTER TABLE trades ADD COLUMN enriched_at TEXT",
+            "ALTER TABLE politicians ADD COLUMN enriched_at TEXT",
+            "ALTER TABLE issuers ADD COLUMN enriched_at TEXT",
+        ] {
+            match self.conn.execute(sql, []) {
+                Ok(_) => {}
+                Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                    if msg.contains("duplicate column name") => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
         Ok(())
     }
 
