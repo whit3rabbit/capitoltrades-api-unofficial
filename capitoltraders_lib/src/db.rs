@@ -845,6 +845,57 @@ impl Db {
         tx.commit()?;
         Ok(())
     }
+
+    pub fn get_unenriched_trade_ids(&self, limit: Option<i64>) -> Result<Vec<i64>, DbError> {
+        let sql = match limit {
+            Some(n) => format!(
+                "SELECT tx_id FROM trades WHERE enriched_at IS NULL ORDER BY tx_id LIMIT {}",
+                n
+            ),
+            None => "SELECT tx_id FROM trades WHERE enriched_at IS NULL ORDER BY tx_id".to_string(),
+        };
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<i64>, _>>()?;
+        Ok(ids)
+    }
+
+    pub fn get_unenriched_politician_ids(
+        &self,
+        limit: Option<i64>,
+    ) -> Result<Vec<String>, DbError> {
+        let sql = match limit {
+            Some(n) => format!(
+                "SELECT politician_id FROM politicians WHERE enriched_at IS NULL ORDER BY politician_id LIMIT {}",
+                n
+            ),
+            None => "SELECT politician_id FROM politicians WHERE enriched_at IS NULL ORDER BY politician_id".to_string(),
+        };
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(ids)
+    }
+
+    pub fn get_unenriched_issuer_ids(&self, limit: Option<i64>) -> Result<Vec<i64>, DbError> {
+        let sql = match limit {
+            Some(n) => format!(
+                "SELECT issuer_id FROM issuers WHERE enriched_at IS NULL ORDER BY issuer_id LIMIT {}",
+                n
+            ),
+            None => {
+                "SELECT issuer_id FROM issuers WHERE enriched_at IS NULL ORDER BY issuer_id"
+                    .to_string()
+            }
+        };
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<i64>, _>>()?;
+        Ok(ids)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -1327,5 +1378,321 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
             )
             .expect("query enriched_at");
         assert!(enriched.is_none(), "enriched_at should default to NULL");
+    }
+
+    // --- Test helpers for upsert_scraped_trades tests ---
+
+    fn make_test_scraped_trade(tx_id: i64, politician_id: &str, issuer_id: i64) -> ScrapedTrade {
+        use crate::scrape::{ScrapedIssuer, ScrapedPolitician};
+        ScrapedTrade {
+            tx_id,
+            politician_id: politician_id.to_string(),
+            issuer_id,
+            chamber: "senate".to_string(),
+            comment: None,
+            issuer: ScrapedIssuer {
+                state_id: None,
+                c2iq: None,
+                country: None,
+                issuer_name: format!("TestCorp{}", issuer_id),
+                issuer_ticker: Some("TST".to_string()),
+                sector: None,
+            },
+            owner: "self".to_string(),
+            politician: ScrapedPolitician {
+                state_id: "CA".to_string(),
+                chamber: "senate".to_string(),
+                dob: "1970-01-01".to_string(),
+                first_name: "Jane".to_string(),
+                gender: "female".to_string(),
+                last_name: "Doe".to_string(),
+                nickname: None,
+                party: "Democrat".to_string(),
+            },
+            price: None,
+            pub_date: "2025-06-15T00:00:00Z".to_string(),
+            reporting_gap: 5,
+            tx_date: "2025-06-10".to_string(),
+            tx_type: "buy".to_string(),
+            tx_type_extended: None,
+            value: 50000,
+            filing_url: None,
+            filing_id: None,
+        }
+    }
+
+    // --- Upsert sentinel protection tests ---
+
+    #[test]
+    fn test_upsert_preserves_enriched_filing_id() {
+        let mut db = open_test_db();
+        // Insert with a real filing_id
+        let mut trade = make_test_scraped_trade(100, "P000001", 1);
+        trade.filing_id = Some(12345);
+        db.upsert_scraped_trades(&[trade]).expect("first upsert");
+
+        // Verify filing_id was set
+        let fid: i64 = db
+            .conn
+            .query_row("SELECT filing_id FROM trades WHERE tx_id = 100", [], |row| {
+                row.get(0)
+            })
+            .expect("query filing_id");
+        assert_eq!(fid, 12345);
+
+        // Re-upsert with filing_id=None (becomes 0 sentinel)
+        let trade2 = make_test_scraped_trade(100, "P000001", 1);
+        db.upsert_scraped_trades(&[trade2]).expect("second upsert");
+
+        // filing_id should still be 12345, not 0
+        let fid2: i64 = db
+            .conn
+            .query_row("SELECT filing_id FROM trades WHERE tx_id = 100", [], |row| {
+                row.get(0)
+            })
+            .expect("query filing_id after re-upsert");
+        assert_eq!(fid2, 12345, "filing_id should be preserved, not overwritten with 0");
+    }
+
+    #[test]
+    fn test_upsert_preserves_enriched_filing_url() {
+        let mut db = open_test_db();
+        let mut trade = make_test_scraped_trade(101, "P000001", 1);
+        trade.filing_url = Some("https://example.com/filing/123".to_string());
+        db.upsert_scraped_trades(&[trade]).expect("first upsert");
+
+        let url: String = db
+            .conn
+            .query_row("SELECT filing_url FROM trades WHERE tx_id = 101", [], |row| {
+                row.get(0)
+            })
+            .expect("query filing_url");
+        assert_eq!(url, "https://example.com/filing/123");
+
+        // Re-upsert with filing_url=None (becomes "" sentinel)
+        let trade2 = make_test_scraped_trade(101, "P000001", 1);
+        db.upsert_scraped_trades(&[trade2]).expect("second upsert");
+
+        let url2: String = db
+            .conn
+            .query_row("SELECT filing_url FROM trades WHERE tx_id = 101", [], |row| {
+                row.get(0)
+            })
+            .expect("query filing_url after re-upsert");
+        assert_eq!(
+            url2, "https://example.com/filing/123",
+            "filing_url should be preserved, not overwritten with empty string"
+        );
+    }
+
+    #[test]
+    fn test_upsert_preserves_enriched_price() {
+        let mut db = open_test_db();
+        let mut trade = make_test_scraped_trade(102, "P000001", 1);
+        trade.price = Some(150.0);
+        db.upsert_scraped_trades(&[trade]).expect("first upsert");
+
+        let price: f64 = db
+            .conn
+            .query_row("SELECT price FROM trades WHERE tx_id = 102", [], |row| {
+                row.get(0)
+            })
+            .expect("query price");
+        assert!((price - 150.0).abs() < f64::EPSILON);
+
+        // Re-upsert with price=None
+        let trade2 = make_test_scraped_trade(102, "P000001", 1);
+        db.upsert_scraped_trades(&[trade2]).expect("second upsert");
+
+        let price2: Option<f64> = db
+            .conn
+            .query_row("SELECT price FROM trades WHERE tx_id = 102", [], |row| {
+                row.get(0)
+            })
+            .expect("query price after re-upsert");
+        assert_eq!(
+            price2,
+            Some(150.0),
+            "price should be preserved via COALESCE, not overwritten with NULL"
+        );
+    }
+
+    #[test]
+    fn test_upsert_preserves_enriched_at_timestamp() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(103, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("first upsert");
+
+        // Simulate enrichment by setting enriched_at
+        db.conn
+            .execute(
+                "UPDATE trades SET enriched_at = '2026-01-15T12:00:00Z' WHERE tx_id = 103",
+                [],
+            )
+            .expect("set enriched_at");
+
+        // Re-upsert the same trade
+        let trade2 = make_test_scraped_trade(103, "P000001", 1);
+        db.upsert_scraped_trades(&[trade2]).expect("second upsert");
+
+        let enriched: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 103",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query enriched_at");
+        assert_eq!(
+            enriched.as_deref(),
+            Some("2026-01-15T12:00:00Z"),
+            "enriched_at should be preserved across re-upsert"
+        );
+    }
+
+    #[test]
+    fn test_upsert_asset_type_sentinel_protection() {
+        let mut db = open_test_db();
+        // First insert creates asset with "unknown" type (scraped trade default)
+        let trade = make_test_scraped_trade(104, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("first upsert");
+
+        // Simulate enrichment: set asset_type to "stock"
+        db.conn
+            .execute(
+                "UPDATE assets SET asset_type = 'stock' WHERE asset_id = 104",
+                [],
+            )
+            .expect("enrich asset_type");
+
+        // Re-upsert same trade (inserts asset with "unknown" again)
+        let trade2 = make_test_scraped_trade(104, "P000001", 1);
+        db.upsert_scraped_trades(&[trade2]).expect("second upsert");
+
+        let asset_type: String = db
+            .conn
+            .query_row(
+                "SELECT asset_type FROM assets WHERE asset_id = 104",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query asset_type");
+        assert_eq!(
+            asset_type, "stock",
+            "asset_type should be preserved, not overwritten with 'unknown'"
+        );
+    }
+
+    #[test]
+    fn test_upsert_overwrites_sentinel_with_real_value() {
+        let mut db = open_test_db();
+        // First insert with sentinel filing_id (None -> 0)
+        let trade = make_test_scraped_trade(105, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("first upsert");
+
+        let fid: i64 = db
+            .conn
+            .query_row("SELECT filing_id FROM trades WHERE tx_id = 105", [], |row| {
+                row.get(0)
+            })
+            .expect("query filing_id");
+        assert_eq!(fid, 0, "initial filing_id should be 0 sentinel");
+
+        // Re-upsert with a real filing_id
+        let mut trade2 = make_test_scraped_trade(105, "P000001", 1);
+        trade2.filing_id = Some(99999);
+        db.upsert_scraped_trades(&[trade2]).expect("second upsert");
+
+        let fid2: i64 = db
+            .conn
+            .query_row("SELECT filing_id FROM trades WHERE tx_id = 105", [], |row| {
+                row.get(0)
+            })
+            .expect("query filing_id after re-upsert");
+        assert_eq!(
+            fid2, 99999,
+            "filing_id should be overwritten when incoming value is non-sentinel"
+        );
+    }
+
+    // --- Enrichment query tests ---
+
+    #[test]
+    fn test_get_unenriched_trade_ids_returns_all() {
+        let mut db = open_test_db();
+        for i in 1..=3 {
+            let trade = make_test_scraped_trade(i, &format!("P00000{}", i), i);
+            db.upsert_scraped_trades(&[trade]).expect("upsert");
+        }
+
+        let ids = db
+            .get_unenriched_trade_ids(None)
+            .expect("get_unenriched_trade_ids");
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_get_unenriched_trade_ids_excludes_enriched() {
+        let mut db = open_test_db();
+        for i in 1..=3 {
+            let trade = make_test_scraped_trade(i, &format!("P00000{}", i), i);
+            db.upsert_scraped_trades(&[trade]).expect("upsert");
+        }
+
+        // Mark trade 2 as enriched
+        db.conn
+            .execute(
+                "UPDATE trades SET enriched_at = '2026-01-15T12:00:00Z' WHERE tx_id = 2",
+                [],
+            )
+            .expect("set enriched_at");
+
+        let ids = db
+            .get_unenriched_trade_ids(None)
+            .expect("get_unenriched_trade_ids");
+        assert_eq!(ids, vec![1, 3], "should exclude enriched trade 2");
+    }
+
+    #[test]
+    fn test_get_unenriched_trade_ids_with_limit() {
+        let mut db = open_test_db();
+        for i in 1..=5 {
+            let trade = make_test_scraped_trade(i, &format!("P00000{}", i), i);
+            db.upsert_scraped_trades(&[trade]).expect("upsert");
+        }
+
+        let ids = db
+            .get_unenriched_trade_ids(Some(2))
+            .expect("get_unenriched_trade_ids");
+        assert_eq!(ids.len(), 2, "should return exactly 2 IDs");
+        assert_eq!(ids, vec![1, 2], "should return lowest tx_ids first");
+    }
+
+    #[test]
+    fn test_get_unenriched_politician_ids() {
+        let mut db = open_test_db();
+        let trade1 = make_test_scraped_trade(1, "P000001", 1);
+        let trade2 = make_test_scraped_trade(2, "P000002", 2);
+        db.upsert_scraped_trades(&[trade1, trade2])
+            .expect("upsert");
+
+        let ids = db
+            .get_unenriched_politician_ids(None)
+            .expect("get_unenriched_politician_ids");
+        assert_eq!(ids, vec!["P000001", "P000002"]);
+    }
+
+    #[test]
+    fn test_get_unenriched_issuer_ids() {
+        let mut db = open_test_db();
+        let trade1 = make_test_scraped_trade(1, "P000001", 10);
+        let trade2 = make_test_scraped_trade(2, "P000002", 20);
+        db.upsert_scraped_trades(&[trade1, trade2])
+            .expect("upsert");
+
+        let ids = db
+            .get_unenriched_issuer_ids(None)
+            .expect("get_unenriched_issuer_ids");
+        assert_eq!(ids, vec![10, 20]);
     }
 }
