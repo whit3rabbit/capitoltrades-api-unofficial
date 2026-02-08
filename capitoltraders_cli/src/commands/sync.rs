@@ -173,17 +173,12 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         );
     }
 
-    eprintln!("Syncing politician committee memberships...");
-    let committee_count = enrich_politician_committees(
+    let _committee_count = enrich_politician_committees(
         &scraper,
         &db,
         args.details_delay_ms,
     )
     .await?;
-    eprintln!(
-        "Committee enrichment complete: {} memberships persisted",
-        committee_count
-    );
 
     Ok(())
 }
@@ -455,6 +450,13 @@ async fn enrich_politician_committees(
 ) -> Result<usize> {
     let mut memberships: Vec<(String, String)> = Vec::new();
 
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
+            .unwrap(),
+    );
+    pb.enable_steady_tick(Duration::from_millis(120));
+
     for &(code, name) in validation::COMMITTEE_MAP {
         let mut page = 1;
         let mut committee_member_count = 0;
@@ -478,7 +480,10 @@ async fn enrich_politician_committees(
             }
         }
 
-        eprintln!("  {}: {} members", name, committee_member_count);
+        pb.set_message(format!(
+            "{}: {} members ({} total)",
+            name, committee_member_count, memberships.len()
+        ));
 
         if throttle_ms > 0 {
             sleep(Duration::from_millis(throttle_ms)).await;
@@ -488,11 +493,11 @@ async fn enrich_politician_committees(
     let inserted = db.replace_all_politician_committees(&memberships)?;
     db.mark_politicians_enriched()?;
 
-    eprintln!(
-        "Committee enrichment: {} memberships across {} committees",
+    pb.finish_with_message(format!(
+        "done: {} memberships across {} committees",
         memberships.len(),
         validation::COMMITTEE_MAP.len()
-    );
+    ));
 
     Ok(inserted)
 }
