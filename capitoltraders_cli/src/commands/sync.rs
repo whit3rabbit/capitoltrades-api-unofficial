@@ -43,15 +43,15 @@ pub struct SyncArgs {
     #[arg(long, hide = true)]
     pub with_trade_details: bool,
 
-    /// Enrich trade details after sync (fetches individual trade pages)
+    /// Enrich trade and issuer details after sync (fetches individual detail pages)
     #[arg(long)]
     pub enrich: bool,
 
-    /// Show how many trades would be enriched without fetching
+    /// Show how many items would be enriched without fetching
     #[arg(long, requires = "enrich")]
     pub dry_run: bool,
 
-    /// Maximum trades to enrich per run (default: all)
+    /// Maximum items to enrich per run (default: all)
     #[arg(long)]
     pub batch_size: Option<i64>,
 
@@ -135,6 +135,19 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
             "Enrichment: {}/{} trades processed ({} failed)",
             result.enriched, result.total, result.failed
         );
+
+        let issuer_result = enrich_issuers(
+            &scraper,
+            &db,
+            args.batch_size,
+            args.details_delay_ms,
+            args.dry_run,
+        )
+        .await?;
+        eprintln!(
+            "Issuer enrichment: {}/{} issuers processed ({} failed)",
+            issuer_result.enriched, issuer_result.total, issuer_result.failed
+        );
     }
 
     eprintln!("Syncing politician committee memberships...");
@@ -210,6 +223,83 @@ async fn enrich_trades(
             }
             Err(err) => {
                 eprintln!("  Warning: trade {} failed: {}", tx_id, err);
+                failed += 1;
+            }
+        }
+
+        if detail_delay_ms > 0 && i + 1 < total {
+            sleep(Duration::from_millis(detail_delay_ms)).await;
+        }
+
+        if (i + 1) % 50 == 0 || i + 1 == total {
+            eprintln!(
+                "  Progress: {}/{} ({} enriched, {} failed)",
+                i + 1,
+                total,
+                enriched,
+                failed
+            );
+        }
+    }
+
+    Ok(EnrichmentResult {
+        enriched,
+        skipped: 0,
+        failed,
+        total,
+    })
+}
+
+async fn enrich_issuers(
+    scraper: &ScrapeClient,
+    db: &Db,
+    batch_size: Option<i64>,
+    detail_delay_ms: u64,
+    dry_run: bool,
+) -> Result<EnrichmentResult> {
+    if dry_run {
+        let total = db.count_unenriched_issuers()?;
+        let selected = match batch_size {
+            Some(n) => n.min(total),
+            None => total,
+        };
+        eprintln!(
+            "{} issuers would be enriched ({} selected)",
+            total, selected
+        );
+        return Ok(EnrichmentResult {
+            enriched: 0,
+            skipped: 0,
+            failed: 0,
+            total: total as usize,
+        });
+    }
+
+    let queue = db.get_unenriched_issuer_ids(batch_size)?;
+    if queue.is_empty() {
+        eprintln!("No issuers need enrichment");
+        return Ok(EnrichmentResult {
+            enriched: 0,
+            skipped: 0,
+            failed: 0,
+            total: 0,
+        });
+    }
+
+    let total = queue.len();
+    eprintln!("Enriching {} issuers...", total);
+
+    let mut enriched = 0usize;
+    let mut failed = 0usize;
+
+    for (i, issuer_id) in queue.iter().enumerate() {
+        match scraper.issuer_detail(*issuer_id).await {
+            Ok(detail) => {
+                db.update_issuer_detail(*issuer_id, &detail)?;
+                enriched += 1;
+            }
+            Err(err) => {
+                eprintln!("  Warning: issuer {} failed: {}", issuer_id, err);
                 failed += 1;
             }
         }
