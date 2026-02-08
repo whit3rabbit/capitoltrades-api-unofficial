@@ -127,7 +127,10 @@ impl Db {
                 "INSERT INTO assets (asset_id, asset_type, asset_ticker, instrument)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(asset_id) DO UPDATE SET
-               asset_type = excluded.asset_type,
+               asset_type = CASE
+                 WHEN excluded.asset_type != 'unknown' THEN excluded.asset_type
+                 ELSE assets.asset_type
+               END,
                asset_ticker = COALESCE(excluded.asset_ticker, assets.asset_ticker),
                instrument = COALESCE(excluded.instrument, assets.instrument)",
             )?;
@@ -140,7 +143,8 @@ impl Db {
                sector = COALESCE(excluded.sector, issuers.sector),
                state_id = COALESCE(excluded.state_id, issuers.state_id),
                c2iq = COALESCE(excluded.c2iq, issuers.c2iq),
-               country = COALESCE(excluded.country, issuers.country)",
+               country = COALESCE(excluded.country, issuers.country),
+               enriched_at = issuers.enriched_at",
             )?;
             let mut stmt_politician = tx.prepare(
             "INSERT INTO politicians (
@@ -171,7 +175,8 @@ impl Db {
                nickname = COALESCE(excluded.nickname, politicians.nickname),
                dob = excluded.dob,
                gender = excluded.gender,
-               chamber = excluded.chamber",
+               chamber = excluded.chamber,
+               enriched_at = politicians.enriched_at",
             )?;
             let mut stmt_trade = tx.prepare(
                 "INSERT INTO trades (
@@ -210,18 +215,28 @@ impl Db {
                tx_date = excluded.tx_date,
                tx_type = excluded.tx_type,
                tx_type_extended = excluded.tx_type_extended,
-               has_capital_gains = excluded.has_capital_gains,
+               has_capital_gains = CASE
+                 WHEN excluded.has_capital_gains = 1 THEN excluded.has_capital_gains
+                 ELSE trades.has_capital_gains
+               END,
                owner = excluded.owner,
                chamber = excluded.chamber,
-               price = excluded.price,
-               size = excluded.size,
-               size_range_high = excluded.size_range_high,
-               size_range_low = excluded.size_range_low,
+               price = COALESCE(excluded.price, trades.price),
+               size = COALESCE(excluded.size, trades.size),
+               size_range_high = COALESCE(excluded.size_range_high, trades.size_range_high),
+               size_range_low = COALESCE(excluded.size_range_low, trades.size_range_low),
                value = excluded.value,
-               filing_id = excluded.filing_id,
-               filing_url = excluded.filing_url,
+               filing_id = CASE
+                 WHEN excluded.filing_id > 0 THEN excluded.filing_id
+                 ELSE trades.filing_id
+               END,
+               filing_url = CASE
+                 WHEN excluded.filing_url != '' THEN excluded.filing_url
+                 ELSE trades.filing_url
+               END,
                reporting_gap = excluded.reporting_gap,
-               comment = excluded.comment",
+               comment = excluded.comment,
+               enriched_at = trades.enriched_at",
             )?;
             let mut stmt_trade_committees =
                 tx.prepare("INSERT INTO trade_committees (tx_id, committee) VALUES (?1, ?2)")?;
@@ -317,7 +332,10 @@ impl Db {
                 "INSERT INTO assets (asset_id, asset_type, asset_ticker, instrument)
                  VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(asset_id) DO UPDATE SET
-                   asset_type = excluded.asset_type,
+                   asset_type = CASE
+                     WHEN excluded.asset_type != 'unknown' THEN excluded.asset_type
+                     ELSE assets.asset_type
+                   END,
                    asset_ticker = COALESCE(excluded.asset_ticker, assets.asset_ticker),
                    instrument = COALESCE(excluded.instrument, assets.instrument)",
             )?;
@@ -330,7 +348,8 @@ impl Db {
                    sector = COALESCE(excluded.sector, issuers.sector),
                    state_id = COALESCE(excluded.state_id, issuers.state_id),
                    c2iq = COALESCE(excluded.c2iq, issuers.c2iq),
-                   country = COALESCE(excluded.country, issuers.country)",
+                   country = COALESCE(excluded.country, issuers.country),
+                   enriched_at = issuers.enriched_at",
             )?;
             let mut stmt_politician = tx.prepare(
                 "INSERT INTO politicians (
@@ -362,7 +381,8 @@ impl Db {
                    full_name = COALESCE(excluded.full_name, politicians.full_name),
                    dob = excluded.dob,
                    gender = excluded.gender,
-                   chamber = excluded.chamber",
+                   chamber = excluded.chamber,
+                   enriched_at = politicians.enriched_at",
             )?;
             let mut stmt_trade = tx.prepare(
                 "INSERT INTO trades (
@@ -401,18 +421,28 @@ impl Db {
                    tx_date = excluded.tx_date,
                    tx_type = excluded.tx_type,
                    tx_type_extended = excluded.tx_type_extended,
-                   has_capital_gains = excluded.has_capital_gains,
+                   has_capital_gains = CASE
+                     WHEN excluded.has_capital_gains = 1 THEN excluded.has_capital_gains
+                     ELSE trades.has_capital_gains
+                   END,
                    owner = excluded.owner,
                    chamber = excluded.chamber,
-                   price = excluded.price,
-                   size = excluded.size,
-                   size_range_high = excluded.size_range_high,
-                   size_range_low = excluded.size_range_low,
+                   price = COALESCE(excluded.price, trades.price),
+                   size = COALESCE(excluded.size, trades.size),
+                   size_range_high = COALESCE(excluded.size_range_high, trades.size_range_high),
+                   size_range_low = COALESCE(excluded.size_range_low, trades.size_range_low),
                    value = excluded.value,
-                   filing_id = excluded.filing_id,
-                   filing_url = excluded.filing_url,
+                   filing_id = CASE
+                     WHEN excluded.filing_id > 0 THEN excluded.filing_id
+                     ELSE trades.filing_id
+                   END,
+                   filing_url = CASE
+                     WHEN excluded.filing_url != '' THEN excluded.filing_url
+                     ELSE trades.filing_url
+                   END,
                    reporting_gap = excluded.reporting_gap,
-                   comment = excluded.comment",
+                   comment = excluded.comment,
+                   enriched_at = trades.enriched_at",
             )?;
 
             for trade in trades {
