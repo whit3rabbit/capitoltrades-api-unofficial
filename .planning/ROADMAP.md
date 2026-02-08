@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Trade Sync and Output** - Wire trade enrichment into sync pipeline with smart-skip, checkpointing, and CLI output
 - [x] **Phase 4: Politician Enrichment** - End-to-end politician committee extraction via listing page committee-filter iteration, sync, and CLI output
 - [x] **Phase 5: Issuer Enrichment** - End-to-end issuer detail extraction, sync, and CLI output
-- [ ] **Phase 6: Concurrency and Reliability** - Bounded parallel fetching, progress bars, circuit breaker
+- [x] **Phase 6: Concurrency and Reliability** - Bounded parallel fetching, progress bars, circuit breaker
 
 ## Phase Details
 
@@ -112,8 +112,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md -- Bounded concurrent enrichment with progress bars and circuit breaker (PERF-01, PERF-02, PERF-03)
-- [ ] 06-02-PLAN.md -- Committee enrichment progress spinner and CircuitBreaker unit tests (PERF-02 polish)
+- [x] 06-01-PLAN.md -- Bounded concurrent enrichment with progress bars and circuit breaker (PERF-01, PERF-02, PERF-03)
+- [x] 06-02-PLAN.md -- Committee enrichment progress spinner and CircuitBreaker unit tests (PERF-02 polish)
 
 ## Progress
 
@@ -127,4 +127,4 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 | 3. Trade Sync and Output | 3/3 | Complete | 2026-02-08 |
 | 4. Politician Enrichment | 3/3 | Complete | 2026-02-08 |
 | 5. Issuer Enrichment | 3/3 | Complete | 2026-02-08 |
-| 6. Concurrency and Reliability | 0/2 | Not started | - |
+| 6. Concurrency and Reliability | 2/2 | Complete | 2026-02-08 |
