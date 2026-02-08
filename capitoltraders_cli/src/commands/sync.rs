@@ -3,11 +3,11 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use chrono::NaiveDate;
-use clap::Args;
 use capitoltraders_lib::{
     validation, Db, IssuerStatsRow, PoliticianStatsRow, ScrapeClient, ScrapedTrade,
 };
+use chrono::NaiveDate;
+use clap::Args;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -82,9 +82,10 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         eprintln!("Starting incremental sync into {}", args.db.display());
     }
 
-    let scraper = match base_url.map(|s| s.to_string()).or_else(|| {
-        std::env::var("CAPITOLTRADES_BASE_URL").ok()
-    }) {
+    let scraper = match base_url
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("CAPITOLTRADES_BASE_URL").ok())
+    {
         Some(url) => ScrapeClient::with_base_url(&url)?,
         None => ScrapeClient::new()?,
     };
@@ -269,9 +270,7 @@ fn update_stats(
     Ok(())
 }
 
-fn build_politician_rows(
-    stats: HashMap<String, PoliticianAgg>,
-) -> Vec<PoliticianStatsRow> {
+fn build_politician_rows(stats: HashMap<String, PoliticianAgg>) -> Vec<PoliticianStatsRow> {
     stats
         .into_iter()
         .map(|(politician_id, agg)| PoliticianStatsRow {

@@ -20,7 +20,10 @@ fn deserialize_trades_full() {
     assert_eq!(trade.size, Some(50000));
     assert_eq!(trade.value, 50000);
     assert_eq!(trade.reporting_gap, 14);
-    assert_eq!(trade.filing_url, "https://efts.sec.gov/LATEST/search-index?q=12345");
+    assert_eq!(
+        trade.filing_url,
+        "https://efts.sec.gov/LATEST/search-index?q=12345"
+    );
     assert_eq!(trade.asset.asset_type, "stock");
     assert_eq!(trade.asset.asset_ticker.as_deref(), Some("AAPL"));
     assert_eq!(trade.issuer.issuer_name, "Apple Inc");

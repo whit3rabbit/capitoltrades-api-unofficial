@@ -1,9 +1,9 @@
-use capitoltrades_api::{
-    IssuerQuery, IssuerSortBy, PoliticianQuery, PoliticianSortBy, Query, SortDirection,
-    TradeQuery, TradeSortBy,
-};
 use capitoltrades_api::types::{
     AssetType, Chamber, Gender, Label, MarketCap, Sector, TradeSize, TxType,
+};
+use capitoltrades_api::{
+    IssuerQuery, IssuerSortBy, PoliticianQuery, PoliticianSortBy, Query, SortDirection, TradeQuery,
+    TradeSortBy,
 };
 use url::Url;
 
@@ -153,7 +153,10 @@ fn trade_query_with_committee() {
         .with_committee("Senate - Finance")
         .add_to_url(&base_url());
     let query = url.query().unwrap();
-    assert!(query.contains("committee=Senate+-+Finance") || query.contains("committee=Senate%20-%20Finance"));
+    assert!(
+        query.contains("committee=Senate+-+Finance")
+            || query.contains("committee=Senate%20-%20Finance")
+    );
 }
 
 #[test]

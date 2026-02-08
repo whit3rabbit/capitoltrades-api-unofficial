@@ -2,7 +2,7 @@
 
 A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com).
 
-There is no public API. The CLI scrapes the public site (Next.js RSC payloads) and normalizes the data for output.
+There is no public API (as far as I can tell). The CLI uses an **unofficial API** by scraping the public site (Next.js RSC payloads) and normalizes the data for output.
 The vendored [capitoltrades_api](https://github.com/TommasoAmici/capitoltrades) crate is still used for shared types
 and validation helpers.
 

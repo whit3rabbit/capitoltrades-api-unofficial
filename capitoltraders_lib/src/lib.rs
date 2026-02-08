@@ -14,19 +14,14 @@ pub mod validation;
 pub use capitoltrades_api;
 pub use capitoltrades_api::types;
 pub use capitoltrades_api::{
-    IssuerQuery, IssuerSortBy, PoliticianQuery, PoliticianSortBy, Query, SortDirection,
-    TradeQuery, TradeSortBy,
+    IssuerQuery, IssuerSortBy, PoliticianQuery, PoliticianSortBy, Query, SortDirection, TradeQuery,
+    TradeSortBy,
 };
 
 pub use client::CachedClient;
 pub use db::{Db, DbError, IssuerStatsRow, PoliticianStatsRow};
 pub use error::CapitolTradesError;
 pub use scrape::{
-    ScrapeClient,
-    ScrapeError,
-    ScrapePage,
-    ScrapedIssuerDetail,
-    ScrapedIssuerList,
-    ScrapedPoliticianCard,
-    ScrapedTrade,
+    ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
+    ScrapedPoliticianCard, ScrapedTrade,
 };

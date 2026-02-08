@@ -174,7 +174,11 @@ fn test_trade_schema_rejects_additional_properties() {
 fn test_empty_array_conforms_to_all_schemas() {
     let empty = serde_json::json!([]);
 
-    for schema_name in ["trade.schema.json", "politician.schema.json", "issuer.schema.json"] {
+    for schema_name in [
+        "trade.schema.json",
+        "politician.schema.json",
+        "issuer.schema.json",
+    ] {
         let schema = load_schema(schema_name);
         let validator =
             jsonschema::draft202012::new(&schema).unwrap_or_else(|e| panic!("{schema_name}: {e}"));

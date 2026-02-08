@@ -4,10 +4,10 @@
 //! Validators normalize casing, resolve aliases (e.g. "d" to "democrat"), and return
 //! typed results or `CapitolTradesError::InvalidInput`.
 
-use chrono::{NaiveDate, Utc};
 use capitoltrades_api::types::{
     AssetType, Chamber, Gender, Label, MarketCap, Party, Sector, TradeSize, TxType,
 };
+use chrono::{NaiveDate, Utc};
 
 use crate::error::CapitolTradesError;
 
@@ -19,10 +19,10 @@ pub const MAX_COMMITTEE_LENGTH: usize = 80;
 
 /// All recognized US state and territory codes (50 states + DC + 5 territories).
 pub const VALID_STATES: &[&str] = &[
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA",
-    "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
-    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT",
-    "VA", "WA", "WV", "WI", "WY", "DC", "AS", "GU", "MP", "PR", "VI",
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS",
+    "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY",
+    "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+    "WI", "WY", "DC", "AS", "GU", "MP", "PR", "VI",
 ];
 
 /// Committee code-to-name mapping. The API uses short abbreviation codes

@@ -44,11 +44,10 @@ impl Client {
     }
 
     fn get_url(&self, path: &str, query: Option<&impl Query>) -> Result<Url, Error> {
-        let url = Url::parse(format!("{}{}", &self.base_api_url, path).as_str())
-            .map_err(|e| {
-                tracing::error!("Invalid URL constructed: {}", e);
-                Error::RequestFailed
-            })?;
+        let url = Url::parse(format!("{}{}", &self.base_api_url, path).as_str()).map_err(|e| {
+            tracing::error!("Invalid URL constructed: {}", e);
+            Error::RequestFailed
+        })?;
         Ok(match query {
             Some(query) => query.add_to_url(&url),
             None => url,
@@ -84,8 +83,7 @@ impl Client {
             .map_err(|e| {
                 tracing::error!("Failed to get resource: {}", e);
                 Error::RequestFailed
-            })?
-            ;
+            })?;
 
         let status = resp.status();
         let body = resp.text().await.map_err(|e| {

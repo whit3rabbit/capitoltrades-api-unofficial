@@ -87,8 +87,7 @@ impl Query for TradeQuery {
                 .append_pair("gender", gender.to_string().as_str());
         }
         for mcap in self.market_caps.iter() {
-            url.query_pairs_mut()
-                .append_pair("mcap", &mcap.to_string());
+            url.query_pairs_mut().append_pair("mcap", &mcap.to_string());
         }
         for asset_type in self.asset_types.iter() {
             url.query_pairs_mut()

@@ -2,18 +2,32 @@
 
 use std::time::Duration;
 
+use rand::Rng;
+use regex::Regex;
+use reqwest::header::{HeaderMap, RETRY_AFTER};
 use reqwest::StatusCode;
 use serde::Deserialize;
-use regex::Regex;
+use tokio::time::sleep;
 
 use capitoltrades_api::user_agent::get_user_agent;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ScrapeError {
-    #[error("http error: {0}")]
-    Http(#[from] reqwest::Error),
-    #[error("unexpected status {status}")]
-    HttpStatus { status: StatusCode },
+    #[error("http client error: {0}")]
+    HttpClient(#[source] reqwest::Error),
+    #[error("http error for {url}: {source}")]
+    Http {
+        url: String,
+        #[source]
+        source: reqwest::Error,
+    },
+    #[error("unexpected status {status} for {url}: {body}")]
+    HttpStatus {
+        status: StatusCode,
+        url: String,
+        body: String,
+        retry_after: Option<Duration>,
+    },
     #[error("missing RSC payload")]
     MissingPayload,
     #[error("json error: {0}")]
@@ -31,6 +45,33 @@ pub struct ScrapePage<T> {
     pub data: Vec<T>,
     pub total_pages: Option<i64>,
     pub total_count: Option<i64>,
+}
+
+struct RetryConfig {
+    max_retries: usize,
+    base_delay_ms: u64,
+    max_delay_ms: u64,
+}
+
+impl RetryConfig {
+    fn from_env() -> Self {
+        Self {
+            max_retries: env_usize("CAPITOLTRADES_RETRY_MAX", 3),
+            base_delay_ms: env_u64("CAPITOLTRADES_RETRY_BASE_MS", 2000),
+            max_delay_ms: env_u64("CAPITOLTRADES_RETRY_MAX_MS", 30000),
+        }
+    }
+
+    fn delay_for_attempt(&self, attempt: usize) -> Duration {
+        let shift = (attempt.saturating_sub(1)).min(30) as u32;
+        let exp = 1u64 << shift;
+        let base = self
+            .base_delay_ms
+            .saturating_mul(exp)
+            .min(self.max_delay_ms);
+        let jitter = rand::thread_rng().gen_range(0.8..1.2);
+        Duration::from_millis((base as f64 * jitter) as u64)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -150,7 +191,8 @@ impl ScrapeClient {
         let http = reqwest::Client::builder()
             .user_agent(get_user_agent())
             .timeout(Duration::from_secs(30))
-            .build()?;
+            .build()
+            .map_err(ScrapeError::HttpClient)?;
         Ok(Self {
             base_url: "https://www.capitoltrades.com".to_string(),
             http,
@@ -161,7 +203,8 @@ impl ScrapeClient {
         let http = reqwest::Client::builder()
             .user_agent(get_user_agent())
             .timeout(Duration::from_secs(30))
-            .build()?;
+            .build()
+            .map_err(ScrapeError::HttpClient)?;
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
@@ -207,10 +250,7 @@ impl ScrapeClient {
         })
     }
 
-    pub async fn issuer_detail(
-        &self,
-        issuer_id: i64,
-    ) -> Result<ScrapedIssuerDetail, ScrapeError> {
+    pub async fn issuer_detail(&self, issuer_id: i64) -> Result<ScrapedIssuerDetail, ScrapeError> {
         let url = format!("{}/issuers/{}", self.base_url, issuer_id);
         let html = self.fetch_html(&url).await?;
         let payload = extract_rsc_payload(&html)?;
@@ -256,10 +296,7 @@ impl ScrapeClient {
         Ok(extract_politician_detail(&payload))
     }
 
-    pub async fn trade_detail(
-        &self,
-        trade_id: i64,
-    ) -> Result<ScrapedTradeDetail, ScrapeError> {
+    pub async fn trade_detail(&self, trade_id: i64) -> Result<ScrapedTradeDetail, ScrapeError> {
         let url = format!("{}/trades/{}", self.base_url, trade_id);
         let html = self.fetch_html(&url).await?;
         let payload = extract_rsc_payload(&html)?;
@@ -267,6 +304,11 @@ impl ScrapeClient {
     }
 
     async fn fetch_html(&self, url: &str) -> Result<String, ScrapeError> {
+        self.with_retry(url, || async { self.fetch_html_once(url).await })
+            .await
+    }
+
+    async fn fetch_html_once(&self, url: &str) -> Result<String, ScrapeError> {
         let resp = self
             .http
             .get(url)
@@ -276,16 +318,112 @@ impl ScrapeClient {
             .header("cache-control", "no-cache")
             .header("pragma", "no-cache")
             .send()
-            .await?;
+            .await
+            .map_err(|err| ScrapeError::Http {
+                url: url.to_string(),
+                source: err,
+            })?;
 
-        if !resp.status().is_success() {
+        let status = resp.status();
+        let retry_after = parse_retry_after(resp.headers());
+        let body = resp.text().await.map_err(|err| ScrapeError::Http {
+            url: url.to_string(),
+            source: err,
+        })?;
+
+        if !status.is_success() {
             return Err(ScrapeError::HttpStatus {
-                status: resp.status(),
+                status,
+                url: url.to_string(),
+                body: truncate_body(&body),
+                retry_after,
             });
         }
 
-        Ok(resp.text().await?)
+        Ok(body)
     }
+
+    async fn with_retry<T, F, Fut>(&self, url: &str, mut f: F) -> Result<T, ScrapeError>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T, ScrapeError>>,
+    {
+        let cfg = RetryConfig::from_env();
+        let mut attempt = 0usize;
+        loop {
+            match f().await {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    attempt += 1;
+                    if attempt > cfg.max_retries || !is_retryable(&err) {
+                        return Err(err);
+                    }
+                    let delay = match retry_after_hint(&err) {
+                        Some(hint) => hint.min(Duration::from_millis(cfg.max_delay_ms)),
+                        None => cfg.delay_for_attempt(attempt),
+                    };
+                    tracing::warn!(
+                        "scrape request failed (attempt {}/{}), retrying in {:.1}s: {}",
+                        attempt,
+                        cfg.max_retries,
+                        delay.as_secs_f64(),
+                        url
+                    );
+                    sleep(delay).await;
+                }
+            }
+        }
+    }
+}
+
+fn is_retryable(err: &ScrapeError) -> bool {
+    match err {
+        ScrapeError::HttpStatus { status, .. } => {
+            *status == StatusCode::TOO_MANY_REQUESTS
+                || *status == StatusCode::REQUEST_TIMEOUT
+                || status.is_server_error()
+        }
+        ScrapeError::Http { source, .. } => source.is_timeout() || source.is_connect(),
+        _ => false,
+    }
+}
+
+fn retry_after_hint(err: &ScrapeError) -> Option<Duration> {
+    match err {
+        ScrapeError::HttpStatus { retry_after, .. } => *retry_after,
+        _ => None,
+    }
+}
+
+fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+    let raw = headers.get(RETRY_AFTER)?.to_str().ok()?;
+    if let Ok(seconds) = raw.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    None
+}
+
+fn truncate_body(body: &str) -> String {
+    const MAX: usize = 2000;
+    if body.len() <= MAX {
+        body.to_string()
+    } else {
+        format!("{}...[truncated]", &body[..MAX])
+    }
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|val| val.parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|val| val.parse::<usize>().ok())
+        .unwrap_or(default)
 }
 
 fn extract_rsc_payload(html: &str) -> Result<String, ScrapeError> {
@@ -497,10 +635,8 @@ fn extract_number(payload: &str, key: &str) -> Option<i64> {
 }
 
 fn parse_politician_cards(payload: &str) -> Result<Vec<ScrapedPoliticianCard>, ScrapeError> {
-    let id_re =
-        Regex::new(r#"href":"/politicians/([A-Z]\d{6})""#).map_err(|e| {
-            ScrapeError::Parse(format!("regex compile error: {}", e))
-        })?;
+    let id_re = Regex::new(r#"href":"/politicians/([A-Z]\d{6})""#)
+        .map_err(|e| ScrapeError::Parse(format!("regex compile error: {}", e)))?;
     let card_re = Regex::new(
         r#"(?s)href":"/politicians/(?P<id>[A-Z]\d{6})".*?cell--name.*?children":"(?P<name>[^"]+)".*?party--(?P<party>democrat|republican|other).*?us-state-full--(?P<state>[a-z]{2}).*?cell--count-trades.*?children":"Trades".*?children":"(?P<trades>[\d,]+)".*?cell--count-issuers.*?children":"Issuers".*?children":"(?P<issuers>[\d,]+)".*?cell--volume.*?children":"Volume".*?children":"(?P<volume>[^"]+)".*?cell--last-traded.*?children":"Last Traded".*?children":"(?P<last>\d{4}-\d{2}-\d{2})""#,
     )
@@ -530,10 +666,7 @@ fn parse_politician_cards(payload: &str) -> Result<Vec<ScrapedPoliticianCard>, S
             ))
         })?;
         let volume = parse_compact_number(&cap["volume"]).ok_or_else(|| {
-            ScrapeError::Parse(format!(
-                "invalid volume for politician {}",
-                politician_id
-            ))
+            ScrapeError::Parse(format!("invalid volume for politician {}", politician_id))
         })?;
         let last_traded = Some(cap["last"].to_string());
 

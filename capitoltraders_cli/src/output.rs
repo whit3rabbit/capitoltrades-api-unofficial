@@ -4,8 +4,8 @@
 //! for each format. Data is first mapped to flat row structs, then rendered.
 
 use anyhow::Result;
-use serde::Serialize;
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
+use serde::Serialize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
 

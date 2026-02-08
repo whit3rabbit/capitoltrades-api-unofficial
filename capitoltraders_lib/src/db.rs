@@ -84,7 +84,7 @@ impl Db {
 
         {
             let mut stmt_asset = tx.prepare(
-            "INSERT INTO assets (asset_id, asset_type, asset_ticker, instrument)
+                "INSERT INTO assets (asset_id, asset_type, asset_ticker, instrument)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(asset_id) DO UPDATE SET
                asset_type = excluded.asset_type,
@@ -134,7 +134,7 @@ impl Db {
                chamber = excluded.chamber",
             )?;
             let mut stmt_trade = tx.prepare(
-            "INSERT INTO trades (
+                "INSERT INTO trades (
                tx_id,
                politician_id,
                asset_id,
@@ -378,16 +378,14 @@ impl Db {
             for trade in trades {
                 let asset_id = trade.tx_id;
                 let filing_date = trade.pub_date.split('T').next().unwrap_or(&trade.pub_date);
-                let full_name = format!("{} {}", trade.politician.first_name, trade.politician.last_name);
+                let full_name = format!(
+                    "{} {}",
+                    trade.politician.first_name, trade.politician.last_name
+                );
                 let filing_id = trade.filing_id.unwrap_or(0);
                 let filing_url = trade.filing_url.as_deref().unwrap_or("");
 
-                stmt_asset.execute(params![
-                    asset_id,
-                    "unknown",
-                    None::<String>,
-                    None::<String>
-                ])?;
+                stmt_asset.execute(params![asset_id, "unknown", None::<String>, None::<String>])?;
 
                 stmt_issuer.execute(params![
                     trade.issuer_id,
@@ -421,10 +419,7 @@ impl Db {
                     filing_date,
                     trade.tx_date,
                     trade.tx_type,
-                    trade
-                        .tx_type_extended
-                        .as_ref()
-                        .map(|val| val.to_string()),
+                    trade.tx_type_extended.as_ref().map(|val| val.to_string()),
                     0,
                     trade.owner,
                     trade.chamber,
@@ -450,7 +445,7 @@ impl Db {
 
         {
             let mut stmt_politician = tx.prepare(
-            "INSERT INTO politicians (
+                "INSERT INTO politicians (
                politician_id,
                state_id,
                party,
@@ -490,7 +485,7 @@ impl Db {
             )?;
 
             let mut stmt_stats = tx.prepare(
-            "INSERT INTO politician_stats (
+                "INSERT INTO politician_stats (
                politician_id,
                date_last_traded,
                count_trades,
@@ -560,10 +555,7 @@ impl Db {
         Ok(())
     }
 
-    pub fn upsert_politician_stats(
-        &mut self,
-        stats: &[PoliticianStatsRow],
-    ) -> Result<(), DbError> {
+    pub fn upsert_politician_stats(&mut self, stats: &[PoliticianStatsRow]) -> Result<(), DbError> {
         let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare(
@@ -612,7 +604,7 @@ impl Db {
             )?;
 
             let mut stmt_stats = tx.prepare(
-            "INSERT INTO issuer_stats (
+                "INSERT INTO issuer_stats (
                issuer_id,
                count_trades,
                count_politicians,
@@ -628,7 +620,7 @@ impl Db {
             )?;
 
             let mut stmt_performance = tx.prepare(
-            "INSERT INTO issuer_performance (
+                "INSERT INTO issuer_performance (
                issuer_id,
                mcap,
                trailing1,

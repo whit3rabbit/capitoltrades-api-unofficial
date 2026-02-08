@@ -1,10 +1,10 @@
 //! The `issuers` subcommand: lists and filters companies/funds traded by politicians.
 
 use anyhow::{bail, Result};
-use clap::Args;
-use capitoltraders_lib::{ScrapeClient, ScrapedIssuerDetail, ScrapedIssuerList};
-use capitoltraders_lib::validation;
 use capitoltraders_lib::types::IssuerDetail;
+use capitoltraders_lib::validation;
+use capitoltraders_lib::{ScrapeClient, ScrapedIssuerDetail, ScrapedIssuerList};
+use clap::Args;
 
 use crate::output::{
     print_issuers_csv, print_issuers_markdown, print_issuers_table, print_issuers_xml, print_json,

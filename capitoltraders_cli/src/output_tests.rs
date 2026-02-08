@@ -206,7 +206,10 @@ fn test_sanitize_csv_field_plus() {
 
 #[test]
 fn test_sanitize_csv_field_minus() {
-    assert_eq!(sanitize_csv_field("-cmd|'/C calc'!A0"), "\t-cmd|'/C calc'!A0");
+    assert_eq!(
+        sanitize_csv_field("-cmd|'/C calc'!A0"),
+        "\t-cmd|'/C calc'!A0"
+    );
 }
 
 #[test]
@@ -268,7 +271,11 @@ fn test_markdown_empty_produces_headers_only() {
     // Should have header and separator but no data rows
     let lines: Vec<&str> = md.lines().collect();
     // tabled markdown with empty data: header line + separator line = 2 lines
-    assert!(lines.len() <= 2, "expected at most 2 lines for empty table, got {}", lines.len());
+    assert!(
+        lines.len() <= 2,
+        "expected at most 2 lines for empty table, got {}",
+        lines.len()
+    );
     if !lines.is_empty() {
         assert!(lines[0].contains("Date"));
     }

@@ -52,7 +52,10 @@ fn state_unicode() {
 
 #[test]
 fn party_democrat() {
-    assert!(matches!(validate_party("democrat").unwrap(), Party::Democrat));
+    assert!(matches!(
+        validate_party("democrat").unwrap(),
+        Party::Democrat
+    ));
 }
 
 #[test]
@@ -80,7 +83,10 @@ fn party_shorthand_r() {
 
 #[test]
 fn party_mixed_case() {
-    assert!(matches!(validate_party("Democrat").unwrap(), Party::Democrat));
+    assert!(matches!(
+        validate_party("Democrat").unwrap(),
+        Party::Democrat
+    ));
     assert!(matches!(
         validate_party("REPUBLICAN").unwrap(),
         Party::Republican
@@ -111,18 +117,12 @@ fn committee_by_code_uppercase() {
 
 #[test]
 fn committee_by_full_name() {
-    assert_eq!(
-        validate_committee("Senate - Finance").unwrap(),
-        "ssfi"
-    );
+    assert_eq!(validate_committee("Senate - Finance").unwrap(), "ssfi");
 }
 
 #[test]
 fn committee_by_full_name_case_insensitive() {
-    assert_eq!(
-        validate_committee("senate - finance").unwrap(),
-        "ssfi"
-    );
+    assert_eq!(validate_committee("senate - finance").unwrap(), "ssfi");
 }
 
 #[test]
@@ -132,10 +132,7 @@ fn committee_house_by_code() {
 
 #[test]
 fn committee_house_by_name() {
-    assert_eq!(
-        validate_committee("House - Agriculture").unwrap(),
-        "hsag"
-    );
+    assert_eq!(validate_committee("House - Agriculture").unwrap(), "hsag");
 }
 
 #[test]
@@ -258,8 +255,14 @@ fn gender_invalid() {
 
 #[test]
 fn market_cap_by_name() {
-    assert!(matches!(validate_market_cap("mega").unwrap(), MarketCap::Mega));
-    assert!(matches!(validate_market_cap("nano").unwrap(), MarketCap::Nano));
+    assert!(matches!(
+        validate_market_cap("mega").unwrap(),
+        MarketCap::Mega
+    ));
+    assert!(matches!(
+        validate_market_cap("nano").unwrap(),
+        MarketCap::Nano
+    ));
 }
 
 #[test]
@@ -279,13 +282,22 @@ fn market_cap_invalid() {
 
 #[test]
 fn asset_type_stock() {
-    assert!(matches!(validate_asset_type("stock").unwrap(), AssetType::Stock));
+    assert!(matches!(
+        validate_asset_type("stock").unwrap(),
+        AssetType::Stock
+    ));
 }
 
 #[test]
 fn asset_type_kebab() {
-    assert!(matches!(validate_asset_type("stock-option").unwrap(), AssetType::StockOption));
-    assert!(matches!(validate_asset_type("mutual-fund").unwrap(), AssetType::MutualFund));
+    assert!(matches!(
+        validate_asset_type("stock-option").unwrap(),
+        AssetType::StockOption
+    ));
+    assert!(matches!(
+        validate_asset_type("mutual-fund").unwrap(),
+        AssetType::MutualFund
+    ));
 }
 
 #[test]
@@ -299,7 +311,10 @@ fn asset_type_invalid() {
 fn label_valid() {
     assert!(matches!(validate_label("faang").unwrap(), Label::Faang));
     assert!(matches!(validate_label("crypto").unwrap(), Label::Crypto));
-    assert!(matches!(validate_label("memestock").unwrap(), Label::Memestock));
+    assert!(matches!(
+        validate_label("memestock").unwrap(),
+        Label::Memestock
+    ));
     assert!(matches!(validate_label("spac").unwrap(), Label::Spac));
 }
 
@@ -330,8 +345,14 @@ fn sector_invalid() {
 fn tx_type_valid() {
     assert!(matches!(validate_tx_type("buy").unwrap(), TxType::Buy));
     assert!(matches!(validate_tx_type("sell").unwrap(), TxType::Sell));
-    assert!(matches!(validate_tx_type("exchange").unwrap(), TxType::Exchange));
-    assert!(matches!(validate_tx_type("receive").unwrap(), TxType::Receive));
+    assert!(matches!(
+        validate_tx_type("exchange").unwrap(),
+        TxType::Exchange
+    ));
+    assert!(matches!(
+        validate_tx_type("receive").unwrap(),
+        TxType::Receive
+    ));
 }
 
 #[test]
@@ -344,7 +365,10 @@ fn tx_type_invalid() {
 #[test]
 fn chamber_valid() {
     assert!(matches!(validate_chamber("house").unwrap(), Chamber::House));
-    assert!(matches!(validate_chamber("senate").unwrap(), Chamber::Senate));
+    assert!(matches!(
+        validate_chamber("senate").unwrap(),
+        Chamber::Senate
+    ));
 }
 
 #[test]
@@ -417,8 +441,14 @@ fn issuer_state_invalid() {
 
 #[test]
 fn trade_size_valid() {
-    assert!(matches!(validate_trade_size("1").unwrap(), TradeSize::Less1K));
-    assert!(matches!(validate_trade_size("10").unwrap(), TradeSize::From25Mto50M));
+    assert!(matches!(
+        validate_trade_size("1").unwrap(),
+        TradeSize::Less1K
+    ));
+    assert!(matches!(
+        validate_trade_size("10").unwrap(),
+        TradeSize::From25Mto50M
+    ));
 }
 
 #[test]

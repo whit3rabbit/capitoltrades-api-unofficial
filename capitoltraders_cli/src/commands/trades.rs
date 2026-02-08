@@ -1,13 +1,13 @@
 //! The `trades` subcommand: lists congressional trades with extensive filtering.
 
 use anyhow::{bail, Result};
+use capitoltraders_lib::types::Trade;
+use capitoltraders_lib::validation;
+use capitoltraders_lib::{ScrapeClient, ScrapedTrade};
 use chrono::{NaiveDate, Utc};
 use clap::Args;
-use capitoltraders_lib::{ScrapeClient, ScrapedTrade};
-use capitoltraders_lib::validation;
 use std::time::Duration;
 use tokio::time::sleep;
-use capitoltraders_lib::types::Trade;
 
 use crate::output::{
     print_json, print_trades_csv, print_trades_markdown, print_trades_table, print_trades_xml,
@@ -176,8 +176,8 @@ pub async fn run(args: &TradesArgs, scraper: &ScrapeClient, format: &OutputForma
     if let Some(ref name) = args.name {
         let needle = validation::validate_search(name)?.to_lowercase();
         trades.retain(|t| {
-            let full = format!("{} {}", t.politician.first_name, t.politician.last_name)
-                .to_lowercase();
+            let full =
+                format!("{} {}", t.politician.first_name, t.politician.last_name).to_lowercase();
             full.contains(&needle)
         });
     }
@@ -197,8 +197,8 @@ pub async fn run(args: &TradesArgs, scraper: &ScrapeClient, format: &OutputForma
     if let Some(ref politician) = args.politician {
         let needle = validation::validate_search(politician)?.to_lowercase();
         trades.retain(|t| {
-            let full = format!("{} {}", t.politician.first_name, t.politician.last_name)
-                .to_lowercase();
+            let full =
+                format!("{} {}", t.politician.first_name, t.politician.last_name).to_lowercase();
             full.contains(&needle)
         });
     }
@@ -306,10 +306,26 @@ pub async fn run(args: &TradesArgs, scraper: &ScrapeClient, format: &OutputForma
     }
 
     // Parse absolute date filters
-    let since_date = args.since.as_ref().map(|s| validation::validate_date(s)).transpose()?;
-    let until_date = args.until.as_ref().map(|s| validation::validate_date(s)).transpose()?;
-    let tx_since_date = args.tx_since.as_ref().map(|s| validation::validate_date(s)).transpose()?;
-    let tx_until_date = args.tx_until.as_ref().map(|s| validation::validate_date(s)).transpose()?;
+    let since_date = args
+        .since
+        .as_ref()
+        .map(|s| validation::validate_date(s))
+        .transpose()?;
+    let until_date = args
+        .until
+        .as_ref()
+        .map(|s| validation::validate_date(s))
+        .transpose()?;
+    let tx_since_date = args
+        .tx_since
+        .as_ref()
+        .map(|s| validation::validate_date(s))
+        .transpose()?;
+    let tx_until_date = args
+        .tx_until
+        .as_ref()
+        .map(|s| validation::validate_date(s))
+        .transpose()?;
 
     if let (Some(s), Some(u)) = (since_date, until_date) {
         if s > u {
@@ -428,10 +444,7 @@ fn parse_date(value: &str) -> Option<NaiveDate> {
 }
 
 fn scraped_trade_to_trade(trade: &ScrapedTrade) -> Result<Trade> {
-    let filing_url = trade
-        .filing_url
-        .clone()
-        .unwrap_or_default();
+    let filing_url = trade.filing_url.clone().unwrap_or_default();
     if filing_url.is_empty() {
         bail!("missing filing URL for trade {}", trade.tx_id);
     }

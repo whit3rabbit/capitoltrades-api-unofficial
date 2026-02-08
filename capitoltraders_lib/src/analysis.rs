@@ -4,8 +4,8 @@
 //! standard collections. They are designed for use in summary views
 //! and do not perform network calls.
 
-use std::collections::{BTreeMap, HashMap};
 use capitoltrades_api::types::Trade;
+use std::collections::{BTreeMap, HashMap};
 
 /// Groups trades by political party, returning a map of party name to trades.
 pub fn trades_by_party(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
@@ -21,7 +21,11 @@ pub fn trades_by_party(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
 pub fn trades_by_ticker(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
     let mut map: HashMap<String, Vec<&Trade>> = HashMap::new();
     for trade in trades {
-        let key = trade.issuer.issuer_ticker.clone().unwrap_or_else(|| "unknown".to_string());
+        let key = trade
+            .issuer
+            .issuer_ticker
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
         map.entry(key).or_default().push(trade);
     }
     map
@@ -31,9 +35,7 @@ pub fn trades_by_ticker(trades: &[Trade]) -> HashMap<String, Vec<&Trade>> {
 pub fn top_traded_issuers(trades: &[Trade], limit: usize) -> Vec<(String, usize)> {
     let mut counts: HashMap<String, usize> = HashMap::new();
     for trade in trades {
-        *counts
-            .entry(trade.issuer.issuer_name.clone())
-            .or_default() += 1;
+        *counts.entry(trade.issuer.issuer_name.clone()).or_default() += 1;
     }
     let mut sorted: Vec<(String, usize)> = counts.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
@@ -61,9 +63,11 @@ mod tests {
     use super::*;
 
     fn load_fixture_trades() -> Vec<Trade> {
-        let json = std::fs::read_to_string(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/../capitoltrades_api/tests/fixtures/trades.json")
-        ).unwrap();
+        let json = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../capitoltrades_api/tests/fixtures/trades.json"
+        ))
+        .unwrap();
         let resp: capitoltrades_api::types::PaginatedResponse<Trade> =
             serde_json::from_str(&json).unwrap();
         resp.data

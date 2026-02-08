@@ -232,8 +232,9 @@ All user input is validated before being passed to the API layer. Each validator
 
 ## Scraping
 
-There is no public API. All CLI commands (`trades`, `politicians`, `issuers`, `sync`) scrape
-`capitoltrades.com` and parse the embedded Next.js RSC payloads. `ScrapeClient` exposes
+There is no public API. All CLI commands (`trades`, `politicians`, `issuers`, `sync`) use an
+**unofficial API** by scraping `capitoltrades.com` and parsing the embedded Next.js RSC payloads.
+`ScrapeClient` exposes
 `trades_page`, `trade_detail`, `politicians_page`, `politician_detail`, `issuers_page`, and
 `issuer_detail`. Missing fields not present in the HTML are populated with safe defaults
 (e.g., unknown asset type, empty committees/labels). Aggregated politician/issuer stats are computed

@@ -48,9 +48,7 @@ async fn get_trades_malformed_json() {
 
     Mock::given(method("GET"))
         .and(path("/trades"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string("{not valid json}"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string("{not valid json}"))
         .mount(&mock_server)
         .await;
 

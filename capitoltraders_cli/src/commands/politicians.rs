@@ -1,11 +1,11 @@
 //! The `politicians` subcommand: lists and filters politicians who trade.
 
 use anyhow::{bail, Result};
+use capitoltraders_lib::types::PoliticianDetail;
+use capitoltraders_lib::validation;
+use capitoltraders_lib::{ScrapeClient, ScrapedPoliticianCard};
 use chrono::NaiveDate;
 use clap::Args;
-use capitoltraders_lib::{ScrapeClient, ScrapedPoliticianCard};
-use capitoltraders_lib::validation;
-use capitoltraders_lib::types::PoliticianDetail;
 
 use crate::output::{
     print_json, print_politicians_csv, print_politicians_markdown, print_politicians_table,
@@ -138,7 +138,10 @@ pub async fn run(
     }
 
     match total_count {
-        Some(count) => eprintln!("Page {}/{} ({} total politicians)", page, total_pages, count),
+        Some(count) => eprintln!(
+            "Page {}/{} ({} total politicians)",
+            page, total_pages, count
+        ),
         None => eprintln!("Page {}/{} ({} politicians)", page, total_pages, out.len()),
     }
 

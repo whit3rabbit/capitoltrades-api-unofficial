@@ -3,10 +3,10 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use capitoltrades_api::types::{IssuerDetail, PaginatedResponse, PoliticianDetail, Response, Trade};
-use capitoltrades_api::{
-    Client, IssuerQuery, PoliticianQuery, TradeQuery,
+use capitoltrades_api::types::{
+    IssuerDetail, PaginatedResponse, PoliticianDetail, Response, Trade,
 };
+use capitoltrades_api::{Client, IssuerQuery, PoliticianQuery, TradeQuery};
 use rand::Rng;
 
 use crate::cache::MemoryCache;
@@ -42,7 +42,10 @@ impl RetryConfig {
     fn delay_for_attempt(&self, attempt: usize) -> Duration {
         let shift = (attempt.saturating_sub(1)).min(30) as u32;
         let exp = 1u64 << shift;
-        let base = self.base_delay_ms.saturating_mul(exp).min(self.max_delay_ms);
+        let base = self
+            .base_delay_ms
+            .saturating_mul(exp)
+            .min(self.max_delay_ms);
         let jitter = rand::thread_rng().gen_range(0.8..1.2);
         Duration::from_millis((base as f64 * jitter) as u64)
     }
@@ -72,9 +75,7 @@ impl CachedClient {
             let last = self.last_request.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(last_time) = *last {
                 let elapsed = last_time.elapsed();
-                let delay = Duration::from_secs_f64(
-                    rand::thread_rng().gen_range(5.0..10.0),
-                );
+                let delay = Duration::from_secs_f64(rand::thread_rng().gen_range(5.0..10.0));
                 if elapsed < delay {
                     Some(delay - elapsed)
                 } else {
@@ -225,9 +226,7 @@ fn is_retryable(err: &CapitolTradesError) -> bool {
     match err {
         CapitolTradesError::Api(api_err) => match api_err {
             capitoltrades_api::Error::RequestFailed => true,
-            capitoltrades_api::Error::HttpStatus { status, .. } => {
-                *status == 429 || *status >= 500
-            }
+            capitoltrades_api::Error::HttpStatus { status, .. } => *status == 429 || *status >= 500,
         },
         _ => false,
     }
@@ -264,7 +263,11 @@ fn query_to_cache_key(query: &TradeQuery) -> String {
         query.common.page,
         query.common.page_size,
         query.issuer_ids,
-        query.trade_sizes.iter().map(|t| *t as u8).collect::<Vec<_>>(),
+        query
+            .trade_sizes
+            .iter()
+            .map(|t| *t as u8)
+            .collect::<Vec<_>>(),
         parties_cache_key(&query.parties),
         query.states,
         query.committees,
@@ -273,13 +276,41 @@ fn query_to_cache_key(query: &TradeQuery) -> String {
         query.common.tx_date_relative,
         query.sort_by,
         query.common.sort_direction as u8,
-        query.genders.iter().map(|g| g.to_string()).collect::<Vec<_>>(),
-        query.market_caps.iter().map(|m| *m as u8).collect::<Vec<_>>(),
-        query.asset_types.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-        query.labels.iter().map(|l| l.to_string()).collect::<Vec<_>>(),
-        query.sectors.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-        query.tx_types.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
-        query.chambers.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+        query
+            .genders
+            .iter()
+            .map(|g| g.to_string())
+            .collect::<Vec<_>>(),
+        query
+            .market_caps
+            .iter()
+            .map(|m| *m as u8)
+            .collect::<Vec<_>>(),
+        query
+            .asset_types
+            .iter()
+            .map(|a| a.to_string())
+            .collect::<Vec<_>>(),
+        query
+            .labels
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>(),
+        query
+            .sectors
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
+        query
+            .tx_types
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>(),
+        query
+            .chambers
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>(),
         query.politician_ids,
         query.issuer_states,
         query.countries,
@@ -309,8 +340,16 @@ fn query_to_cache_key_issuer(query: &IssuerQuery) -> String {
         query.search,
         query.states,
         query.politician_ids,
-        query.market_caps.iter().map(|m| *m as u8).collect::<Vec<_>>(),
-        query.sectors.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        query
+            .market_caps
+            .iter()
+            .map(|m| *m as u8)
+            .collect::<Vec<_>>(),
+        query
+            .sectors
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>(),
         query.countries,
         query.sort_by,
         query.common.sort_direction as u8,

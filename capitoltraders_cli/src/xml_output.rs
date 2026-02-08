@@ -71,11 +71,7 @@ fn write_value<W: std::io::Write>(
 }
 
 /// Serialize a slice of Serialize items into an XML string.
-fn items_to_xml<T: Serialize>(
-    root_tag: &str,
-    item_tag: &str,
-    items: &[T],
-) -> String {
+fn items_to_xml<T: Serialize>(root_tag: &str, item_tag: &str, items: &[T]) -> String {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
     writer

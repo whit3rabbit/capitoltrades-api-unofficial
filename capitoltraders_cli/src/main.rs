@@ -8,8 +8,8 @@ mod output;
 mod xml_output;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
 use capitoltraders_lib::ScrapeClient;
+use clap::{Parser, Subcommand};
 
 use crate::output::OutputFormat;
 
@@ -74,9 +74,7 @@ async fn main() -> Result<()> {
 
     match &cli.command {
         Commands::Trades(args) => commands::trades::run(args.as_ref(), &scraper, &format).await?,
-        Commands::Politicians(args) => {
-            commands::politicians::run(args, &scraper, &format).await?
-        }
+        Commands::Politicians(args) => commands::politicians::run(args, &scraper, &format).await?,
         Commands::Issuers(args) => commands::issuers::run(args, &scraper, &format).await?,
         Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,
     }
