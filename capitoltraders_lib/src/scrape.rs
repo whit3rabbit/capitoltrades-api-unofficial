@@ -301,6 +301,41 @@ impl ScrapeClient {
         })
     }
 
+    /// Fetch politicians filtered by committee code from the listing page.
+    ///
+    /// URL format: /politicians?committee={committee_code}&page={page}
+    /// Reuses parse_politician_cards for card extraction, identical to
+    /// politicians_page except the URL includes the committee query parameter.
+    pub async fn politicians_by_committee(
+        &self,
+        committee_code: &str,
+        page: i64,
+    ) -> Result<ScrapePage<ScrapedPoliticianCard>, ScrapeError> {
+        let url = format!(
+            "{}/politicians?committee={}&page={}",
+            self.base_url, committee_code, page
+        );
+        let html = self.fetch_html(&url).await?;
+        let payload = extract_rsc_payload(&html)?;
+        let total_count = extract_number(&payload, "\"totalCount\":");
+
+        let cards = parse_politician_cards(&payload)?;
+        let total_pages = total_count.and_then(|count| {
+            let page_size = cards.len() as i64;
+            if page_size > 0 {
+                Some((count + page_size - 1) / page_size)
+            } else {
+                None
+            }
+        });
+
+        Ok(ScrapePage {
+            data: cards,
+            total_pages,
+            total_count,
+        })
+    }
+
     pub async fn politician_detail(
         &self,
         politician_id: &str,
@@ -721,8 +756,10 @@ fn extract_number(payload: &str, key: &str) -> Option<i64> {
 fn parse_politician_cards(payload: &str) -> Result<Vec<ScrapedPoliticianCard>, ScrapeError> {
     let id_re = Regex::new(r#"href":"/politicians/([A-Z]\d{6})""#)
         .map_err(|e| ScrapeError::Parse(format!("regex compile error: {}", e)))?;
+    // The live site uses singular labels ("Trade", "Issuer") when count == 1
+    // and plural labels ("Trades", "Issuers") when count > 1. Accept both.
     let card_re = Regex::new(
-        r#"(?s)href":"/politicians/(?P<id>[A-Z]\d{6})".*?cell--name.*?children":"(?P<name>[^"]+)".*?party--(?P<party>democrat|republican|other).*?us-state-full--(?P<state>[a-z]{2}).*?cell--count-trades.*?children":"Trades".*?children":"(?P<trades>[\d,]+)".*?cell--count-issuers.*?children":"Issuers".*?children":"(?P<issuers>[\d,]+)".*?cell--volume.*?children":"Volume".*?children":"(?P<volume>[^"]+)".*?cell--last-traded.*?children":"Last Traded".*?children":"(?P<last>\d{4}-\d{2}-\d{2})""#,
+        r#"(?s)href":"/politicians/(?P<id>[A-Z]\d{6})".*?cell--name.*?children":"(?P<name>[^"]+)".*?party--(?P<party>democrat|republican|other).*?us-state-full--(?P<state>[a-z]{2}).*?cell--count-trades.*?children":"Trades?".*?children":"(?P<trades>[\d,]+)".*?cell--count-issuers.*?children":"Issuers?".*?children":"(?P<issuers>[\d,]+)".*?cell--volume.*?children":"Volume".*?children":"(?P<volume>[^"]+)".*?cell--last-traded.*?children":"Last Traded".*?children":"(?P<last>\d{4}-\d{2}-\d{2})""#,
     )
     .map_err(|e| ScrapeError::Parse(format!("regex compile error: {}", e)))?;
 
@@ -1111,5 +1148,51 @@ mod tests {
         let detail = extract_trade_detail("", 172000);
         assert_eq!(detail.filing_url, None);
         assert_eq!(detail.asset_type, None);
+    }
+
+    // ---- Temporary verification test for committee-filtered page ----
+
+    // ---- Committee-filtered politician listing fixture tests ----
+
+    #[test]
+    fn test_politicians_by_committee_fixture() {
+        // Fixture is real HTML from /politicians?committee=ssfi (Senate Finance).
+        // Verified that parse_politician_cards works after fixing singular/plural
+        // label bug ("Trade"/"Trades", "Issuer"/"Issuers").
+        let html = include_str!("../tests/fixtures/politicians_committee_filtered.html");
+        let payload = extract_rsc_payload(html).expect("fixture should have RSC payload");
+
+        let total_count = extract_number(&payload, "\"totalCount\":");
+        assert_eq!(total_count, Some(5), "ssfi fixture should report totalCount=5");
+
+        let cards = parse_politician_cards(&payload).expect("should parse all politician cards");
+        assert_eq!(cards.len(), 5, "ssfi fixture should contain 5 politician cards");
+
+        // Verify all cards have valid politician_ids
+        for card in &cards {
+            assert!(
+                card.politician_id.len() == 7,
+                "politician_id should be 7 chars: {}",
+                card.politician_id
+            );
+            assert!(
+                card.politician_id.starts_with(|c: char| c.is_ascii_uppercase()),
+                "politician_id should start with uppercase letter: {}",
+                card.politician_id
+            );
+            assert!(!card.name.is_empty(), "name should not be empty");
+            assert!(
+                ["democrat", "republican", "other"].contains(&card.party.as_str()),
+                "unexpected party: {}",
+                card.party
+            );
+            assert_eq!(card.state.len(), 2, "state should be 2 chars: {}", card.state);
+            assert!(card.trades > 0, "trades should be > 0 for {}", card.politician_id);
+        }
+
+        // Verify known politicians are present (Senate Finance committee)
+        let ids: Vec<&str> = cards.iter().map(|c| c.politician_id.as_str()).collect();
+        assert!(ids.contains(&"W000802"), "Sheldon Whitehouse should be in ssfi");
+        assert!(ids.contains(&"C000174"), "Tom Carper should be in ssfi");
     }
 }
