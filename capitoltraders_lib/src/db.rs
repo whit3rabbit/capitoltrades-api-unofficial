@@ -551,7 +551,8 @@ impl Db {
                social_twitter = excluded.social_twitter,
                social_youtube = excluded.social_youtube,
                website = excluded.website,
-               chamber = excluded.chamber",
+               chamber = excluded.chamber,
+               enriched_at = politicians.enriched_at",
             )?;
 
             let mut stmt_stats = tx.prepare(
@@ -670,7 +671,8 @@ impl Db {
                country = excluded.country,
                issuer_name = excluded.issuer_name,
                issuer_ticker = excluded.issuer_ticker,
-               sector = excluded.sector",
+               sector = excluded.sector,
+               enriched_at = issuers.enriched_at",
             )?;
 
             let mut stmt_stats = tx.prepare(
