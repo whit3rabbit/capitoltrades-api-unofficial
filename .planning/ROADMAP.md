@@ -70,7 +70,7 @@ Plans:
 - [x] 03-03-PLAN.md -- CLI trades --db output extension for all formats with enriched columns (OUT-01 presentation)
 
 ### Phase 4: Politician Enrichment
-**Goal**: Users get complete politician records with committee memberships populated from detail pages, visible in all CLI output formats
+**Goal**: Users get complete politician records with committee memberships populated from listing page committee-filter iteration (detail pages confirmed to lack committee data), visible in all CLI output formats
 **Depends on**: Phase 1
 **Requirements**: POL-01, POL-02, POL-03, OUT-02
 **Success Criteria** (what must be TRUE):
@@ -78,11 +78,12 @@ Plans:
   2. After sync, the politician_committees join table contains committee data for enriched politicians
   3. Politician enrichment runs automatically during sync without requiring an opt-in flag
   4. Running `capitoltraders politicians --output json` (and table/csv/md/xml) shows committee memberships for enriched politicians
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md -- Committee membership scraping via listing page committee-filter iteration and DB persistence (POL-01, POL-02)
+- [ ] 04-02-PLAN.md -- Sync pipeline integration for automatic committee enrichment (POL-03)
+- [ ] 04-03-PLAN.md -- CLI politicians --db output with committee data in all formats (OUT-02)
 
 ### Phase 5: Issuer Enrichment
 **Goal**: Users get complete issuer records with performance metrics and end-of-day price history populated from detail pages, visible in all CLI output formats
@@ -123,6 +124,6 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 | 1. Foundation | 2/2 | Complete | 2026-02-08 |
 | 2. Trade Extraction | 2/2 | Complete | 2026-02-08 |
 | 3. Trade Sync and Output | 3/3 | Complete | 2026-02-08 |
-| 4. Politician Enrichment | 0/TBD | Not started | - |
+| 4. Politician Enrichment | 0/3 | Planned | - |
 | 5. Issuer Enrichment | 0/TBD | Not started | - |
 | 6. Concurrency and Reliability | 0/TBD | Not started | - |
