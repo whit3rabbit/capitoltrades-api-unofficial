@@ -451,3 +451,111 @@ fn test_db_politician_csv_headers() {
         "Name,Party,State,Chamber,Committees,Trades,Volume"
     );
 }
+
+// -- DB issuer output tests --
+
+fn sample_db_issuer_row() -> DbIssuerRow {
+    DbIssuerRow {
+        issuer_id: 12345,
+        issuer_name: "Apple Inc".to_string(),
+        issuer_ticker: Some("AAPL".to_string()),
+        sector: Some("information-technology".to_string()),
+        state: Some("ca".to_string()),
+        country: Some("us".to_string()),
+        trades: 500,
+        politicians: 85,
+        volume: 50_000_000,
+        last_traded: Some("2024-03-14".to_string()),
+        mcap: Some(3_500_000_000_000),
+        trailing1: Some(225.5),
+        trailing1_change: Some(0.0089),
+        trailing7: Some(224.0),
+        trailing7_change: Some(0.0156),
+        trailing30: Some(220.0),
+        trailing30_change: Some(0.025),
+        trailing90: Some(210.0),
+        trailing90_change: Some(0.0738),
+        trailing365: Some(180.0),
+        trailing365_change: Some(0.2528),
+        enriched_at: Some("2024-03-16T00:00:00Z".to_string()),
+    }
+}
+
+#[test]
+fn test_db_issuer_output_row_mapping() {
+    let issuers = vec![sample_db_issuer_row()];
+    let rows = build_db_issuer_rows(&issuers);
+    assert_eq!(rows.len(), 1);
+
+    let row = &rows[0];
+    assert_eq!(row.name, "Apple Inc");
+    assert_eq!(row.ticker, "AAPL");
+    assert_eq!(row.sector, "information-technology");
+    assert_eq!(row.mcap, "$3.5T");
+    assert_eq!(row.trailing30, "+2.5%");
+    assert_eq!(row.trailing365, "+25.3%");
+    assert_eq!(row.trades, 500);
+    assert_eq!(row.volume, "$50.0M");
+    assert_eq!(row.last_traded, "2024-03-14");
+}
+
+#[test]
+fn test_db_issuer_output_no_performance() {
+    let issuer = DbIssuerRow {
+        issuer_id: 99999,
+        issuer_name: "Mystery Corp".to_string(),
+        issuer_ticker: None,
+        sector: None,
+        state: None,
+        country: None,
+        trades: 0,
+        politicians: 0,
+        volume: 0,
+        last_traded: None,
+        mcap: None,
+        trailing1: None,
+        trailing1_change: None,
+        trailing7: None,
+        trailing7_change: None,
+        trailing30: None,
+        trailing30_change: None,
+        trailing90: None,
+        trailing90_change: None,
+        trailing365: None,
+        trailing365_change: None,
+        enriched_at: None,
+    };
+    let rows = build_db_issuer_rows(&[issuer]);
+    assert_eq!(rows[0].ticker, "-");
+    assert_eq!(rows[0].sector, "-");
+    assert_eq!(rows[0].mcap, "-");
+    assert_eq!(rows[0].trailing30, "-");
+    assert_eq!(rows[0].trailing365, "-");
+    assert_eq!(rows[0].last_traded, "-");
+}
+
+#[test]
+fn test_db_issuer_json_serialization() {
+    let issuer = sample_db_issuer_row();
+    let val = serde_json::to_value(&issuer).unwrap();
+    let obj = val.as_object().unwrap();
+
+    // Performance fields should be present
+    assert_eq!(obj.get("mcap").unwrap().as_i64().unwrap(), 3_500_000_000_000);
+    assert!(obj.get("trailing30_change").unwrap().as_f64().is_some());
+    assert!(obj.get("trailing365_change").unwrap().as_f64().is_some());
+    assert_eq!(obj.get("trades").unwrap().as_i64().unwrap(), 500);
+    assert_eq!(obj.get("volume").unwrap().as_i64().unwrap(), 50_000_000);
+}
+
+#[test]
+fn test_db_issuer_csv_headers() {
+    let issuers = vec![sample_db_issuer_row()];
+    let rows = build_db_issuer_rows(&issuers);
+    let csv = csv_from_rows(&rows);
+    let header = csv.lines().next().unwrap();
+    assert_eq!(
+        header,
+        "Name,Ticker,Sector,Mcap,30D Return,YTD,Trades,Volume,Last Traded"
+    );
+}

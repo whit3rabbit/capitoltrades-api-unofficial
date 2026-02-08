@@ -3888,4 +3888,138 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         };
         assert_eq!(dates, vec!["2026-02-01", "2026-02-02"]);
     }
+
+    // --- query_issuers tests ---
+
+    fn insert_test_issuer(db: &Db, issuer_id: i64, name: &str, ticker: Option<&str>, sector: Option<&str>, state: Option<&str>, country: Option<&str>) {
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker, sector, state_id, country)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![issuer_id, name, ticker, sector, state, country],
+            )
+            .expect("insert test issuer");
+    }
+
+    fn insert_test_issuer_stats(db: &Db, issuer_id: i64, trades: i64, politicians: i64, volume: i64, last_traded: &str) {
+        db.conn
+            .execute(
+                "INSERT INTO issuer_stats (issuer_id, count_trades, count_politicians, volume, date_last_traded)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![issuer_id, trades, politicians, volume, last_traded],
+            )
+            .expect("insert test issuer stats");
+    }
+
+    fn insert_test_issuer_performance(db: &Db, issuer_id: i64, mcap: i64) {
+        db.conn
+            .execute(
+                "INSERT INTO issuer_performance (issuer_id, mcap, trailing1, trailing1_change, trailing7, trailing7_change, trailing30, trailing30_change, trailing90, trailing90_change, trailing365, trailing365_change, wtd, wtd_change, mtd, mtd_change, qtd, qtd_change, ytd, ytd_change)
+                 VALUES (?1, ?2, 225.5, 0.0089, 224.0, 0.0156, 220.0, 0.025, 210.0, 0.0738, 180.0, 0.2528, 224.5, 0.0133, 222.0, 0.0203, 218.0, 0.0344, 215.0, 0.0488)",
+                params![issuer_id, mcap],
+            )
+            .expect("insert test issuer performance");
+    }
+
+    #[test]
+    fn test_query_issuers_no_filter() {
+        let db = open_test_db();
+        // Issuer 1: enriched with performance
+        insert_test_issuer(&db, 100, "Apple Inc", Some("AAPL"), Some("information-technology"), Some("ca"), Some("us"));
+        insert_test_issuer_stats(&db, 100, 500, 85, 50_000_000, "2024-03-14");
+        insert_test_issuer_performance(&db, 100, 3_500_000_000_000);
+
+        // Issuer 2: no performance data
+        insert_test_issuer(&db, 200, "Unknown Corp", None, None, None, None);
+        insert_test_issuer_stats(&db, 200, 10, 3, 1_000, "2024-01-01");
+
+        let rows = db
+            .query_issuers(&DbIssuerFilter::default())
+            .expect("query_issuers");
+        assert_eq!(rows.len(), 2, "should return all 2 issuers");
+        // Ordered by volume DESC: 100 (50M) first, 200 (1K) second
+        assert_eq!(rows[0].issuer_id, 100);
+        assert_eq!(rows[0].issuer_name, "Apple Inc");
+        assert_eq!(rows[0].volume, 50_000_000);
+        assert!(rows[0].mcap.is_some(), "enriched issuer should have mcap");
+        assert_eq!(rows[0].mcap.unwrap(), 3_500_000_000_000);
+        assert!(rows[0].trailing30_change.is_some(), "enriched issuer should have trailing30_change");
+
+        assert_eq!(rows[1].issuer_id, 200);
+        assert_eq!(rows[1].issuer_name, "Unknown Corp");
+        assert_eq!(rows[1].volume, 1_000);
+        assert!(rows[1].mcap.is_none(), "unenriched issuer should have None mcap");
+        assert!(rows[1].trailing30_change.is_none(), "unenriched issuer should have None trailing30_change");
+    }
+
+    #[test]
+    fn test_query_issuers_search_filter() {
+        let db = open_test_db();
+        insert_test_issuer(&db, 100, "Apple Inc", Some("AAPL"), Some("information-technology"), None, None);
+        insert_test_issuer(&db, 200, "Microsoft Corp", Some("MSFT"), Some("information-technology"), None, None);
+        insert_test_issuer(&db, 300, "Exxon Mobil", Some("XOM"), Some("energy"), None, None);
+
+        let rows = db
+            .query_issuers(&DbIssuerFilter {
+                search: Some("Apple".to_string()),
+                ..DbIssuerFilter::default()
+            })
+            .expect("query_issuers");
+        assert_eq!(rows.len(), 1, "should return only Apple");
+        assert_eq!(rows[0].issuer_name, "Apple Inc");
+    }
+
+    #[test]
+    fn test_query_issuers_sector_filter() {
+        let db = open_test_db();
+        insert_test_issuer(&db, 100, "Apple Inc", Some("AAPL"), Some("information-technology"), None, None);
+        insert_test_issuer(&db, 200, "Microsoft Corp", Some("MSFT"), Some("information-technology"), None, None);
+        insert_test_issuer(&db, 300, "Exxon Mobil", Some("XOM"), Some("energy"), None, None);
+
+        let rows = db
+            .query_issuers(&DbIssuerFilter {
+                sector: Some(vec!["energy".to_string()]),
+                ..DbIssuerFilter::default()
+            })
+            .expect("query_issuers");
+        assert_eq!(rows.len(), 1, "should return only energy sector");
+        assert_eq!(rows[0].issuer_name, "Exxon Mobil");
+    }
+
+    #[test]
+    fn test_query_issuers_state_filter() {
+        let db = open_test_db();
+        insert_test_issuer(&db, 100, "Apple Inc", Some("AAPL"), Some("information-technology"), Some("ca"), None);
+        insert_test_issuer(&db, 200, "ExxonMobil", Some("XOM"), Some("energy"), Some("tx"), None);
+        insert_test_issuer(&db, 300, "Microsoft Corp", Some("MSFT"), Some("information-technology"), Some("wa"), None);
+
+        let rows = db
+            .query_issuers(&DbIssuerFilter {
+                state: Some(vec!["ca".to_string()]),
+                ..DbIssuerFilter::default()
+            })
+            .expect("query_issuers");
+        assert_eq!(rows.len(), 1, "should return only CA issuers");
+        assert_eq!(rows[0].issuer_name, "Apple Inc");
+    }
+
+    #[test]
+    fn test_query_issuers_limit() {
+        let db = open_test_db();
+        for i in 1..=5 {
+            insert_test_issuer(&db, i, &format!("Company {}", i), None, None, None, None);
+            insert_test_issuer_stats(&db, i, 10, 5, (100 * i) as i64, "2024-01-01");
+        }
+
+        let rows = db
+            .query_issuers(&DbIssuerFilter {
+                limit: Some(2),
+                ..DbIssuerFilter::default()
+            })
+            .expect("query_issuers");
+        assert_eq!(rows.len(), 2, "should return exactly 2 with limit=2");
+        // Ordered by volume DESC: Company 5 (500) first, Company 4 (400) second
+        assert_eq!(rows[0].issuer_id, 5);
+        assert_eq!(rows[1].issuer_id, 4);
+    }
 }
