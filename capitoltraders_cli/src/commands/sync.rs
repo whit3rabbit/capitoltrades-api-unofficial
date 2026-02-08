@@ -1,15 +1,20 @@
 //! The `sync` subcommand: ingest CapitolTrades data into SQLite.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use capitoltraders_lib::{
-    validation, Db, IssuerStatsRow, PoliticianStatsRow, ScrapeClient, ScrapedTrade,
+    validation, Db, IssuerStatsRow, PoliticianStatsRow, ScrapeClient, ScrapeError,
+    ScrapedIssuerDetail, ScrapedTrade, ScrapedTradeDetail,
 };
 use chrono::NaiveDate;
 use clap::Args;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
+use tokio::sync::{mpsc, Semaphore};
+use tokio::task::JoinSet;
 use tokio::time::sleep;
 
 /// Arguments for the `sync` subcommand.
@@ -58,10 +63,24 @@ pub struct SyncArgs {
     /// Delay between trade detail requests in milliseconds
     #[arg(long, default_value = "500")]
     pub details_delay_ms: u64,
+
+    /// Number of concurrent detail page fetches (1-10)
+    #[arg(long, default_value = "3")]
+    pub concurrency: usize,
+
+    /// Stop enrichment after N consecutive HTTP failures
+    #[arg(long, default_value = "5")]
+    pub max_failures: usize,
 }
 
 pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
     let _page_size = validation::validate_page_size(args.page_size)?;
+    if args.concurrency < 1 || args.concurrency > 10 {
+        return Err(anyhow!("--concurrency must be between 1 and 10"));
+    }
+    if args.max_failures < 1 {
+        return Err(anyhow!("--max-failures must be at least 1"));
+    }
     let mut db = Db::open(&args.db)?;
     db.init()?;
 
@@ -129,6 +148,8 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
             args.batch_size,
             args.details_delay_ms,
             args.dry_run,
+            args.concurrency,
+            args.max_failures,
         )
         .await?;
         eprintln!(
@@ -142,6 +163,8 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
             args.batch_size,
             args.details_delay_ms,
             args.dry_run,
+            args.concurrency,
+            args.max_failures,
         )
         .await?;
         eprintln!(
@@ -173,12 +196,44 @@ struct EnrichmentResult {
     total: usize,
 }
 
+/// Circuit breaker that trips after N consecutive failures.
+/// Not a full circuit breaker with half-open state -- just a kill switch.
+struct CircuitBreaker {
+    consecutive_failures: usize,
+    threshold: usize,
+}
+
+impl CircuitBreaker {
+    fn new(threshold: usize) -> Self {
+        Self {
+            consecutive_failures: 0,
+            threshold,
+        }
+    }
+    fn record_success(&mut self) {
+        self.consecutive_failures = 0;
+    }
+    fn record_failure(&mut self) {
+        self.consecutive_failures += 1;
+    }
+    fn is_tripped(&self) -> bool {
+        self.consecutive_failures >= self.threshold
+    }
+}
+
+struct FetchResult<T> {
+    id: i64,
+    result: std::result::Result<T, ScrapeError>,
+}
+
 async fn enrich_trades(
     scraper: &ScrapeClient,
     db: &Db,
     batch_size: Option<i64>,
     detail_delay_ms: u64,
     dry_run: bool,
+    concurrency: usize,
+    max_failures: usize,
 ) -> Result<EnrichmentResult> {
     if dry_run {
         let total = db.count_unenriched_trades()?;
@@ -256,6 +311,8 @@ async fn enrich_issuers(
     batch_size: Option<i64>,
     detail_delay_ms: u64,
     dry_run: bool,
+    concurrency: usize,
+    max_failures: usize,
 ) -> Result<EnrichmentResult> {
     if dry_run {
         let total = db.count_unenriched_issuers()?;

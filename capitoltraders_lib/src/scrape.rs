@@ -36,6 +36,7 @@ pub enum ScrapeError {
     Parse(String),
 }
 
+#[derive(Clone)]
 pub struct ScrapeClient {
     base_url: String,
     http: reqwest::Client,
