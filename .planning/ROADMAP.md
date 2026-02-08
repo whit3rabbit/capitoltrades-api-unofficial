@@ -13,7 +13,7 @@ This project extends the Capitol Traders scraper to populate missing data by fet
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - Fix upsert data corruption, add enrichment tracking, schema migration
-- [ ] **Phase 2: Trade Extraction** - Extend trade_detail scraper to extract all missing fields from RSC payloads
+- [x] **Phase 2: Trade Extraction** - Extend trade_detail scraper to extract all missing fields from RSC payloads
 - [ ] **Phase 3: Trade Sync and Output** - Wire trade enrichment into sync pipeline with smart-skip, checkpointing, and CLI output
 - [ ] **Phase 4: Politician Enrichment** - End-to-end politician detail extraction, sync, and CLI output
 - [ ] **Phase 5: Issuer Enrichment** - End-to-end issuer detail extraction, sync, and CLI output
@@ -49,8 +49,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Capture HTML fixtures, extend ScrapedTradeDetail and extract_trade_detail, fixture-based tests (TRADE-01 through TRADE-06)
-- [ ] 02-02-PLAN.md -- Add Db::update_trade_detail() method with sentinel protection and comprehensive tests (TRADE-01 through TRADE-06 persistence)
+- [x] 02-01-PLAN.md -- Capture HTML fixtures, extend ScrapedTradeDetail and extract_trade_detail, fixture-based tests (TRADE-01 through TRADE-06)
+- [x] 02-02-PLAN.md -- Add Db::update_trade_detail() method with sentinel protection and comprehensive tests (TRADE-01 through TRADE-06 persistence)
 
 ### Phase 3: Trade Sync and Output
 **Goal**: Users can run sync and get fully enriched trade data in the database, with smart-skip for efficiency, crash-safe checkpointing, and enriched fields visible in all CLI output formats
@@ -121,7 +121,7 @@ Phases execute in numeric order: 1 -> 2 -> 3; phases 4 and 5 can run after 1 (pa
 | Phase | Plans Complete | Status | Completed |
 |-------|---------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-02-08 |
-| 2. Trade Extraction | 0/2 | Not started | - |
+| 2. Trade Extraction | 2/2 | Complete | 2026-02-08 |
 | 3. Trade Sync and Output | 0/TBD | Not started | - |
 | 4. Politician Enrichment | 0/TBD | Not started | - |
 | 5. Issuer Enrichment | 0/TBD | Not started | - |
