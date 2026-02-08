@@ -6,7 +6,7 @@ use chrono::NaiveDate;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 
-use crate::scrape::ScrapedTrade;
+use crate::scrape::{ScrapedTrade, ScrapedTradeDetail};
 use crate::types::{IssuerDetail, PoliticianDetail, Trade};
 
 #[derive(thiserror::Error, Debug)]
@@ -842,6 +842,88 @@ impl Db {
                 ])?;
             }
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Persist extracted trade detail fields to the database.
+    ///
+    /// Updates the trades table (with COALESCE/CASE sentinel protection),
+    /// the assets table (asset_type, only when current value is "unknown"),
+    /// and the trade_committees / trade_labels join tables (delete+insert).
+    /// Always sets `enriched_at` to the current UTC timestamp.
+    pub fn update_trade_detail(
+        &self,
+        tx_id: i64,
+        detail: &ScrapedTradeDetail,
+    ) -> Result<(), DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        // 1. Update trades table with COALESCE for nullable fields and
+        //    CASE for sentinel-protected fields.
+        tx.execute(
+            "UPDATE trades SET
+               price = COALESCE(?1, price),
+               size = COALESCE(?2, size),
+               size_range_high = COALESCE(?3, size_range_high),
+               size_range_low = COALESCE(?4, size_range_low),
+               filing_id = CASE WHEN ?5 > 0 THEN ?5 ELSE filing_id END,
+               filing_url = CASE WHEN ?6 != '' THEN ?6 ELSE filing_url END,
+               has_capital_gains = COALESCE(?7, has_capital_gains),
+               enriched_at = ?8
+             WHERE tx_id = ?9",
+            params![
+                detail.price,
+                detail.size,
+                detail.size_range_high,
+                detail.size_range_low,
+                detail.filing_id.unwrap_or(0),
+                detail.filing_url.as_deref().unwrap_or(""),
+                detail.has_capital_gains.map(|b| if b { 1 } else { 0 }),
+                chrono::Utc::now().to_rfc3339(),
+                tx_id,
+            ],
+        )?;
+
+        // 2. Update assets table -- only upgrade from "unknown" to a real type.
+        if let Some(ref asset_type) = detail.asset_type {
+            if asset_type != "unknown" {
+                tx.execute(
+                    "UPDATE assets SET asset_type = ?1
+                     WHERE asset_id = ?2 AND asset_type = 'unknown'",
+                    params![asset_type, tx_id],
+                )?;
+            }
+        }
+
+        // 3. Update trade_committees (delete+insert).
+        if !detail.committees.is_empty() {
+            tx.execute(
+                "DELETE FROM trade_committees WHERE tx_id = ?1",
+                params![tx_id],
+            )?;
+            let mut stmt = tx.prepare(
+                "INSERT INTO trade_committees (tx_id, committee) VALUES (?1, ?2)",
+            )?;
+            for committee in &detail.committees {
+                stmt.execute(params![tx_id, committee])?;
+            }
+        }
+
+        // 4. Update trade_labels (delete+insert).
+        if !detail.labels.is_empty() {
+            tx.execute(
+                "DELETE FROM trade_labels WHERE tx_id = ?1",
+                params![tx_id],
+            )?;
+            let mut stmt = tx.prepare(
+                "INSERT INTO trade_labels (tx_id, label) VALUES (?1, ?2)",
+            )?;
+            for label in &detail.labels {
+                stmt.execute(params![tx_id, label])?;
+            }
+        }
+
         tx.commit()?;
         Ok(())
     }
