@@ -93,7 +93,7 @@
         },
         "size": {
           "type": ["integer", "null"],
-          "description": "Number of shares (null if not disclosed)"
+          "description": "Trade size (null if not disclosed)"
         },
         "sizeRangeHigh": {
           "type": ["integer", "null"],

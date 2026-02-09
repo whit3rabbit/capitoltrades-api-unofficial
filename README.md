@@ -72,8 +72,23 @@ capitoltraders sync --db capitoltraders.db --full
 # Incremental SQLite update (since last stored pub date)
 capitoltraders sync --db capitoltraders.db
 
-# Include per-trade filing URLs (slow)
-capitoltraders sync --db capitoltraders.db --since 2026-01-01 --with-trade-details
+# Sync and enrich: fetch detail pages for trades and issuers
+capitoltraders sync --db capitoltraders.db --enrich
+
+# Dry run: see how many items would be enriched
+capitoltraders sync --db capitoltraders.db --enrich --dry-run
+
+# Enrich with tuning: batch size, concurrency, failure threshold
+capitoltraders sync --db capitoltraders.db --enrich --batch-size 100 --concurrency 5 --max-failures 10
+
+# Query enriched trades from local database
+capitoltraders trades --db capitoltraders.db
+
+# Query enriched politicians with committee data
+capitoltraders politicians --db capitoltraders.db --output json
+
+# Query enriched issuers with performance data
+capitoltraders issuers --db capitoltraders.db --sector information-technology
 ```
 
 ### Subcommands
@@ -107,10 +122,11 @@ capitoltraders sync --db capitoltraders.db --since 2026-01-01 --with-trade-detai
 | `--issuer-state` | 2-letter issuer state code (lowercase), comma-separated | all |
 | `--country` | 2-letter ISO country code (lowercase), comma-separated | all |
 | `--page` | Page number | 1 |
-| `--page-size` | Results per page (ignored; fixed at 12) | 12 |
+| `--page-size` | Results per page (ignored in scrape mode; fixed at 12) | 12 |
 | `--sort-by` | `pub-date`, `trade-date`, `reporting-gap` | `pub-date` |
 | `--asc` | Sort ascending | descending |
 | `--details-delay-ms` | Delay between trade detail requests (ms) | 250 |
+| `--db` | Read from local SQLite database instead of scraping | -- |
 
 Most filter flags accept comma-separated values for multi-select, e.g. `--asset-type stock,etf` or `--trade-size 7,8,9`.
 Date filters are mutually exclusive: use `--days`/`--tx-days` for relative days, or `--since`/`--until` and
@@ -119,7 +135,10 @@ Date filters are mutually exclusive: use `--days`/`--tx-days` for relative days,
 Scrape mode limitations: `--committee`, `--trade-size`, `--market-cap`, `--asset-type`, and `--label` are not
 supported and will return an error. `--page-size` is fixed at 12.
 
-The `trades` command fetches each trade’s detail page to populate `filingURL`/`filingId`. Use
+DB mode (`--db`): Supported filters are `--party`, `--state`, `--tx-type`, `--name`, `--issuer`, `--since`, `--until`, `--days`.
+Other filters are not yet supported and will return an error.
+
+The `trades` command fetches each trade's detail page to populate `filingURL`/`filingId`. Use
 `--details-delay-ms` to throttle those requests.
 
 **politicians** -- List politicians and their trading activity.
@@ -132,12 +151,16 @@ The `trades` command fetches each trade’s detail page to populate `filingURL`/
 | `--committee` | Committee code or full name | all |
 | `--issuer-id` | Filter by issuer ID (numeric), comma-separated | all |
 | `--page` | Page number | 1 |
-| `--page-size` | Results per page (ignored; fixed at 12) | 12 |
+| `--page-size` | Results per page (ignored in scrape mode; fixed at 12) | 12 |
 | `--sort-by` | `volume`, `name`, `issuers`, `trades`, `last-traded` | `volume` |
 | `--asc` | Sort ascending | descending |
+| `--db` | Read from local SQLite database instead of scraping | -- |
 
 Scrape mode limitations: `--committee` and `--issuer-id` are not supported and will return an error.
 `--page-size` is fixed at 12.
+
+DB mode (`--db`): Supported filters are `--party`, `--state`, `--name`.
+Shows committee memberships when data has been enriched via `sync --enrich`.
 
 **issuers** -- List or look up stock issuers.
 
@@ -151,12 +174,17 @@ Scrape mode limitations: `--committee` and `--issuer-id` are not supported and w
 | `--country` | 2-letter ISO country code (lowercase), comma-separated | all |
 | `--politician-id` | Politician ID (e.g. `P000197`), comma-separated | all |
 | `--page` | Page number | 1 |
-| `--page-size` | Results per page (ignored; fixed at 12) | 12 |
+| `--page-size` | Results per page (ignored in scrape mode; fixed at 12) | 12 |
 | `--sort-by` | `volume`, `politicians`, `trades`, `last-traded`, `mcap` | `volume` |
 | `--asc` | Sort ascending | descending |
+| `--db` | Read from local SQLite database instead of scraping | -- |
+| `--limit` | Maximum results to return (DB mode only) | all |
 
 Scrape mode limitations: `--market-cap`, `--state`, `--country`, `--politician-id`, and `--sort-by mcap`
 are not supported and will return an error. `--page-size` is fixed at 12.
+
+DB mode (`--db`): Supported filters are `--search`, `--sector`, `--state`, `--country`, `--limit`.
+Shows performance metrics and EOD price data when data has been enriched via `sync --enrich`.
 
 **sync** -- Ingest CapitolTrades data into SQLite.
 
@@ -167,11 +195,19 @@ are not supported and will return an error. `--page-size` is fixed at 12.
 | `--since` | Override incremental cutoff date (YYYY-MM-DD, pub date) | -- |
 | `--refresh-politicians` | Refresh full politician catalog during incremental run | off |
 | `--refresh-issuers` | Refresh full issuer catalog during incremental run | off |
-| `--page-size` | Page size (ignored in scrape mode) | 100 |
-| `--with-trade-details` | Fetch per-trade detail pages to capture filing URLs | off |
-| `--details-delay-ms` | Delay between trade detail requests (ms) | 250 |
+| `--page-size` | Page size for API pagination (1-100, ignored in scrape mode) | 100 |
+| `--enrich` | Enrich trade, issuer, and politician details after sync | off |
+| `--dry-run` | Show how many items would be enriched (requires `--enrich`) | off |
+| `--batch-size` | Maximum items to enrich per entity type per run | all |
+| `--details-delay-ms` | Delay between detail page requests (ms) | 500 |
+| `--concurrency` | Number of concurrent detail page fetches (1-10) | 3 |
+| `--max-failures` | Stop enrichment after N consecutive HTTP failures | 5 |
 
-Scrape mode note: `--refresh-politicians`, `--refresh-issuers`, and `--page-size` are ignored.
+Enrichment (`--enrich`) fetches individual detail pages for trades, issuers, and politicians to
+populate fields that listing pages leave empty: asset types, filing details, trade sizing, pricing,
+committee memberships, performance metrics, and EOD price history. Smart-skip avoids re-fetching
+already-enriched records. Progress bars show enrichment status. A circuit breaker stops after
+`--max-failures` consecutive HTTP failures.
 
 ### Global Flags
 
@@ -210,7 +246,7 @@ These schemas describe the CLI output (arrays of items), not the PaginatedRespon
 capitoltraders/
   Cargo.toml                    # workspace root
   capitoltrades_api/            # vendored upstream API client
-  capitoltraders_lib/           # library: cache, analysis, validation, error types
+  capitoltraders_lib/           # library: cache, analysis, validation, scraping, db, error types
   capitoltraders_cli/           # CLI binary
   schema/sqlite.sql             # SQLite schema aligned with CLI JSON output
 ```
@@ -218,7 +254,7 @@ capitoltraders/
 ## Development
 
 ```sh
-# Run all tests (188 total)
+# Run all tests (294 total)
 cargo test --workspace
 
 # Lint
@@ -232,9 +268,9 @@ cargo run -p capitoltraders_cli -- trades --days 7
 
 There is no public API. All data is scraped from the [CapitolTrades](https://www.capitoltrades.com) website by
 parsing the Next.js RSC payloads embedded in HTML responses. Results are cached in-memory for 5 minutes to
-reduce request load. Use `sync --with-trade-details` to fetch per-trade detail pages and populate `filing_url`
-and `filing_id` (much slower). Senate filings often use UUID-style URLs, so `filing_id` may remain `0` while
-`filing_url` is populated.
+reduce request load. Use `sync --enrich` to fetch detail pages and populate enriched fields (asset types,
+filing details, committee memberships, performance data). Senate filings often use UUID-style URLs, so
+`filing_id` may remain `0` while `filing_url` is populated.
 
 ## SQLite
 
@@ -247,11 +283,12 @@ the CLI JSON output schemas (`schema/*.schema.json`), including nested data:
 - `ingest_meta` (tracks `last_trade_pub_date` for incremental sync)
 
 Incremental runs use `last_trade_pub_date` to request only recent pages from the API, then upsert by
-primary key to keep the database current.
+primary key to keep the database current. Enrichment (`--enrich`) populates the join and detail tables
+by fetching individual detail pages post-ingest.
 
 ## Rate Limiting
 
-This tool uses an unofficial API and adds a randomized 5-10 second delay between HTTP requests to avoid putting unnecessary load on the CapitolTrades servers. Cache hits are not delayed, so repeated queries within the 5-minute cache window return instantly. The first request in a session has no delay.
+This tool uses an unofficial API and adds a randomized 5-10 second delay between HTTP requests to avoid putting unnecessary load on the CapitolTrades servers. Cache hits are not delayed, so repeated queries within the 5-minute cache window return instantly. The first request in a session has no delay. Enrichment uses a configurable delay (default 500ms) between detail page fetches with bounded concurrency (default 3).
 
 ## License
 

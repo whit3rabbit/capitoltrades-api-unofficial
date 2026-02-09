@@ -7,13 +7,13 @@ This guide provides concrete patterns and conventions for agentic coding in this
 ```bash
 # Primary workspace commands
 cargo check --workspace          # Fast compilation check
-cargo test --workspace           # Run all 188 tests
+cargo test --workspace           # Run all 294 tests
 cargo clippy --workspace         # Lint with all clippy rules
 cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
 # Single test execution patterns
 cargo test -p capitoltrades_api deserialization    # By crate and test name
-cargo test -p capitoltrades_lib validation::state_valid  # By module and specific test
+cargo test -p capitoltraders_lib validation::state_valid  # By module and specific test
 cargo test validation -- --nocapture               # Show print output in tests
 cargo test --workspace cache::tests::cache_set_and_get  # Full path to test
 ```
@@ -31,7 +31,7 @@ use thiserror::Error;
 use crate::{
     query::{IssuerQuery, PoliticianQuery},
     types::{Trade, Politician},
-    client::CachedClient,
+    client::ScrapeClient,
 };
 ```
 
@@ -75,18 +75,20 @@ pub type Result<T> = anyhow::Result<T, CapitolTradesError>;
 
 ### Async & CLI Patterns
 ```rust
-// CLI command runners - consistent signature
-pub async fn run(
-    args: &TradesArgs,
-    client: &CachedClient,
-    format: OutputFormat,
-) -> Result<()> {
-    let trades = client.get_trades(&args.build_query()).await?;
-    output::print_trades(trades, format)?;
-    Ok(())
+// CLI command runners - two paths: scrape and DB
+pub async fn run(args: &TradesArgs, scraper: &ScrapeClient, format: &OutputFormat) -> Result<()> {
+    // Scrape mode: fetch from capitoltrades.com
 }
 
-// Parameter order: args, client, format (consistent across all commands)
+pub async fn run_db(args: &TradesArgs, db_path: &Path, format: &OutputFormat) -> Result<()> {
+    // DB mode: read from local SQLite
+}
+
+// Main dispatches based on --db flag presence
+match &args.db {
+    Some(path) => run_db(&args, path, &format).await,
+    None => run(&args, &scraper, &format).await,
+}
 ```
 
 ### Query Builder Patterns
@@ -96,7 +98,7 @@ impl TradeQuery {
         self.parties.push(party);
         self
     }
-    
+
     pub fn with_page(mut self, page: i64) -> Self {
         self.page = Some(page);
         self
@@ -117,19 +119,18 @@ let query = TradeQuery::default()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Trade;
-    
+
     #[test]
     fn test_validation_edge_case() {
         // High unwrap usage is acceptable in tests
         let result = validate_state("CA").unwrap();
         assert_eq!(result, "CA");
     }
-    
+
     #[tokio::test]
     async fn test_async_function() {
-        let client = CachedClient::new();
-        let result = client.get_trades(&TradeQuery::default()).await.unwrap();
+        let scraper = ScrapeClient::new();
+        let result = scraper.trades(1).await.unwrap();
         assert!(!result.is_empty());
     }
 }
@@ -147,11 +148,11 @@ async fn get_trades_with_filters_sends_query_params() {
             .and(wiremock::matchers::query_param("party", "d"))
             .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(fixture)),
     ).await;
-    
+
     let client = Client::with_base_url(mock_server.uri());
     let query = TradeQuery::default().with_party(Party::Democrat);
     let result = client.get_trades(&query).await.unwrap();
-    
+
     assert!(result.len() > 0);
 }
 ```
@@ -167,9 +168,39 @@ fn state_invalid() {
     ));
 }
 
-#[test] 
+#[test]
 fn state_valid_lowercase() {
     assert_eq!(validate_state("ca").unwrap(), "CA");
+}
+```
+
+### Fixture-based Scrape Testing
+```rust
+// HTML fixtures in tests/fixtures/, loaded via include_str!
+const TRADE_DETAIL_FIXTURE: &str = include_str!("../tests/fixtures/trade_detail.html");
+
+#[test]
+fn extract_trade_detail_from_fixture() {
+    let rsc = extract_rsc_payload(TRADE_DETAIL_FIXTURE).unwrap();
+    let detail = extract_trade_detail(&rsc).unwrap();
+    assert_eq!(detail.asset_type.as_deref(), Some("stock"));
+}
+```
+
+### DB Testing
+```rust
+// In-memory SQLite for test isolation
+fn test_db() -> Db {
+    Db::open(":memory:").unwrap()
+}
+
+#[test]
+fn query_trades_with_party_filter() {
+    let db = test_db();
+    // Insert test data, then query with filter
+    let filter = DbTradeFilter { party: Some("Democrat".into()), ..Default::default() };
+    let rows = db.query_trades(&filter).unwrap();
+    assert!(rows.iter().all(|r| r.party == "Democrat"));
 }
 ```
 
@@ -179,21 +210,21 @@ fn state_valid_lowercase() {
 // Use clap derive macros with global flags
 #[derive(Parser)]
 pub struct TradesArgs {
-    /// Filter by politician name or ID
-    #[arg(long, short)]
-    pub politician: Option<String>,
-    
-    /// Filter by party (democrat, republican, other)
+    /// Filter trades by politician name (two-step lookup)
     #[arg(long)]
-    pub party: Option<Vec<Party>>,
-    
-    /// Number of results to return (1-100)
-    #[arg(long, default_value = "20")]
+    pub politician: Option<String>,
+
+    /// Filter by party (comma-separated): democrat (d), republican (r), other
+    #[arg(long)]
+    pub party: Option<String>,
+
+    /// Results per page
+    #[arg(long, default_value = "12")]
     pub page_size: i64,
-    
-    // Global output flag (shared across commands)
-    #[arg(long, global = true, default_value = "table")]
-    pub output: OutputFormat,
+
+    /// Read trades from local SQLite database (requires prior sync)
+    #[arg(long)]
+    pub db: Option<PathBuf>,
 }
 
 // Use Box for large variants to avoid clippy warnings
@@ -203,6 +234,7 @@ pub enum Commands {
     Trades(Box<TradesArgs>),
     Politicians(PoliticiansArgs),
     Issuers(IssuersArgs),
+    Sync(SyncArgs),
 }
 ```
 
@@ -222,83 +254,153 @@ pub fn validate_party(input: &str) -> Result<Party> {
     }
 }
 
-// SQLite operations - use prepared statements
-pub fn insert_trades(conn: &Connection, trades: &[Trade]) -> Result<()> {
-    let tx = conn.transaction()?;
-    {
-        let mut stmt = tx.prepare(
-            "INSERT INTO trades (id, politician_id, issuer_id, amount) 
-             VALUES (?, ?, ?, ?)"
-        )?;
-        for trade in trades {
-            stmt.execute((
-                &trade.id,
-                &trade.politician.id,
-                &trade.issuer.id,
-                &trade.amount,
-            ))?;
-        }
-    }
+// SQLite operations - use prepared statements with unchecked_transaction
+pub fn update_trade_detail(&self, trade_id: &str, detail: &ScrapedTradeDetail) -> Result<()> {
+    let tx = self.conn.unchecked_transaction()?;
+    // Update trade fields with sentinel protection
+    tx.execute(
+        "UPDATE trades SET asset_type = CASE WHEN asset_type = 'unknown' THEN ?1 ELSE asset_type END,
+         enriched_at = datetime('now') WHERE tx_id = ?2",
+        params![detail.asset_type, trade_id],
+    )?;
     tx.commit()?;
     Ok(())
+}
+
+// Schema migration pattern
+pub fn migrate_v1(conn: &Connection) -> Result<()> {
+    let version: i32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version < 1 {
+        conn.execute_batch("ALTER TABLE trades ADD COLUMN enriched_at TEXT;")?;
+        conn.pragma_update(None, "user_version", 1)?;
+    }
+    Ok(())
+}
+```
+
+## Enrichment Pipeline Patterns
+
+```rust
+// Concurrent enrichment with Semaphore + JoinSet + mpsc
+let semaphore = Arc::new(Semaphore::new(concurrency));
+let (tx, mut rx) = mpsc::channel(concurrency * 2);
+let mut join_set = JoinSet::new();
+
+for id in unenriched_ids {
+    let permit = semaphore.clone().acquire_owned().await?;
+    let client = scraper.clone();  // reqwest::Client is Arc-backed, cheap to clone
+    let tx = tx.clone();
+    join_set.spawn(async move {
+        let result = client.trade_detail(&id).await;
+        let _ = tx.send((id, result)).await;
+        drop(permit);
+    });
+}
+drop(tx);
+
+// Single-threaded DB writes from channel receiver
+while let Some((id, result)) = rx.recv().await {
+    match result {
+        Ok(detail) => db.update_trade_detail(&id, &detail)?,
+        Err(e) => circuit_breaker.record_failure(),
+    }
+}
+
+// CircuitBreaker: simple consecutive failure counter
+struct CircuitBreaker { consecutive_failures: usize, threshold: usize }
+impl CircuitBreaker {
+    fn record_success(&mut self) { self.consecutive_failures = 0; }
+    fn record_failure(&mut self) { self.consecutive_failures += 1; }
+    fn is_tripped(&self) -> bool { self.consecutive_failures >= self.threshold }
 }
 ```
 
 ## Output Formatting Patterns
 
 ```rust
-// Support multiple output formats consistently
-pub fn print_trades(trades: Vec<Trade>, format: OutputFormat) -> Result<()> {
-    match format {
-        OutputFormat::Table => {
-            let table = tabled::Table::new(&trades)
-                .with(tabled::settings::Style::modern())
-                .to_string();
-            println!("{}", table);
-        }
-        OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&trades)?);
-        }
-        OutputFormat::Csv => {
-            let mut wtr = csv::Writer::from_writer(std::io::stdout());
-            for trade in &trades {
-                wtr.serialize(trade)?;
-            }
-            wtr.flush()?;
-        }
-        OutputFormat::Xml => {
-            xml_output::print_trades_xml(trades)?;
-        }
-        OutputFormat::Markdown => {
-            output::markdown::print_trades_md(trades)?;
-        }
-    }
-    Ok(())
+// Two output paths: scrape types and DB types
+// Scrape: print_trades_table(&trades), print_trades_csv(&trades), etc.
+// DB:     print_db_trades_table(&rows), print_db_trades_csv(&rows), etc.
+
+match format {
+    OutputFormat::Table => print_db_trades_table(&rows),
+    OutputFormat::Json => print_json(&rows),
+    OutputFormat::Csv => print_db_trades_csv(&rows)?,
+    OutputFormat::Markdown => print_db_trades_markdown(&rows),
+    OutputFormat::Xml => print_db_trades_xml(&rows),
 }
+
+// CSV formula injection sanitization
+fn sanitize_csv_field(field: &str) -> String {
+    if field.starts_with('=') || field.starts_with('+')
+        || field.starts_with('-') || field.starts_with('@') {
+        format!("\t{}", field)
+    } else {
+        field.to_string()
+    }
+}
+```
+
+## DB Mode Filter Pattern
+
+```rust
+// Unsupported filters bail with explicit supported-filter list
+let unsupported: &[(&str, bool)] = &[
+    ("--committee", args.committee.is_some()),
+    ("--trade-size", args.trade_size.is_some()),
+];
+for (flag, present) in unsupported {
+    if *present {
+        bail!("{} is not yet supported with --db. Supported filters: --party, --state, ...", flag);
+    }
+}
+
+// Dynamic filter builder: push WHERE clauses and params into vecs
+let mut clauses = Vec::new();
+let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+let mut param_idx = 1;
+
+if let Some(ref party) = filter.party {
+    clauses.push(format!("p.party = ?{}", param_idx));
+    params.push(Box::new(party.clone()));
+    param_idx += 1;
+}
+
+let where_clause = if clauses.is_empty() {
+    "WHERE 1=1".to_string()
+} else {
+    format!("WHERE {}", clauses.join(" AND "))
+};
 ```
 
 ## Red Flags & Anti-Patterns
 
-- **Don't modify vendored capitoltrades_api** without updating the modification log in AGENTS.md
+- **Don't modify vendored capitoltrades_api** without documenting in project memory
 - **Never use unwrap() in production code** - only in tests
 - **Avoid raw string parsing** - use the validation module functions
 - **Don't bypass cache** unless specifically required
 - **Never commit secrets** - all config should be command-line args
 - **Don't add new dependencies** without checking existing patterns first
 - **Avoid async blocks in CLI entry points** - use async fn directly
+- **Don't overwrite enriched data** - upserts use sentinel CASE protection
+- **Don't write to SQLite from multiple threads** - use mpsc channel pattern
 
 ## Common Issues & Solutions
 
 - **Large enum variant warnings**: Use `Box<YourArgs>` in Commands enum
 - **Missing serde attributes**: Check existing patterns for camelCase vs snake_case
-- **Test failures with network**: Use `wiremock` for consistent integration testing
+- **Test failures with network**: Use `wiremock` for HTTP integration tests, fixture-based tests for scraping
 - **Memory leaks in cache**: Ensure DashMap TTL is properly configured (300s default)
 - **XML serialization issues**: Use the JSON-to-XML bridge, don't modify vendored types
+- **SQLite contention**: Use mpsc channel for concurrent writes, unchecked_transaction for reads
+- **Enrichment data loss**: Sentinel CASE in upserts prevents re-sync from overwriting enriched fields
+- **Stale page-size note**: Scrape mode ignores --page-size (fixed at 12); DB mode respects it
 
 ## When to Ask
 
 - Before modifying the vendored capitoltrades_api crate
-- When adding new CLI subcommands (follow existing patterns)  
+- When adding new CLI subcommands (follow existing patterns)
 - If changing the public API of validation functions
-- When modifying the SQLite schema
+- When modifying the SQLite schema (must add versioned migration)
 - If performance issues arise in the cache layer
+- Before changing enrichment pipeline concurrency patterns

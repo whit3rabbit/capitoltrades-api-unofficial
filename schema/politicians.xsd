@@ -50,7 +50,7 @@
 
   <xs:simpleType name="PoliticianIdType">
     <xs:restriction base="xs:string">
-      <xs:pattern value="P\d{6}"/>
+      <xs:pattern value="[A-Z]\d{6}"/>
     </xs:restriction>
   </xs:simpleType>
 
