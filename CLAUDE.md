@@ -1,307 +1,304 @@
-# Capitol Traders - Development Guide
+# Capitol Traders - Agent Development Guide
 
-## Project Structure
+This guide provides concrete patterns and conventions for agentic coding in this Rust workspace. For project structure overview, see the main documentation.
 
-Rust workspace with three crates:
+## Build & Development Commands
 
-- `capitoltrades_api/` -- Vendored fork of [TommasoAmici/capitoltrades](https://github.com/TommasoAmici/capitoltrades). Contains the legacy HTTP client plus shared types/enums used for serialization and validation.
-- `capitoltraders_lib/` -- Library layer: cached client wrapper, in-memory TTL cache, analysis helpers, validation, error types.
-- `capitoltraders_cli/` -- CLI binary (`capitoltraders`) using clap. Subcommands: `trades`, `politicians`, `issuers`, `sync`.
+```bash
+# Primary workspace commands
+cargo check --workspace          # Fast compilation check
+cargo test --workspace           # Run all 188 tests
+cargo clippy --workspace         # Lint with all clippy rules
+cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
-### File Layout
-
-```
-capitoltrades_api/
-  src/
-    lib.rs                    # crate root, re-exports Client, Query traits, query types
-    client.rs                 # HTTP client (reqwest), get_trades/get_politicians/get_issuers
-    errors.rs                 # upstream Error type
-    user_agent.rs             # random user-agent rotation
-    types/
-      mod.rs                  # re-exports all types
-      trade.rs                # Trade, Asset, TxType, TradeSize, AssetType, Label, Owner
-      politician.rs           # Politician, PoliticianDetail, Chamber, Gender, Party
-      issuer.rs               # IssuerDetail, MarketCap, Sector, Performance, EodPrice
-      meta.rs                 # Meta, Paging, PaginatedResponse, Response
-    query/
-      mod.rs                  # re-exports all query types
-      common.rs               # Query trait, QueryCommon, SortDirection
-      trade.rs                # TradeQuery (22 fields), TradeSortBy
-      politician.rs           # PoliticianQuery, PoliticianSortBy
-      issuer.rs               # IssuerQuery, IssuerSortBy
-  tests/
-    deserialization.rs        # JSON fixture deserialization tests
-    query_builders.rs         # URL parameter encoding tests
-    client_integration.rs     # wiremock integration tests
-    fixtures/                 # JSON test fixtures
-
-capitoltraders_lib/
-  src/
-    lib.rs                    # crate root, re-exports from capitoltrades_api
-    client.rs                 # CachedClient wrapper, cache key generation
-    cache.rs                  # MemoryCache (DashMap-backed TTL cache)
-    db.rs                     # SQLite storage + ingestion helpers
-    scrape.rs                 # HTML scraper for trades/politicians/issuers
-    validation.rs             # input validation for all CLI filter types
-    analysis.rs               # trade analysis helpers (by-party, by-month, top issuers)
-    error.rs                  # CapitolTradesError (wraps upstream Error + InvalidInput)
-
-capitoltraders_cli/
-  src/
-    main.rs                   # CLI entry point, Commands enum, tokio runtime
-    output.rs                 # table/JSON/CSV/Markdown/XML formatting
-    xml_output.rs             # XML serialization via JSON-to-XML bridge (quick-xml)
-    commands/
-      mod.rs                  # module declarations
-      trades.rs               # trades subcommand (TradesArgs + run)
-      politicians.rs          # politicians subcommand (PoliticiansArgs + run)
-      issuers.rs              # issuers subcommand (IssuersArgs + run)
-      sync.rs                 # sync subcommand (SQLite ingestion)
-
-schema/
-  trade.schema.json           # JSON Schema (draft 2020-12) for Trade array
-  politician.schema.json      # JSON Schema for PoliticianDetail array
-  issuer.schema.json          # JSON Schema for IssuerDetail array
-  sqlite.sql                  # SQLite DDL aligned with CLI JSON output
-  trades.xsd                  # XML Schema for trades XML output
-  politicians.xsd             # XML Schema for politicians XML output
-  issuers.xsd                 # XML Schema for issuers XML output
+# Single test execution patterns
+cargo test -p capitoltrades_api deserialization    # By crate and test name
+cargo test -p capitoltrades_lib validation::state_valid  # By module and specific test
+cargo test validation -- --nocapture               # Show print output in tests
+cargo test --workspace cache::tests::cache_set_and_get  # Full path to test
 ```
 
-## Build & Test
+## Code Style & Formatting
 
-```
-cargo check --workspace
-cargo test --workspace
-cargo clippy --workspace
-cargo run -p capitoltraders_cli -- trades --help
-```
+### Import Organization
+```rust
+// Order: std, external crates, internal modules (grouped by category)
+use std::time::Duration;
+use chrono::{NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-## Upstream Vendored Crate (`capitoltrades_api`)
-
-Forked from `crates/capitoltrades_api/` in the upstream repo. Our modifications:
-
-1. `Client.base_api_url`: changed from `&'static str` to `String`, added `with_base_url()` constructor (required for wiremock test mocking).
-2. `Meta.paging`, `Paging` fields, `PaginatedResponse.meta`: made `pub` (required for display/analysis layers).
-3. Added `Default` impl for `Client`, removed unnecessary `mut` in `get_url`.
-4. `TradeQuery`: added `parties`, `states`, `committees`, `search` fields + builders + URL encoding.
-5. `TradeQuery`: added `genders`, `market_caps`, `asset_types`, `labels`, `sectors`, `tx_types`, `chambers`, `politician_ids`, `issuer_states`, `countries` fields + builders + URL encoding.
-6. `PoliticianQuery`: added `states`, `committees` fields + builders + URL encoding.
-7. `TxType`: added `Clone`, `Copy`, `Display` derives.
-8. `Chamber`, `Gender`: added `Clone`, `Copy`, `Display` derives.
-9. `MarketCap`: added `Display` impl (outputs numeric value for API).
-10. New enums: `AssetType` (22 variants), `Label` (4 variants) in `trade.rs`.
-11. `Commands::Trades` uses `Box<TradesArgs>` to avoid `large_enum_variant` clippy warning.
-
-All clippy warnings in the vendored crate have been resolved.
-
-## Trade Filter Types
-
-The trades command supports extensive filtering. All multi-value filters accept comma-separated input at the CLI layer.
-Date filters use either relative days (`--days`, `--tx-days`) or absolute date ranges
-(`--since`/`--until`, `--tx-since`/`--tx-until`), but not both simultaneously.
-In scrape mode, only filters backed by fields present in the HTML are supported; `--committee`,
-`--trade-size`, `--market-cap`, `--asset-type`, and `--label` are rejected.
-
-| CLI Flag | API Param | Type | Accepted Values |
-|---|---|---|---|
-| `--name` | `search` | `String` | free text (max 100 bytes) |
-| `--politician` | `politician` | `PoliticianID` | scrape mode uses client-side name matching |
-| `--issuer` | `issuer` | `IssuerID` | scrape mode uses client-side name/ticker matching |
-| `--issuer-id` | `issuer` | `IssuerID` | numeric ID |
-| `--party` | `party` | `Party` | `democrat` (`d`), `republican` (`r`), `other` |
-| `--state` | `state` | `String` | 2-letter uppercase US state/territory code |
-| `--committee` | `committee` | `String` | abbreviation code (e.g. `ssfi`) or full name |
-| `--days` | `pubDate` | `i64` | relative days (e.g. `7` becomes `7d`) |
-| `--tx-days` | `txDate` | `i64` | relative days |
-| `--since` | `pubDate` | `YYYY-MM-DD` | absolute lower bound (converted to relative days); conflicts with `--days` |
-| `--until` | client-side | `YYYY-MM-DD` | absolute upper bound; conflicts with `--days` |
-| `--tx-since` | `txDate` | `YYYY-MM-DD` | absolute lower bound (converted to relative days); conflicts with `--tx-days` |
-| `--tx-until` | client-side | `YYYY-MM-DD` | absolute upper bound; conflicts with `--tx-days` |
-| `--trade-size` | `tradeSize` | `TradeSize` | `1`-`10` (bracket numbers) |
-| `--gender` | `gender` | `Gender` | `female` (`f`), `male` (`m`) |
-| `--market-cap` | `mcap` | `MarketCap` | `mega`-`nano` or `1`-`6` |
-| `--asset-type` | `assetType` | `AssetType` | 22 kebab-case variants (see below) |
-| `--label` | `label` | `Label` | `faang`, `crypto`, `memestock`, `spac` |
-| `--sector` | `sector` | `Sector` | 12 kebab-case GICS sectors |
-| `--tx-type` | `txType` | `TxType` | `buy`, `sell`, `exchange`, `receive` |
-| `--chamber` | `chamber` | `Chamber` | `house` (`h`), `senate` (`s`) |
-| `--politician-id` | `politician` | `PoliticianID` | `P` + 6 digits (e.g. `P000197`) |
-| `--issuer-state` | `issuerState` | `String` | 2-letter lowercase code |
-| `--country` | `country` | `String` | 2-letter lowercase ISO code |
-
-### AssetType Variants
-
-`stock`, `stock-option`, `corporate-bond`, `etf`, `etn`, `mutual-fund`, `cryptocurrency`, `pdf`, `municipal-security`, `non-public-stock`, `other`, `reit`, `commodity`, `hedge`, `variable-insurance`, `private-equity`, `closed-end-fund`, `venture`, `index-fund`, `government-bond`, `money-market-fund`, `brokered`
-
-### Sector Variants
-
-`communication-services`, `consumer-discretionary`, `consumer-staples`, `energy`, `financials`, `health-care`, `industrials`, `information-technology`, `materials`, `real-estate`, `utilities`, `other`
-
-## Committee Abbreviation Codes
-
-The CapitolTrades BFF API uses short abbreviation codes for committees, **not** full names. Committee filtering
-is not supported in scrape mode, but the mapping is retained for validation and future use. The URL pattern is
-`?committee=hsag&committee=ssfi` (multiple allowed).
-
-The full code-to-name mapping lives in `capitoltraders_lib/src/validation.rs` as `COMMITTEE_MAP`. The CLI accepts either the code or the full name and resolves to the code before sending to the API.
-
-Examples:
-
-| Code | Full Name |
-|------|-----------|
-| `hsag` | House - Agriculture |
-| `hsba` | House - Financial Services |
-| `hsju` | House - Judiciary |
-| `ssfi` | Senate - Finance |
-| `ssbk` | Senate - Banking, Housing & Urban Affairs |
-| `ssas` | Senate - Armed Services |
-| `spag` | Senate - Aging |
-
-See the complete list (48 committees) in `COMMITTEE_MAP`.
-
-## Validation Module (`capitoltraders_lib/src/validation.rs`)
-
-All user input is validated before being passed to the API layer. Each validator returns a typed result or `CapitolTradesError::InvalidInput`.
-
-| Function | Input | Returns | Notes |
-|---|---|---|---|
-| `validate_search` | free text | `String` | max 100 bytes, strips control chars, trims |
-| `validate_state` | state code | `String` (uppercase) | 50 states + DC + territories |
-| `validate_party` | party name | `Party` | shorthand `d`/`r` supported |
-| `validate_committee` | code or name | `String` (code) | resolves full names to API codes |
-| `validate_page` | number | `i64` | must be >= 1 |
-| `validate_page_size` | number | `i64` | must be 1-100 |
-| `validate_gender` | gender | `Gender` | shorthand `f`/`m` supported |
-| `validate_market_cap` | name or number | `MarketCap` | `mega`-`nano` or `1`-`6` |
-| `validate_asset_type` | kebab-case string | `AssetType` | 22 variants |
-| `validate_label` | label name | `Label` | 4 variants |
-| `validate_sector` | kebab-case string | `Sector` | 12 GICS sectors |
-| `validate_tx_type` | tx type | `TxType` | `buy`/`sell`/`exchange`/`receive` |
-| `validate_chamber` | chamber | `Chamber` | shorthand `h`/`s` supported |
-| `validate_politician_id` | ID string | `String` | `P` + 6 digits |
-| `validate_country` | ISO code | `String` (lowercase) | 2-letter alpha |
-| `validate_issuer_state` | state code | `String` (lowercase) | 2-letter alpha |
-| `validate_trade_size` | bracket number | `TradeSize` | `1`-`10` |
-| `validate_date` | date string | `NaiveDate` | YYYY-MM-DD format (chrono) |
-| `validate_days` | number | `i64` | 1-3650 range |
-| `date_to_relative_days` | `NaiveDate` | `Option<i64>` | days from today, `None` if future |
-
-## Test Inventory (188 tests)
-
-| Suite | Count | Location |
-|---|---|---|
-| Upstream snapshot (insta) | 3 | `capitoltrades_api/src/query/*.rs` |
-| Deserialization | 7 | `capitoltrades_api/tests/deserialization.rs` |
-| Query builders | 36 | `capitoltrades_api/tests/query_builders.rs` |
-| Wiremock integration | 8 | `capitoltrades_api/tests/client_integration.rs` |
-| Cache unit | 5 | `capitoltraders_lib/src/cache.rs` |
-| Analysis unit | 5 | `capitoltraders_lib/src/analysis.rs` |
-| Validation unit | 83 | `capitoltraders_lib/src/validation.rs` |
-| XML output | 12 | `capitoltraders_cli/src/xml_output.rs` |
-| Output unit | 20 | `capitoltraders_cli/src/output.rs` |
-| Schema validation | 9 | `capitoltraders_cli/tests/schema_validation.rs` |
-
-## Key Dependencies
-
-| Crate | Version | Purpose |
-|---|---|---|
-| reqwest | 0.12 | HTTP client (upstream) |
-| wiremock | 0.6 | Mock HTTP in tests |
-| dashmap | 6 | Concurrent in-memory cache |
-| tabled | 0.17 | Terminal table output |
-| clap | 4 | CLI argument parsing (derive) |
-| insta | 1 | Snapshot testing (upstream) |
-| quick-xml | 0.37 | XML output serialization (Writer API) |
-| jsonschema | 0.29 | JSON Schema validation in tests (dev-dependency) |
-| rusqlite | 0.31 | SQLite storage for `sync` ingestion |
-| regex | 1 | Parsing HTML payloads for politician cards |
-
-## Conventions
-
-- The CLI binary is named `capitoltraders` (no underscore).
-- Cache TTL is 300 seconds (5 minutes), in-memory only via `MemoryCache`.
-- Output format is controlled by `--output table|json|csv|md|xml` (global flag).
-- Analysis functions operate on slices of upstream types and return standard collections.
-- Error types in the lib layer wrap upstream `capitoltrades_api::Error` rather than re-implementing.
-- `trades`, `politicians`, and `issuers` scrape `capitoltrades.com`; filters are applied client-side and some flags are unsupported (see Scraping).
-- Scraped listing pages are fixed at 12 results; `--page-size` is ignored for those commands.
-- Comma-separated CLI values are split and individually validated before filtering.
-- `issuerState` and `country` are lowercase in scraped data (unlike politician `state` which is uppercase). Validation normalizes accordingly.
-- `CachedClient` still enforces a randomized 5-10 second delay between API requests for any legacy usage (not used by CLI scraping).
-
-## Scraping
-
-There is no public API. All CLI commands (`trades`, `politicians`, `issuers`, `sync`) use an
-**unofficial API** by scraping `capitoltrades.com` and parsing the embedded Next.js RSC payloads.
-`ScrapeClient` exposes
-`trades_page`, `trade_detail`, `politicians_page`, `politician_detail`, `issuers_page`, and
-`issuer_detail`. Missing fields not present in the HTML are populated with safe defaults
-(e.g., unknown asset type, empty committees/labels). Aggregated politician/issuer stats are computed
-from scraped trades in `sync`. Use `--with-trade-details` to hit per-trade pages and capture filing
-URLs/IDs (slow; adds one request per trade). Senate filings often use UUID-style URLs, so `filing_id`
-may be `0` while `filing_url` is populated.
-
-## SQLite Ingestion
-
-The `sync` subcommand writes to SQLite using `schema/sqlite.sql`, which mirrors the CLI JSON output schemas.
-Nested arrays are normalized into join tables (`trade_committees`, `trade_labels`, `politician_committees`),
-and issuer performance is stored in `issuer_performance` plus `issuer_eod_prices`. Incremental runs track
-`ingest_meta.last_trade_pub_date` (YYYY-MM-DD) and request only recent pages; `--since` overrides it.
-`--refresh-politicians` and `--refresh-issuers` are ignored in scrape mode.
-
-Commands:
-
-```
-capitoltraders sync --db capitoltraders.db --full
-capitoltraders sync --db capitoltraders.db
-capitoltraders sync --db capitoltraders.db --refresh-issuers --refresh-politicians
-capitoltraders sync --db capitoltraders.db --since 2024-01-01
+use crate::{
+    query::{IssuerQuery, PoliticianQuery},
+    types::{Trade, Politician},
+    client::CachedClient,
+};
 ```
 
-## CI
+### Type Patterns & Serialization
+```rust
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum AssetType {
+    #[serde(rename = "stock")]
+    Stock,
+    #[serde(rename = "stock-option")]
+    StockOption,
+}
 
-The daily SQLite sync workflow is defined in `.github/workflows/sqlite-sync.yml`.
-It restores the previous DB from a GitHub Actions cache, runs `capitoltraders sync`,
-and uploads the updated database as a workflow artifact.
+// Display implementations for CLI-facing types
+impl std::fmt::Display for AssetType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stock => write!(f, "stock"),
+            Self::StockOption => write!(f, "stock-option"),
+        }
+    }
+}
+```
 
-## XML Output Format
+### Error Handling Patterns
+```rust
+#[derive(Error, Debug)]
+pub enum CapitolTradesError {
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    #[error("Upstream API error")]
+    Upstream(#[source] capitoltrades_api::Error),
+    #[error("Cache error: {0}")]
+    Cache(String),
+}
 
-The `--output xml` flag emits well-formed XML. Implementation uses a JSON-to-XML bridge: types are serialized to `serde_json::Value` first, then walked recursively to emit XML via `quick-xml::Writer`. This avoids modifying the vendored crate.
+// Use thiserror for custom errors, anyhow::Result for application logic
+pub type Result<T> = anyhow::Result<T, CapitolTradesError>;
+```
 
-Key behaviors:
-- Null fields are omitted (no empty element emitted)
-- Arrays produce a wrapper element with singular child elements (e.g. `<committees><committee>...</committee></committees>`)
-- XML declaration: `<?xml version="1.0" encoding="UTF-8"?>`
-- Root elements: `<trades>`, `<politicians>`, `<issuers>`
-- Empty results produce a self-closing root (e.g. `<trades/>`)
-- Special characters (`&`, `<`, `>`) are escaped by quick-xml
+### Async & CLI Patterns
+```rust
+// CLI command runners - consistent signature
+pub async fn run(
+    args: &TradesArgs,
+    client: &CachedClient,
+    format: OutputFormat,
+) -> Result<()> {
+    let trades = client.get_trades(&args.build_query()).await?;
+    output::print_trades(trades, format)?;
+    Ok(())
+}
 
-The singularization map for array wrapper names:
-- `committees` -> `committee`
-- `labels` -> `label`
-- `eodPrices` -> `priceSet`
-- All other arrays use the field name as-is for children
+// Parameter order: args, client, format (consistent across all commands)
+```
 
-## Schema Files
+### Query Builder Patterns
+```rust
+impl TradeQuery {
+    pub fn with_party(mut self, party: Party) -> Self {
+        self.parties.push(party);
+        self
+    }
+    
+    pub fn with_page(mut self, page: i64) -> Self {
+        self.page = Some(page);
+        self
+    }
+}
 
-The `schema/` directory contains JSON Schema (draft 2020-12) and XSD files documenting the structure of CLI output. Schemas describe what `--output json` and `--output xml` actually emit: arrays of data items, not the PaginatedResponse wrapper (which goes to stderr).
+// Chain fluent methods returning Self where Self: Sized
+let query = TradeQuery::default()
+    .with_party(Party::Democrat)
+    .with_state("CA")
+    .with_page(1);
+```
 
-| File | Format | Describes |
-|------|--------|-----------|
-| `schema/trade.schema.json` | JSON Schema | Trade array from `trades --output json` |
-| `schema/politician.schema.json` | JSON Schema | PoliticianDetail array from `politicians --output json` |
-| `schema/issuer.schema.json` | JSON Schema | IssuerDetail array from `issuers --output json` |
-| `schema/sqlite.sql` | SQL DDL | SQLite schema aligned to CLI JSON output |
-| `schema/trades.xsd` | XML Schema | Trade XML from `trades --output xml` |
-| `schema/politicians.xsd` | XML Schema | PoliticianDetail XML from `politicians --output xml` |
-| `schema/issuers.xsd` | XML Schema | IssuerDetail XML from `issuers --output xml` |
+## Testing Conventions
 
-All serialized fields are documented, including private Rust fields that are still serde-serialized. Schemas are hand-written (no `schemars` crate) to avoid vendored crate modifications.
+### Unit Tests
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Trade;
+    
+    #[test]
+    fn test_validation_edge_case() {
+        // High unwrap usage is acceptable in tests
+        let result = validate_state("CA").unwrap();
+        assert_eq!(result, "CA");
+    }
+    
+    #[tokio::test]
+    async fn test_async_function() {
+        let client = CachedClient::new();
+        let result = client.get_trades(&TradeQuery::default()).await.unwrap();
+        assert!(!result.is_empty());
+    }
+}
+```
 
-## Adding a New CLI Subcommand
+### Integration Tests
+```rust
+// Use wiremock for HTTP integration tests
+#[tokio::test]
+async fn get_trades_with_filters_sends_query_params() {
+    let mock_server = wiremock::MockServer::start().await;
+    mock_server.register(
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/trades"))
+            .and(wiremock::matchers::query_param("party", "d"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(fixture)),
+    ).await;
+    
+    let client = Client::with_base_url(mock_server.uri());
+    let query = TradeQuery::default().with_party(Party::Democrat);
+    let result = client.get_trades(&query).await.unwrap();
+    
+    assert!(result.len() > 0);
+}
+```
 
-1. Create `capitoltraders_cli/src/commands/your_command.rs` with a clap `Args` struct and an `async fn run(...)`.
-2. Add it to `commands/mod.rs`.
-3. Add the variant to the `Commands` enum in `main.rs`.
-4. Wire it into the `match` block in `main`.
+### Validation Testing
+```rust
+// Test all validation edge cases (see validation.rs for 83 examples)
+#[test]
+fn state_invalid() {
+    assert!(matches!(
+        validate_state("XX"),
+        Err(CapitolTradesError::InvalidInput(_))
+    ));
+}
+
+#[test] 
+fn state_valid_lowercase() {
+    assert_eq!(validate_state("ca").unwrap(), "CA");
+}
+```
+
+## CLI Structure Patterns
+
+```rust
+// Use clap derive macros with global flags
+#[derive(Parser)]
+pub struct TradesArgs {
+    /// Filter by politician name or ID
+    #[arg(long, short)]
+    pub politician: Option<String>,
+    
+    /// Filter by party (democrat, republican, other)
+    #[arg(long)]
+    pub party: Option<Vec<Party>>,
+    
+    /// Number of results to return (1-100)
+    #[arg(long, default_value = "20")]
+    pub page_size: i64,
+    
+    // Global output flag (shared across commands)
+    #[arg(long, global = true, default_value = "table")]
+    pub output: OutputFormat,
+}
+
+// Use Box for large variants to avoid clippy warnings
+#[derive(Subcommand)]
+pub enum Commands {
+    #[command(about = "Query and display trades")]
+    Trades(Box<TradesArgs>),
+    Politicians(PoliticiansArgs),
+    Issuers(IssuersArgs),
+}
+```
+
+## Database & Validation Patterns
+
+```rust
+// Input validation - early returns with typed errors
+pub fn validate_party(input: &str) -> Result<Party> {
+    let normalized = input.trim().to_lowercase();
+    match normalized.as_str() {
+        "d" | "democrat" => Ok(Party::Democrat),
+        "r" | "republican" => Ok(Party::Republican),
+        "other" => Ok(Party::Other),
+        _ => Err(CapitolTradesError::InvalidInput(
+            format!("Invalid party: {}", input)
+        )),
+    }
+}
+
+// SQLite operations - use prepared statements
+pub fn insert_trades(conn: &Connection, trades: &[Trade]) -> Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO trades (id, politician_id, issuer_id, amount) 
+             VALUES (?, ?, ?, ?)"
+        )?;
+        for trade in trades {
+            stmt.execute((
+                &trade.id,
+                &trade.politician.id,
+                &trade.issuer.id,
+                &trade.amount,
+            ))?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+```
+
+## Output Formatting Patterns
+
+```rust
+// Support multiple output formats consistently
+pub fn print_trades(trades: Vec<Trade>, format: OutputFormat) -> Result<()> {
+    match format {
+        OutputFormat::Table => {
+            let table = tabled::Table::new(&trades)
+                .with(tabled::settings::Style::modern())
+                .to_string();
+            println!("{}", table);
+        }
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&trades)?);
+        }
+        OutputFormat::Csv => {
+            let mut wtr = csv::Writer::from_writer(std::io::stdout());
+            for trade in &trades {
+                wtr.serialize(trade)?;
+            }
+            wtr.flush()?;
+        }
+        OutputFormat::Xml => {
+            xml_output::print_trades_xml(trades)?;
+        }
+        OutputFormat::Markdown => {
+            output::markdown::print_trades_md(trades)?;
+        }
+    }
+    Ok(())
+}
+```
+
+## Red Flags & Anti-Patterns
+
+- **Don't modify vendored capitoltrades_api** without updating the modification log in AGENTS.md
+- **Never use unwrap() in production code** - only in tests
+- **Avoid raw string parsing** - use the validation module functions
+- **Don't bypass cache** unless specifically required
+- **Never commit secrets** - all config should be command-line args
+- **Don't add new dependencies** without checking existing patterns first
+- **Avoid async blocks in CLI entry points** - use async fn directly
+
+## Common Issues & Solutions
+
+- **Large enum variant warnings**: Use `Box<YourArgs>` in Commands enum
+- **Missing serde attributes**: Check existing patterns for camelCase vs snake_case
+- **Test failures with network**: Use `wiremock` for consistent integration testing
+- **Memory leaks in cache**: Ensure DashMap TTL is properly configured (300s default)
+- **XML serialization issues**: Use the JSON-to-XML bridge, don't modify vendored types
+
+## When to Ask
+
+- Before modifying the vendored capitoltrades_api crate
+- When adding new CLI subcommands (follow existing patterns)  
+- If changing the public API of validation functions
+- When modifying the SQLite schema
+- If performance issues arise in the cache layer

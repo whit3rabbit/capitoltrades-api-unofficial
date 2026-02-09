@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Capitol Traders is a Rust CLI tool that scrapes capitoltrades.com to track congressional stock trades. The current scraper only hits listing pages, which leaves five SQLite tables empty and several per-record fields defaulted to NULL or placeholder values. This project extends the existing detail-page scrapers to capture the missing data and surfaces the enriched fields in CLI output.
+Capitol Traders is a Rust CLI tool that scrapes capitoltrades.com to track congressional stock trades. It syncs listing pages for trades, politicians, and issuers into SQLite, then enriches each record by fetching detail pages to populate asset types, filing details, trade sizing, pricing, committee memberships, performance metrics, and EOD price history. All enriched data is queryable via --db flag in 5 output formats.
 
 ## Core Value
 
@@ -19,25 +19,24 @@ Every synced record has complete data -- committees, labels, asset types, filing
 - Input validation for all filter types -- existing
 - Retry/backoff logic with configurable delays -- existing
 - Schema files (JSON Schema, XSD, SQLite DDL) for output validation -- existing
+- Schema migration with PRAGMA user_version gating -- v1.0
+- Sentinel-protected upserts that preserve enriched data on re-sync -- v1.0
+- Enrichment tracking via enriched_at timestamp columns -- v1.0
+- Trade detail extraction (asset_type, sizing, price, filing details) -- v1.0
+- Trade committees and labels extraction from RSC payloads -- v1.0
+- Smart-skip enrichment for already-complete rows -- v1.0
+- Batch checkpointing for crash-safe enrichment -- v1.0
+- Dry-run mode for enrichment preview -- v1.0
+- Politician committee extraction via listing page committee-filter iteration -- v1.0
+- Issuer performance and EOD price extraction from detail pages -- v1.0
+- Bounded concurrent enrichment with Semaphore (configurable 1-10) -- v1.0
+- Progress bars (indicatif) for enrichment runs -- v1.0
+- Circuit breaker for consecutive failure detection -- v1.0
+- DB query path (--db flag) for trades, politicians, issuers with enriched columns in all 5 formats -- v1.0
 
 ### Active
 
-- [ ] Extend trade_detail scraper to extract committees and labels
-- [ ] Extend trade_detail scraper to extract asset type (currently defaults to "unknown" for 35,266 records)
-- [ ] Extend trade_detail scraper to extract filing details (filing_id, filing_url -- currently 0 and empty)
-- [ ] Extend trade_detail scraper to extract trade sizing (size, size_range_high, size_range_low -- currently NULL)
-- [ ] Extend trade_detail scraper to extract price (NULL for ~18.5% of trades)
-- [ ] Extend politician_detail scraper to extract committee memberships
-- [ ] Extend issuer_detail scraper to extract performance data
-- [ ] Extend issuer_detail scraper to extract end-of-day prices
-- [ ] Populate trade_committees join table during sync
-- [ ] Populate trade_labels join table during sync
-- [ ] Populate politician_committees join table during sync
-- [ ] Populate issuer_performance table during sync
-- [ ] Populate issuer_eod_prices table during sync
-- [ ] Smart detail fetching: on sync (full or incremental), check each existing row -- if key fields are NULL/default, fetch detail page; if all fields populated, skip
-- [ ] Increase throttle delay when hitting detail pages (vs listing pages)
-- [ ] Surface committees, labels, performance data in CLI display output (all formats)
+(None -- next milestone requirements to be defined via /gsd:new-milestone)
 
 ### Out of Scope
 
@@ -45,35 +44,52 @@ Every synced record has complete data -- committees, labels, asset types, filing
 - Changing the listing-page scraper behavior -- only extending detail-page scrapers
 - Adding new CLI subcommands -- enrichment happens within existing trades/politicians/issuers/sync commands
 - Real-time price feeds or live market data -- only what capitoltrades.com provides
+- Headless browser rendering -- RSC payloads contain structured data
+- BFF API fallback -- legacy API is unstable
+- Full re-enrichment on every sync -- smart-skip required for performance
+- Mobile or web UI -- CLI tool only
 
 ## Context
 
-- The scraper already has `trade_detail()`, `politician_detail()`, and `issuer_detail()` methods in `capitoltraders_lib/src/scrape.rs`
-- The SQLite schema already defines the five target tables (`trade_committees`, `trade_labels`, `politician_committees`, `issuer_performance`, `issuer_eod_prices`) in `schema/sqlite.sql`
-- The `db.rs` upsert functions already reference these tables but the data coming in is empty
-- Current data quality issues from a synced database:
-  - Asset Type: 35,266 records defaulted to "unknown"
-  - Filing Details: filing_id = 0, filing_url = empty
-  - Trade Sizing: size, size_range_high, size_range_low = NULL
-  - Pricing: price = NULL for ~18.5% (6,523 records)
-- The `--with-trade-details` flag already exists for sync but produces incomplete results
-- Listing pages return 12 results per page; detail pages are individual requests per record
+Shipped v1.0 with 13,589 LOC Rust across 3 workspace crates.
+Tech stack: Rust, SQLite (rusqlite), reqwest, tokio, clap, tabled, indicatif.
+294 tests passing, 0 clippy warnings.
+
+Known tech debt:
+- TRADE-05/TRADE-06 (committees/labels from trade RSC) implemented but unconfirmed on live site payloads
+- Synthetic HTML fixtures may not match actual live RSC payload structure
+- get_unenriched_politician_ids method exists but is unused (committee enrichment runs as full refresh)
+
+v2 requirements candidates (from original REQUIREMENTS.md):
+- SEL-01/SEL-02: Selective enrichment flags (--enrich-trades, --enrich-issuers, --enrich-all)
+- MON-01: RSC payload canary test to detect Next.js format changes
+- MON-02: Enrichment statistics report
+- CLI-01: --from-db flag to read from SQLite instead of scraping
+- CLI-02: Eliminate redundant detail fetching in trades command
 
 ## Constraints
 
 - **Data source**: All enrichment comes from capitoltrades.com detail pages only -- no external APIs
-- **Rate limiting**: Detail pages add significant request volume; throttle must be increased vs listing pages to avoid being blocked
+- **Rate limiting**: Detail pages add significant request volume; throttle increased to 500ms for detail pages
 - **Backward compatibility**: Existing CLI behavior must not break; enriched data is additive
-- **Schema stability**: SQLite DDL already defines the target tables; schema changes should be avoided if possible
+- **Schema stability**: SQLite DDL defines all tables; migrations are version-gated via PRAGMA user_version
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Detail pages as sole data source | User wants self-contained tool, no external API keys or dependencies | -- Pending |
-| Always fetch details during sync | Simplifies logic; smart skip for already-complete rows avoids redundant requests | -- Pending |
-| Increase throttle for detail pages | Detail pages are 1-per-record vs 1-per-12 for listings; need to be respectful of the source | -- Pending |
-| Smart skip on populated rows | Check key fields before fetching detail; if all non-NULL, skip the request | -- Pending |
+| Detail pages as sole data source | Self-contained tool, no external API keys | Good -- all fields populated from RSC payloads |
+| Smart skip on populated rows | Check key fields before fetching detail; skip if populated | Good -- prevents redundant HTTP calls |
+| 500ms throttle for detail pages | Detail pages are 1-per-record vs 1-per-12 for listings | Good -- respectful rate |
+| Sentinel CASE upsert protection | Prevent re-sync from overwriting enriched data with defaults | Good -- data integrity maintained |
+| PRAGMA user_version for migrations | Simple, no migration framework dependency | Good -- clean versioned migration |
+| Committee-filter iteration for politicians | Detail pages lack committee data; listing page filter is only source | Good -- 48 requests covers all committees |
+| Post-ingest enrichment pipeline | Enrich after sync_trades rather than inline | Good -- separates concerns, enables smart-skip |
+| Bounded concurrency via Semaphore | Default 3, configurable 1-10 parallel requests | Good -- balances speed and server load |
+| DB writes via mpsc channel | Single-threaded SQLite writes from concurrent tasks | Good -- avoids SQLite contention |
+| CircuitBreaker as simple kill switch | Consecutive failure counter, not full half-open pattern | Good -- simple, effective for this use case |
+| Unconditional committee enrichment | 48 requests is fast (~25s), no opt-in needed | Good -- always up to date |
+| Per-entity DB query types | DbTradeRow, DbPoliticianRow, DbIssuerRow as read-side types | Good -- clean separation from scrape/API types |
 
 ---
-*Last updated: 2026-02-07 after initialization*
+*Last updated: 2026-02-09 after v1.0 milestone*
