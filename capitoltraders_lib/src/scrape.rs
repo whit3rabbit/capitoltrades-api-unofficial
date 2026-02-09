@@ -804,6 +804,11 @@ fn parse_politician_cards(payload: &str) -> Result<Vec<ScrapedPoliticianCard>, S
         });
     }
 
+    if ids.is_empty() && cards.is_empty() {
+        // Legitimate empty result (e.g. defunct committee with no members).
+        return Ok(cards);
+    }
+
     if cards.is_empty() {
         return Err(ScrapeError::Parse(
             "no politician cards found in payload".into(),
