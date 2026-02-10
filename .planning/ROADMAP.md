@@ -46,10 +46,10 @@ Plans:
   3. chrono::NaiveDate converts to time::OffsetDateTime and back without timezone issues
   4. Weekend/holiday dates return nearest prior trading day's price
   5. Invalid ticker symbols return None, not errors
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 02-01: [Plan details created during plan-phase]
+- [ ] 02-01-PLAN.md -- YahooClient wrapper with time/chrono conversion, price fetching, weekend fallback, caching, and tests (TDD)
 
 ### Phase 3: Ticker Validation & Trade Value Estimation
 **Goal**: Ticker symbols are validated and trade share counts are estimated
