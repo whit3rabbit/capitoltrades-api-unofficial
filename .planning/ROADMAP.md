@@ -13,7 +13,7 @@ This milestone extends Capitol Traders with Yahoo Finance market data integratio
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Schema Migration & Data Model** - Add price columns to trades table, create positions table
-- [ ] **Phase 2: Yahoo Finance Client Integration** - Integrate yahoo_finance_api crate with time/chrono conversion
+- [x] **Phase 2: Yahoo Finance Client Integration** - Integrate yahoo_finance_api crate with time/chrono conversion
 - [ ] **Phase 3: Ticker Validation & Trade Value Estimation** - Validate tickers, estimate shares from dollar ranges
 - [ ] **Phase 4: Price Enrichment Pipeline** - Batch fetch historical and current prices with rate limiting
 - [ ] **Phase 5: Portfolio Calculator (FIFO)** - Calculate net positions and realized/unrealized P&L
@@ -49,7 +49,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 02-01-PLAN.md -- YahooClient wrapper with time/chrono conversion, price fetching, weekend fallback, caching, and tests (TDD)
+- [x] 02-01-PLAN.md -- YahooClient wrapper with time/chrono conversion, price fetching, weekend fallback, caching, and tests (TDD)
 
 ### Phase 3: Ticker Validation & Trade Value Estimation
 **Goal**: Ticker symbols are validated and trade share counts are estimated
@@ -125,7 +125,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Schema Migration & Data Model | 1/1 | Complete | 2026-02-10 |
-| 2. Yahoo Finance Client Integration | 0/? | Not started | - |
+| 2. Yahoo Finance Client Integration | 1/1 | Complete | 2026-02-10 |
 | 3. Ticker Validation & Trade Value Estimation | 0/? | Not started | - |
 | 4. Price Enrichment Pipeline | 0/? | Not started | - |
 | 5. Portfolio Calculator (FIFO) | 0/? | Not started | - |
