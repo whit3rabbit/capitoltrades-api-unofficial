@@ -12,7 +12,7 @@ This milestone extends Capitol Traders with Yahoo Finance market data integratio
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Schema Migration & Data Model** - Add price columns to trades table, create positions table
+- [x] **Phase 1: Schema Migration & Data Model** - Add price columns to trades table, create positions table
 - [ ] **Phase 2: Yahoo Finance Client Integration** - Integrate yahoo_finance_api crate with time/chrono conversion
 - [ ] **Phase 3: Ticker Validation & Trade Value Estimation** - Validate tickers, estimate shares from dollar ranges
 - [ ] **Phase 4: Price Enrichment Pipeline** - Batch fetch historical and current prices with rate limiting
@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 1 plan
 
 Plans:
-- [ ] 01-01-PLAN.md -- Schema migration v2 (price columns + positions table + DbTradeRow update + tests)
+- [x] 01-01-PLAN.md -- Schema migration v2 (price columns + positions table + DbTradeRow update + tests)
 
 ### Phase 2: Yahoo Finance Client Integration
 **Goal**: System can fetch historical and current prices from Yahoo Finance
@@ -124,7 +124,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Schema Migration & Data Model | 0/1 | Planning complete | - |
+| 1. Schema Migration & Data Model | 1/1 | Complete | 2026-02-10 |
 | 2. Yahoo Finance Client Integration | 0/? | Not started | - |
 | 3. Ticker Validation & Trade Value Estimation | 0/? | Not started | - |
 | 4. Price Enrichment Pipeline | 0/? | Not started | - |

@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-02-09)
 
 **Core value:** Users can see what politicians are trading, what those positions are currently worth, and whether politicians are making or losing money on their trades.
-**Current focus:** Phase 1 - Schema Migration & Data Model
+**Current focus:** Phase 2 - Yahoo Finance Client Integration
 
 ## Current Position
 
