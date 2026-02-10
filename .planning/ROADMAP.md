@@ -61,10 +61,10 @@ Plans:
   3. Estimated shares calculation: midpoint / trade_date_price produces integer shares
   4. Estimated value validation: estimated_shares * trade_date_price falls within original range
   5. Trades with missing tickers or prices skip estimation without failing batch
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 03-01: [Plan details created during plan-phase]
+- [ ] 03-01-PLAN.md -- Pricing module (dollar range parsing + share estimation) and DB operations (enrichment queries + price updates + tests)
 
 ### Phase 4: Price Enrichment Pipeline
 **Goal**: Trades are enriched with historical and current prices via batch processing
@@ -126,7 +126,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 |-------|----------------|--------|-----------|
 | 1. Schema Migration & Data Model | 1/1 | Complete | 2026-02-10 |
 | 2. Yahoo Finance Client Integration | 1/1 | Complete | 2026-02-10 |
-| 3. Ticker Validation & Trade Value Estimation | 0/? | Not started | - |
+| 3. Ticker Validation & Trade Value Estimation | 0/1 | Not started | - |
 | 4. Price Enrichment Pipeline | 0/? | Not started | - |
 | 5. Portfolio Calculator (FIFO) | 0/? | Not started | - |
 | 6. CLI Commands & Output | 0/? | Not started | - |
