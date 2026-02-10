@@ -9,27 +9,29 @@ See: .planning/PROJECT.md (updated 2026-02-09)
 
 ## Current Position
 
-Phase: 1 of 6 (Schema Migration & Data Model)
-Plan: 1 of 1 complete
-Status: Phase 1 complete - ready for Phase 2
-Last activity: 2026-02-10 - Completed 01-01 schema migration v2
+Phase: 2 of 6 (Yahoo Finance Client Integration)
+Plan: 1 of 3 complete
+Status: In progress - Phase 2 plan 1 complete
+Last activity: 2026-02-10 - Completed 02-01 yahoo finance client
 
-Progress: [██████████] 100% (Phase 1 complete)
+Progress: [███░░░░░░░] 33% (Phase 2: 1/3 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 5 min
-- Total execution time: 0.09 hours
+- Total plans completed: 2
+- Average duration: 5.5 min
+- Total execution time: 0.18 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-schema-migration-data-model | 1 | 5 min | 5 min |
+| 02-yahoo-finance-client-integration | 1 | 6 min | 6 min |
 
 **Recent Trend:**
+- 2026-02-10: 02-01 completed in 6 min (yahoo finance client)
 - 2026-02-10: 01-01 completed in 5 min (schema migration v2)
 
 *Updated after each plan completion*
@@ -47,6 +49,8 @@ Recent decisions affecting current work:
 - Trade value strategy: Midpoint of range / historical price = estimated shares
 - REAL vs INTEGER for estimated_shares: Use REAL for precision when midpoint/price division produces fractional shares (01-01)
 - Price columns in base schema: Add price columns to schema.sql for fresh DBs, migrations only for existing DBs (01-01)
+- Invalid ticker handling: Return Ok(None) instead of Err for invalid tickers (NoQuotes/NoResult/ApiError) - downstream code treats as non-fatal (02-01)
+- YahooClient cache key: (String, NaiveDate) tuple - price data unique per ticker-date pair (02-01)
 
 ### Pending Todos
 
@@ -59,5 +63,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-10 - Plan execution
-Stopped at: Completed Phase 1 Plan 01 (schema migration v2)
-Resume file: .planning/phases/01-schema-migration-data-model/01-01-SUMMARY.md
+Stopped at: Completed Phase 2 Plan 01 (yahoo finance client)
+Resume file: .planning/phases/02-yahoo-finance-client-integration/02-01-SUMMARY.md
