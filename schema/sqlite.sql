@@ -136,6 +136,17 @@ CREATE TABLE IF NOT EXISTS issuer_eod_prices (
     FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS positions (
+    politician_id TEXT NOT NULL,
+    issuer_ticker TEXT NOT NULL,
+    shares_held REAL NOT NULL,
+    cost_basis REAL NOT NULL,
+    realized_pnl REAL NOT NULL DEFAULT 0.0,
+    last_updated TEXT NOT NULL,
+    PRIMARY KEY (politician_id, issuer_ticker),
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS ingest_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -155,3 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
 CREATE INDEX IF NOT EXISTS idx_trades_enriched ON trades(enriched_at);
 CREATE INDEX IF NOT EXISTS idx_politicians_enriched ON politicians(enriched_at);
 CREATE INDEX IF NOT EXISTS idx_issuers_enriched ON issuers(enriched_at);
+CREATE INDEX IF NOT EXISTS idx_trades_price_enriched ON trades(price_enriched_at);
+CREATE INDEX IF NOT EXISTS idx_positions_politician ON positions(politician_id);
+CREATE INDEX IF NOT EXISTS idx_positions_ticker ON positions(issuer_ticker);
+CREATE INDEX IF NOT EXISTS idx_positions_updated ON positions(last_updated);

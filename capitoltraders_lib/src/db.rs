@@ -57,6 +57,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 1)?;
         }
 
+        if version < 2 {
+            self.migrate_v2()?;
+            self.conn.pragma_update(None, "user_version", 2)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -68,6 +73,25 @@ impl Db {
             "ALTER TABLE trades ADD COLUMN enriched_at TEXT",
             "ALTER TABLE politicians ADD COLUMN enriched_at TEXT",
             "ALTER TABLE issuers ADD COLUMN enriched_at TEXT",
+        ] {
+            match self.conn.execute(sql, []) {
+                Ok(_) => {}
+                Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                    if msg.contains("duplicate column name")
+                        || msg.contains("no such table") => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(())
+    }
+
+    fn migrate_v2(&self) -> Result<(), DbError> {
+        for sql in &[
+            "ALTER TABLE trades ADD COLUMN trade_date_price REAL",
+            "ALTER TABLE trades ADD COLUMN current_price REAL",
+            "ALTER TABLE trades ADD COLUMN price_enriched_at TEXT",
+            "ALTER TABLE trades ADD COLUMN estimated_shares REAL",
+            "ALTER TABLE trades ADD COLUMN estimated_value REAL",
         ] {
             match self.conn.execute(sql, []) {
                 Ok(_) => {}
