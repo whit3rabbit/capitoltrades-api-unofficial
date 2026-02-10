@@ -69,10 +69,10 @@ Users can see what politicians are trading, what those positions are currently w
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| New subcommand vs extending sync --enrich | Separate concern: market data enrichment is conceptually different from scrape enrichment | -- Pending |
-| Rust Yahoo Finance crate selection | Need to evaluate available options (yahoo-finance-api, yahoo_finance_api, etc.) | -- Pending |
-| Portfolio as computed view vs stored table | Net positions could be calculated on-the-fly or materialized in a table | -- Pending |
-| Trade value approximation strategy | Capitol Trades gives ranges not exact values; need to decide midpoint vs low vs high | -- Pending |
+| New subcommand vs extending sync --enrich | Separate concern: market data enrichment is conceptually different from scrape enrichment | New `enrich-prices` subcommand (REQ-I3) |
+| Rust Yahoo Finance crate selection | yahoo_finance_api 4.1.0: mature (v4.x), compatible (reqwest 0.12, tokio 1.x), minimal deps, no auth needed | yahoo_finance_api 4.1.0 + time 0.3 (REQ-I2) |
+| Portfolio as computed view vs stored table | Materialized `positions` table: avoids recalculating FIFO on every query, enables indexed filtering | Stored table with `enrich-prices` update (REQ-P1) |
+| Trade value approximation strategy | Midpoint of dollar range / historical price = estimated shares; validated by checking estimate falls within range | Midpoint strategy (REQ-E4) |
 
 ---
-*Last updated: 2026-02-09 after initialization*
+*Last updated: 2026-02-09 after requirements definition*
