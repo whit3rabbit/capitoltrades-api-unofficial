@@ -10,6 +10,7 @@ pub mod db;
 pub mod error;
 pub mod scrape;
 pub mod validation;
+pub mod yahoo;
 
 pub use capitoltrades_api;
 pub use capitoltrades_api::types;
@@ -28,3 +29,4 @@ pub use scrape::{
     ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
     ScrapedPoliticianCard, ScrapedTrade, ScrapedTradeDetail,
 };
+pub use yahoo::{YahooClient, YahooError};
