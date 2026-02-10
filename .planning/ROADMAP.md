@@ -31,10 +31,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Migration from v1 to v2 succeeds on existing DB without data loss
   4. DbTradeRow struct includes new price fields
   5. Migration is idempotent (re-running on migrated DB is safe)
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 01-01: [Plan details created during plan-phase]
+- [ ] 01-01-PLAN.md -- Schema migration v2 (price columns + positions table + DbTradeRow update + tests)
 
 ### Phase 2: Yahoo Finance Client Integration
 **Goal**: System can fetch historical and current prices from Yahoo Finance
@@ -124,7 +124,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Schema Migration & Data Model | 0/? | Not started | - |
+| 1. Schema Migration & Data Model | 0/1 | Planning complete | - |
 | 2. Yahoo Finance Client Integration | 0/? | Not started | - |
 | 3. Ticker Validation & Trade Value Estimation | 0/? | Not started | - |
 | 4. Price Enrichment Pipeline | 0/? | Not started | - |
