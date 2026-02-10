@@ -116,5 +116,24 @@ REQ-I3 (enrich-prices CLI) ── integrates REQ-E1 through REQ-E4
 REQ-I4 (portfolio CLI) ── integrates REQ-P1 through REQ-P4
 ```
 
+## Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| REQ-E1 | Phase 4 | Pending |
+| REQ-E2 | Phase 4 | Pending |
+| REQ-E3 | Phase 3 | Pending |
+| REQ-E4 | Phase 3 | Pending |
+| REQ-P1 | Phase 5 | Pending |
+| REQ-P2 | Phase 5 | Pending |
+| REQ-P3 | Phase 5 | Pending |
+| REQ-P4 | Phase 5 | Pending |
+| REQ-I1 | Phase 1 | Pending |
+| REQ-I2 | Phase 2 | Pending |
+| REQ-I3 | Phase 4 | Pending |
+| REQ-I4 | Phase 6 | Pending |
+
+**Coverage:** 12/12 requirements mapped (100%)
+
 ---
 *Generated from research: STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md*
