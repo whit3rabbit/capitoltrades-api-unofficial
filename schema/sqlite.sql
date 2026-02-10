@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS trades (
     reporting_gap INTEGER NOT NULL,
     comment TEXT,
     enriched_at TEXT,
+    trade_date_price REAL,
+    current_price REAL,
+    price_enriched_at TEXT,
+    estimated_shares REAL,
+    estimated_value REAL,
     FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE,
     FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
     FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE

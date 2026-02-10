@@ -1293,6 +1293,8 @@ impl Db {
         let mut sql = String::from(
             "SELECT t.tx_id, t.pub_date, t.tx_date, t.tx_type, t.value,
                     t.price, t.size, t.filing_url, t.reporting_gap, t.enriched_at,
+                    t.trade_date_price, t.current_price, t.price_enriched_at,
+                    t.estimated_shares, t.estimated_value,
                     p.first_name || ' ' || p.last_name AS politician_name,
                     p.party, p.state_id, p.chamber,
                     i.issuer_name, i.issuer_ticker,
@@ -1366,8 +1368,8 @@ impl Db {
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(param_refs.as_slice(), |row| {
-            let committees_str: String = row.get(17)?;
-            let labels_str: String = row.get(18)?;
+            let committees_str: String = row.get(22)?;
+            let labels_str: String = row.get(23)?;
 
             Ok(DbTradeRow {
                 tx_id: row.get(0)?,
@@ -1380,13 +1382,18 @@ impl Db {
                 filing_url: row.get(7)?,
                 reporting_gap: row.get(8)?,
                 enriched_at: row.get(9)?,
-                politician_name: row.get(10)?,
-                party: row.get(11)?,
-                state: row.get(12)?,
-                chamber: row.get(13)?,
-                issuer_name: row.get(14)?,
-                issuer_ticker: row.get::<_, Option<String>>(15)?.unwrap_or_default(),
-                asset_type: row.get(16)?,
+                trade_date_price: row.get(10)?,
+                current_price: row.get(11)?,
+                price_enriched_at: row.get(12)?,
+                estimated_shares: row.get(13)?,
+                estimated_value: row.get(14)?,
+                politician_name: row.get(15)?,
+                party: row.get(16)?,
+                state: row.get(17)?,
+                chamber: row.get(18)?,
+                issuer_name: row.get(19)?,
+                issuer_ticker: row.get::<_, Option<String>>(20)?.unwrap_or_default(),
+                asset_type: row.get(21)?,
                 committees: if committees_str.is_empty() {
                     Vec::new()
                 } else {
@@ -1657,6 +1664,11 @@ pub struct DbTradeRow {
     pub filing_url: String,
     pub reporting_gap: i64,
     pub enriched_at: Option<String>,
+    pub trade_date_price: Option<f64>,
+    pub current_price: Option<f64>,
+    pub price_enriched_at: Option<String>,
+    pub estimated_shares: Option<f64>,
+    pub estimated_value: Option<f64>,
     pub politician_name: String,
     pub party: String,
     pub state: String,
@@ -2028,6 +2040,74 @@ CREATE TABLE IF NOT EXISTS trades (
     FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
     FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+";
+
+    /// The V1 schema with enriched_at columns but without price columns, used for v1-to-v2 migration test.
+    const V1_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS assets (
+    asset_id INTEGER PRIMARY KEY,
+    asset_type TEXT NOT NULL,
+    asset_ticker TEXT,
+    instrument TEXT
+);
+CREATE TABLE IF NOT EXISTS issuers (
+    issuer_id INTEGER PRIMARY KEY,
+    state_id TEXT,
+    c2iq TEXT,
+    country TEXT,
+    issuer_name TEXT NOT NULL,
+    issuer_ticker TEXT,
+    sector TEXT,
+    enriched_at TEXT
+);
+CREATE TABLE IF NOT EXISTS politicians (
+    politician_id TEXT PRIMARY KEY,
+    state_id TEXT NOT NULL,
+    party TEXT NOT NULL,
+    party_other TEXT,
+    district TEXT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    nickname TEXT,
+    middle_name TEXT,
+    full_name TEXT,
+    dob TEXT NOT NULL,
+    gender TEXT NOT NULL,
+    social_facebook TEXT,
+    social_twitter TEXT,
+    social_youtube TEXT,
+    website TEXT,
+    chamber TEXT NOT NULL,
+    enriched_at TEXT
+);
+CREATE TABLE IF NOT EXISTS trades (
+    tx_id INTEGER PRIMARY KEY,
+    politician_id TEXT NOT NULL,
+    asset_id INTEGER NOT NULL,
+    issuer_id INTEGER NOT NULL,
+    pub_date TEXT NOT NULL,
+    filing_date TEXT NOT NULL,
+    tx_date TEXT NOT NULL,
+    tx_type TEXT NOT NULL,
+    tx_type_extended TEXT,
+    has_capital_gains INTEGER NOT NULL,
+    owner TEXT NOT NULL,
+    chamber TEXT NOT NULL,
+    price REAL,
+    size INTEGER,
+    size_range_high INTEGER,
+    size_range_low INTEGER,
+    value INTEGER NOT NULL,
+    filing_id INTEGER NOT NULL,
+    filing_url TEXT NOT NULL,
+    reporting_gap INTEGER NOT NULL,
+    comment TEXT,
+    enriched_at TEXT,
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE,
+    FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
+    FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS trade_committees (
     tx_id INTEGER NOT NULL,
     committee TEXT NOT NULL,
@@ -2122,7 +2202,7 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 1);
+        assert_eq!(get_user_version(&db), 2);
     }
 
     #[test]
@@ -2154,8 +2234,8 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         assert!(has_column(&db, "politicians", "enriched_at"));
         assert!(has_column(&db, "issuers", "enriched_at"));
 
-        // Verify user_version is now 1
-        assert_eq!(get_user_version(&db), 1);
+        // Verify user_version is now 2 (both v1 and v2 migrations applied)
+        assert_eq!(get_user_version(&db), 2);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -2167,6 +2247,164 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
             )
             .expect("query test politician");
         assert_eq!(name, "Jane");
+    }
+
+    #[test]
+    fn test_migration_v1_to_v2() {
+        // Simulate a v1 database: create v1 schema with enriched_at columns,
+        // set user_version to 1
+        let db = Db::open_in_memory().expect("open in-memory db");
+        db.conn.execute_batch(V1_SCHEMA).expect("create v1 schema");
+        db.conn.pragma_update(None, "user_version", 1).expect("set user_version to 1");
+
+        // Verify no price columns yet
+        assert!(!has_column(&db, "trades", "trade_date_price"));
+        assert!(!has_column(&db, "trades", "current_price"));
+        assert!(!has_column(&db, "trades", "price_enriched_at"));
+        assert!(!has_column(&db, "trades", "estimated_shares"));
+        assert!(!has_column(&db, "trades", "estimated_value"));
+        assert_eq!(get_user_version(&db), 1);
+
+        // Insert a test trade before migration
+        db.conn.execute("INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')", []).expect("insert asset");
+        db.conn.execute("INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'TestCorp')", []).expect("insert issuer");
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'senate')",
+            [],
+        ).expect("insert test politician");
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date,
+             tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (1, 'P000001', 1, 1, '2025-01-01', '2025-01-01', '2025-01-01', 'buy', 0,
+             'self', 'senate', 50000, 100, 'https://example.com', 5)",
+            [],
+        ).expect("insert trade");
+
+        // Run init which should apply v2 migration
+        db.init().expect("init with v2 migration");
+
+        // Verify price columns exist
+        assert!(has_column(&db, "trades", "trade_date_price"));
+        assert!(has_column(&db, "trades", "current_price"));
+        assert!(has_column(&db, "trades", "price_enriched_at"));
+        assert!(has_column(&db, "trades", "estimated_shares"));
+        assert!(has_column(&db, "trades", "estimated_value"));
+
+        // Verify positions table exists
+        let table_exists: bool = db.conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='positions'",
+            [],
+            |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            }
+        ).expect("check positions table");
+        assert!(table_exists, "positions table should exist");
+
+        // Verify user_version is now 2
+        assert_eq!(get_user_version(&db), 2);
+
+        // Verify pre-existing trade data is preserved
+        let value: i64 = db.conn.query_row(
+            "SELECT value FROM trades WHERE tx_id = 1",
+            [],
+            |row| row.get(0),
+        ).expect("query test trade");
+        assert_eq!(value, 50000);
+    }
+
+    #[test]
+    fn test_migration_v2_idempotent() {
+        let db = open_test_db();
+        // DB is now at v2. Call init again -- must not error
+        db.init().expect("second init should not error");
+        assert_eq!(get_user_version(&db), 2);
+
+        // Verify price columns still exist
+        assert!(has_column(&db, "trades", "trade_date_price"));
+        assert!(has_column(&db, "trades", "current_price"));
+        assert!(has_column(&db, "trades", "price_enriched_at"));
+        assert!(has_column(&db, "trades", "estimated_shares"));
+        assert!(has_column(&db, "trades", "estimated_value"));
+    }
+
+    #[test]
+    fn test_query_trades_price_fields() {
+        let db = open_test_db();
+
+        // Insert required parent rows
+        db.conn.execute("INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')", []).expect("insert asset");
+        db.conn.execute("INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'TestCorp')", []).expect("insert issuer");
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'senate')",
+            [],
+        ).expect("insert politician");
+
+        // Insert a trade
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date,
+             tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (1, 'P000001', 1, 1, '2025-01-01', '2025-01-01', '2025-01-01', 'buy', 0,
+             'self', 'senate', 50000, 100, 'https://example.com', 5)",
+            [],
+        ).expect("insert trade");
+
+        // Manually UPDATE the trade to set price fields
+        db.conn.execute(
+            "UPDATE trades SET trade_date_price = 150.25, current_price = 175.50,
+             price_enriched_at = '2025-06-01T00:00:00Z', estimated_shares = 100.0, estimated_value = 15025.0
+             WHERE tx_id = 1",
+            [],
+        ).expect("update trade with price fields");
+
+        // Query trades
+        let filter = DbTradeFilter::default();
+        let rows = db.query_trades(&filter).expect("query trades");
+        assert_eq!(rows.len(), 1);
+
+        let row = &rows[0];
+        assert_eq!(row.trade_date_price, Some(150.25));
+        assert_eq!(row.current_price, Some(175.50));
+        assert_eq!(row.price_enriched_at, Some("2025-06-01T00:00:00Z".to_string()));
+        assert_eq!(row.estimated_shares, Some(100.0));
+        assert_eq!(row.estimated_value, Some(15025.0));
+    }
+
+    #[test]
+    fn test_query_trades_price_fields_null() {
+        let db = open_test_db();
+
+        // Insert required parent rows
+        db.conn.execute("INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')", []).expect("insert asset");
+        db.conn.execute("INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'TestCorp')", []).expect("insert issuer");
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'senate')",
+            [],
+        ).expect("insert politician");
+
+        // Insert a trade without setting price fields
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date,
+             tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (1, 'P000001', 1, 1, '2025-01-01', '2025-01-01', '2025-01-01', 'buy', 0,
+             'self', 'senate', 50000, 100, 'https://example.com', 5)",
+            [],
+        ).expect("insert trade");
+
+        // Query trades
+        let filter = DbTradeFilter::default();
+        let rows = db.query_trades(&filter).expect("query trades");
+        assert_eq!(rows.len(), 1);
+
+        let row = &rows[0];
+        assert_eq!(row.trade_date_price, None);
+        assert_eq!(row.current_price, None);
+        assert_eq!(row.price_enriched_at, None);
+        assert_eq!(row.estimated_shares, None);
+        assert_eq!(row.estimated_value, None);
     }
 
     #[test]
