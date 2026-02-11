@@ -8,6 +8,7 @@ pub mod cache;
 pub mod client;
 pub mod db;
 pub mod error;
+pub mod pricing;
 pub mod scrape;
 pub mod validation;
 pub mod yahoo;
@@ -25,6 +26,7 @@ pub use db::{
     DbTradeRow, IssuerStatsRow, PoliticianStatsRow,
 };
 pub use error::CapitolTradesError;
+pub use pricing::{estimate_shares, parse_trade_range, ShareEstimate, TradeRange};
 pub use scrape::{
     ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
     ScrapedPoliticianCard, ScrapedTrade, ScrapedTradeDetail,
