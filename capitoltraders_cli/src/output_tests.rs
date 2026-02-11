@@ -564,3 +564,121 @@ fn test_db_issuer_csv_headers() {
         "Name,Ticker,Sector,Mcap,30D Return,YTD,Trades,Volume,Last Traded"
     );
 }
+
+// -- Portfolio output tests --
+
+fn sample_portfolio_position_with_pnl() -> PortfolioPosition {
+    PortfolioPosition {
+        politician_id: "P000123".to_string(),
+        ticker: "AAPL".to_string(),
+        shares_held: 100.0,
+        cost_basis: 50.0,
+        realized_pnl: 0.0,
+        unrealized_pnl: Some(2500.0),
+        unrealized_pnl_pct: Some(50.0),
+        current_price: Some(75.0),
+        current_value: Some(7500.0),
+        price_date: Some("2024-03-15".to_string()),
+        last_updated: "2024-03-16T00:00:00Z".to_string(),
+    }
+}
+
+fn sample_portfolio_position_missing_price() -> PortfolioPosition {
+    PortfolioPosition {
+        politician_id: "P000456".to_string(),
+        ticker: "XYZ".to_string(),
+        shares_held: 50.0,
+        cost_basis: 100.0,
+        realized_pnl: 0.0,
+        unrealized_pnl: None,
+        unrealized_pnl_pct: None,
+        current_price: None,
+        current_value: None,
+        price_date: None,
+        last_updated: "2024-03-16T00:00:00Z".to_string(),
+    }
+}
+
+#[test]
+fn test_format_shares() {
+    assert_eq!(format_shares(100.5), "100.50");
+    assert_eq!(format_shares(0.0), "0.00");
+    assert_eq!(format_shares(1234.567), "1234.57");
+}
+
+#[test]
+fn test_format_currency() {
+    assert_eq!(format_currency(50.0), "$50.00");
+    assert_eq!(format_currency(0.0), "$0.00");
+    assert_eq!(format_currency(123.456), "$123.46");
+}
+
+#[test]
+fn test_build_portfolio_rows_with_pnl() {
+    let positions = vec![sample_portfolio_position_with_pnl()];
+    let rows = build_portfolio_rows(&positions);
+    assert_eq!(rows.len(), 1);
+
+    let row = &rows[0];
+    assert_eq!(row.politician_id, "P000123");
+    assert_eq!(row.ticker, "AAPL");
+    assert_eq!(row.shares_held, "100.00");
+    assert_eq!(row.avg_cost_basis, "$50.00");
+    assert_eq!(row.current_price, "$75.00");
+    assert!(row.current_value.contains("7,500.00"));
+    assert!(row.unrealized_pnl.contains("+$2,500.00"));
+    assert!(row.unrealized_pnl_pct.contains("+50.0%"));
+}
+
+#[test]
+fn test_build_portfolio_rows_missing_price() {
+    let positions = vec![sample_portfolio_position_missing_price()];
+    let rows = build_portfolio_rows(&positions);
+    assert_eq!(rows.len(), 1);
+
+    let row = &rows[0];
+    assert_eq!(row.politician_id, "P000456");
+    assert_eq!(row.ticker, "XYZ");
+    assert_eq!(row.shares_held, "50.00");
+    assert_eq!(row.avg_cost_basis, "$100.00");
+    assert_eq!(row.current_price, "-");
+    assert_eq!(row.current_value, "-");
+    assert_eq!(row.unrealized_pnl, "-");
+    assert_eq!(row.unrealized_pnl_pct, "-");
+}
+
+#[test]
+fn test_portfolio_csv_sanitization() {
+    let position = PortfolioPosition {
+        politician_id: "P000789".to_string(),
+        ticker: "=SUM(A1)".to_string(),
+        shares_held: 10.0,
+        cost_basis: 100.0,
+        realized_pnl: 0.0,
+        unrealized_pnl: None,
+        unrealized_pnl_pct: None,
+        current_price: None,
+        current_value: None,
+        price_date: None,
+        last_updated: "2024-03-16T00:00:00Z".to_string(),
+    };
+
+    let rows = build_portfolio_rows(&[position]);
+    assert_eq!(rows.len(), 1);
+
+    // Verify sanitize_csv_field would add tab prefix
+    let sanitized = sanitize_csv_field("=SUM(A1)");
+    assert_eq!(sanitized, "\t=SUM(A1)");
+}
+
+#[test]
+fn test_portfolio_csv_headers() {
+    let positions = vec![sample_portfolio_position_with_pnl()];
+    let rows = build_portfolio_rows(&positions);
+    let csv = csv_from_rows(&rows);
+    let header = csv.lines().next().unwrap();
+    assert_eq!(
+        header,
+        "Politician,Ticker,Shares,Avg Cost,Current Price,Current Value,Unrealized P&L,P&L %"
+    );
+}

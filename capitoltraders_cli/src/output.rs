@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
-use capitoltraders_lib::{DbIssuerRow, DbPoliticianRow, DbTradeRow};
+use capitoltraders_lib::{DbIssuerRow, DbPoliticianRow, DbTradeRow, PortfolioPosition};
 use serde::Serialize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
@@ -537,6 +537,135 @@ pub fn print_db_issuers_csv(issuers: &[DbIssuerRow]) -> Result<()> {
 /// Prints DB issuers as a well-formed XML document to stdout.
 pub fn print_db_issuers_xml(issuers: &[DbIssuerRow]) {
     println!("{}", xml_output::db_issuers_to_xml(issuers));
+}
+
+// -- Portfolio output --
+
+/// Flattened row representation of a portfolio position for tabular output.
+///
+/// Includes P&L calculations and current market values from the portfolio table.
+#[derive(Tabled, Serialize)]
+struct PortfolioRow {
+    #[tabled(rename = "Politician")]
+    #[serde(rename = "Politician")]
+    politician_id: String,
+    #[tabled(rename = "Ticker")]
+    #[serde(rename = "Ticker")]
+    ticker: String,
+    #[tabled(rename = "Shares")]
+    #[serde(rename = "Shares")]
+    shares_held: String,
+    #[tabled(rename = "Avg Cost")]
+    #[serde(rename = "Avg Cost")]
+    avg_cost_basis: String,
+    #[tabled(rename = "Current Price")]
+    #[serde(rename = "Current Price")]
+    current_price: String,
+    #[tabled(rename = "Current Value")]
+    #[serde(rename = "Current Value")]
+    current_value: String,
+    #[tabled(rename = "Unrealized P&L")]
+    #[serde(rename = "Unrealized P&L")]
+    unrealized_pnl: String,
+    #[tabled(rename = "P&L %")]
+    #[serde(rename = "P&L %")]
+    unrealized_pnl_pct: String,
+}
+
+/// Format shares with 2 decimal places.
+fn format_shares(shares: f64) -> String {
+    format!("{:.2}", shares)
+}
+
+/// Format currency with dollar sign and 2 decimal places.
+fn format_currency(value: f64) -> String {
+    format!("${:.2}", value)
+}
+
+/// Format currency with thousand separators.
+fn format_currency_with_commas(value: f64) -> String {
+    let formatted = format!("{:.2}", value);
+    let parts: Vec<&str> = formatted.split('.').collect();
+    let integer_part = parts[0];
+    let decimal_part = if parts.len() > 1 { parts[1] } else { "00" };
+
+    let mut result = String::new();
+    for (i, c) in integer_part.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.insert(0, ',');
+        }
+        result.insert(0, c);
+    }
+    format!("${}.{}", result, decimal_part)
+}
+
+fn build_portfolio_rows(positions: &[PortfolioPosition]) -> Vec<PortfolioRow> {
+    positions
+        .iter()
+        .map(|p| PortfolioRow {
+            politician_id: p.politician_id.clone(),
+            ticker: p.ticker.clone(),
+            shares_held: format_shares(p.shares_held),
+            avg_cost_basis: format_currency(p.cost_basis),
+            current_price: p
+                .current_price
+                .map(format_currency)
+                .unwrap_or_else(|| "-".to_string()),
+            current_value: p
+                .current_value
+                .map(format_currency_with_commas)
+                .unwrap_or_else(|| "-".to_string()),
+            unrealized_pnl: p
+                .unrealized_pnl
+                .map(|pnl| {
+                    if pnl >= 0.0 {
+                        format!("+{}", format_currency_with_commas(pnl))
+                    } else {
+                        format!("-{}", format_currency_with_commas(pnl.abs()))
+                    }
+                })
+                .unwrap_or_else(|| "-".to_string()),
+            unrealized_pnl_pct: p
+                .unrealized_pnl_pct
+                .map(|pct| {
+                    if pct >= 0.0 {
+                        format!("+{:.1}%", pct)
+                    } else {
+                        format!("{:.1}%", pct)
+                    }
+                })
+                .unwrap_or_else(|| "-".to_string()),
+        })
+        .collect()
+}
+
+/// Prints portfolio positions as an ASCII table to stdout.
+pub fn print_portfolio_table(positions: &[PortfolioPosition]) {
+    println!("{}", Table::new(build_portfolio_rows(positions)));
+}
+
+/// Prints portfolio positions as a GitHub-flavored Markdown table to stdout.
+pub fn print_portfolio_markdown(positions: &[PortfolioPosition]) {
+    let mut table = Table::new(build_portfolio_rows(positions));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints portfolio positions as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_portfolio_csv(positions: &[PortfolioPosition]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_portfolio_rows(positions) {
+        row.politician_id = sanitize_csv_field(&row.politician_id);
+        row.ticker = sanitize_csv_field(&row.ticker);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints portfolio positions as a well-formed XML document to stdout.
+pub fn print_portfolio_xml(positions: &[PortfolioPosition]) {
+    println!("{}", xml_output::portfolio_to_xml(positions));
 }
 
 // -- JSON output --
