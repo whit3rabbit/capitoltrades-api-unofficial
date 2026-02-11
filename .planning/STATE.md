@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-09)
 
 **Core value:** Users can see what politicians are trading, what those positions are currently worth, and whether politicians are making or losing money on their trades.
-**Current focus:** Phase 5 complete - ready for Phase 6
+**Current focus:** Phase 6 in progress - CLI commands and output
 
 ## Current Position
 
-Phase: 5 of 6 (Portfolio Calculator FIFO)
-Plan: 2 of 2 complete
-Status: Phase 5 complete - ready for Phase 6
-Last activity: 2026-02-10 - Completed Phase 5 execution (FIFO calculator + DB integration)
+Phase: 6 of 6 (CLI Commands and Output)
+Plan: 1 of 1 complete
+Status: Phase 6 complete - portfolio command implemented
+Last activity: 2026-02-11 - Completed Phase 6 Plan 1 (portfolio CLI command)
 
-Progress: [██████████] 100% (Phase 5 complete)
+Progress: [████████████] 100% (Phase 6 Plan 1 complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 4.5 min
-- Total execution time: 0.45 hours
+- Total plans completed: 7
+- Average duration: 4.4 min
+- Total execution time: 0.52 hours
 
 **By Phase:**
 
@@ -32,11 +32,12 @@ Progress: [██████████] 100% (Phase 5 complete)
 | 03-ticker-validation-trade-value-estimation | 1 | 5 min | 5 min |
 | 04-price-enrichment-pipeline | 1 | 4 min | 4 min |
 | 05-portfolio-calculator-fifo | 2 | 7 min | 3.5 min |
+| 06-cli-commands-output | 1 | 4 min | 4 min |
 
 **Recent Trend:**
+- 2026-02-11: 06-01 completed in 4 min (Portfolio CLI command)
 - 2026-02-10: 05-02 completed in 5 min (Portfolio DB operations)
 - 2026-02-10: 05-01 completed in 2 min (FIFO portfolio calculator)
-- 2026-02-11: 04-01 completed in 4 min (price enrichment pipeline)
 
 *Updated after each plan completion*
 
@@ -62,6 +63,8 @@ Recent decisions affecting current work:
 - Oversold positions: Err return with warning log, no panics (05-01)
 - Portfolio DB upsert: ON CONFLICT(politician_id, issuer_ticker) for idempotent writes (05-02)
 - Unrealized P&L: computed at query time via current_price subquery from trades table (05-02)
+- Option trades note placement: Show in table/markdown (human-readable), not JSON/CSV/XML (pure data) (06-01)
+- Thousand separator formatting: Custom format_currency_with_commas helper (Rust format strings don't support , flag) (06-01)
 
 ### Pending Todos
 
@@ -73,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-10 - Phase 5 execution complete
-Stopped at: Phase 5 verified and complete
-Resume file: .planning/phases/05-portfolio-calculator-fifo/05-portfolio-calculator-fifo-VERIFICATION.md
+Last session: 2026-02-11 - Phase 6 Plan 1 execution complete
+Stopped at: Completed 06-01-PLAN.md - portfolio CLI command
+Resume file: .planning/phases/06-cli-commands-output/06-01-SUMMARY.md
