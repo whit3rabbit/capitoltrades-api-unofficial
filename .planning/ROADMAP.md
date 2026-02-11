@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Schema Migration & Data Model** - Add price columns to trades table, create positions table
 - [x] **Phase 2: Yahoo Finance Client Integration** - Integrate yahoo_finance_api crate with time/chrono conversion
 - [x] **Phase 3: Ticker Validation & Trade Value Estimation** - Validate tickers, estimate shares from dollar ranges
-- [ ] **Phase 4: Price Enrichment Pipeline** - Batch fetch historical and current prices with rate limiting
+- [x] **Phase 4: Price Enrichment Pipeline** - Batch fetch historical and current prices with rate limiting
 - [ ] **Phase 5: Portfolio Calculator (FIFO)** - Calculate net positions and realized/unrealized P&L
 - [ ] **Phase 6: CLI Commands & Output** - Add enrich-prices and portfolio subcommands with output formatting
 
@@ -81,7 +81,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md -- Price enrichment pipeline (historical + current price fetching, CLI subcommand wiring, rate limiting, circuit breaker)
+- [x] 04-01-PLAN.md -- Price enrichment pipeline (historical + current price fetching, CLI subcommand wiring, rate limiting, circuit breaker)
 
 ### Phase 5: Portfolio Calculator (FIFO)
 **Goal**: Per-politician net positions with realized and unrealized P&L calculated
@@ -127,7 +127,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 1. Schema Migration & Data Model | 1/1 | Complete | 2026-02-10 |
 | 2. Yahoo Finance Client Integration | 1/1 | Complete | 2026-02-10 |
 | 3. Ticker Validation & Trade Value Estimation | 1/1 | Complete | 2026-02-11 |
-| 4. Price Enrichment Pipeline | 0/1 | Not started | - |
+| 4. Price Enrichment Pipeline | 1/1 | Complete | 2026-02-11 |
 | 5. Portfolio Calculator (FIFO) | 0/? | Not started | - |
 | 6. CLI Commands & Output | 0/? | Not started | - |
 
