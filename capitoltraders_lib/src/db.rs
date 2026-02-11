@@ -1077,6 +1077,105 @@ impl Db {
         Ok(count)
     }
 
+    /// Count trades that need price enrichment.
+    ///
+    /// Returns the count of trades that have both issuer_ticker and tx_date
+    /// (required for price lookup) but have not yet been price-enriched
+    /// (price_enriched_at IS NULL).
+    ///
+    /// IMPORTANT: Joins issuers table to access issuer_ticker, which lives
+    /// on the issuers table, not the trades table.
+    pub fn count_unenriched_prices(&self) -> Result<i64, DbError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM trades t
+             JOIN issuers i ON t.issuer_id = i.issuer_id
+             WHERE i.issuer_ticker IS NOT NULL
+               AND t.tx_date IS NOT NULL
+               AND t.price_enriched_at IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Fetch trades that need price enrichment.
+    ///
+    /// Returns trades with issuer_ticker and tx_date but no price_enriched_at.
+    /// Includes the dollar range fields (size_range_low, size_range_high) and
+    /// value for share estimation.
+    ///
+    /// IMPORTANT: Joins issuers table to access i.issuer_ticker, which lives
+    /// on the issuers table, not the trades table.
+    pub fn get_unenriched_price_trades(
+        &self,
+        limit: Option<i64>,
+    ) -> Result<Vec<PriceEnrichmentRow>, DbError> {
+        let sql = match limit {
+            Some(n) => format!(
+                "SELECT t.tx_id, i.issuer_ticker, t.tx_date, t.size_range_low, t.size_range_high, t.value
+                 FROM trades t
+                 JOIN issuers i ON t.issuer_id = i.issuer_id
+                 WHERE i.issuer_ticker IS NOT NULL
+                   AND t.tx_date IS NOT NULL
+                   AND t.price_enriched_at IS NULL
+                 ORDER BY t.tx_id
+                 LIMIT {}",
+                n
+            ),
+            None => "SELECT t.tx_id, i.issuer_ticker, t.tx_date, t.size_range_low, t.size_range_high, t.value
+                     FROM trades t
+                     JOIN issuers i ON t.issuer_id = i.issuer_id
+                     WHERE i.issuer_ticker IS NOT NULL
+                       AND t.tx_date IS NOT NULL
+                       AND t.price_enriched_at IS NULL
+                     ORDER BY t.tx_id"
+                .to_string(),
+        };
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(PriceEnrichmentRow {
+                    tx_id: row.get(0)?,
+                    issuer_ticker: row.get(1)?,
+                    tx_date: row.get(2)?,
+                    size_range_low: row.get(3)?,
+                    size_range_high: row.get(4)?,
+                    value: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
+    /// Update trade price enrichment data.
+    ///
+    /// Stores the historical price, estimated shares, and estimated value for
+    /// a trade. Always sets price_enriched_at to mark the trade as processed,
+    /// even if the price is None (invalid ticker case).
+    ///
+    /// This ensures trades are not re-processed on subsequent runs, supporting
+    /// resumability after failures.
+    pub fn update_trade_prices(
+        &self,
+        tx_id: i64,
+        trade_date_price: Option<f64>,
+        estimated_shares: Option<f64>,
+        estimated_value: Option<f64>,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE trades
+             SET trade_date_price = ?1,
+                 estimated_shares = ?2,
+                 estimated_value = ?3,
+                 price_enriched_at = datetime('now')
+             WHERE tx_id = ?4",
+            params![trade_date_price, estimated_shares, estimated_value, tx_id],
+        )?;
+        Ok(())
+    }
+
     /// Persist scraped issuer detail data to the database.
     ///
     /// Updates the issuers table (with COALESCE protection for nullable fields),
@@ -1761,6 +1860,20 @@ pub struct DbIssuerFilter {
     pub state: Option<Vec<String>>,
     pub country: Option<Vec<String>>,
     pub limit: Option<i64>,
+}
+
+/// A trade row for price enrichment, including ticker and date information.
+///
+/// Used by the price enrichment pipeline to fetch trades that need historical
+/// price data. Includes the issuer_ticker from the issuers table (via JOIN).
+#[derive(Debug)]
+pub struct PriceEnrichmentRow {
+    pub tx_id: i64,
+    pub issuer_ticker: String,
+    pub tx_date: String,
+    pub size_range_low: Option<i64>,
+    pub size_range_high: Option<i64>,
+    pub value: i64,
 }
 
 fn normalize_empty(value: Option<&str>) -> Option<String> {
@@ -4283,5 +4396,206 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         // Ordered by volume DESC: Company 5 (500) first, Company 4 (400) second
         assert_eq!(rows[0].issuer_id, 5);
         assert_eq!(rows[1].issuer_id, 4);
+    }
+
+    // --- Price enrichment tests ---
+
+    #[test]
+    fn test_count_unenriched_prices_empty() {
+        let db = open_test_db();
+        let count = db.count_unenriched_prices().expect("count");
+        assert_eq!(count, 0, "empty DB should have 0 unenriched prices");
+    }
+
+    #[test]
+    fn test_count_unenriched_prices_excludes_no_ticker() {
+        let mut db = open_test_db();
+        // Insert trade but issuer has NULL ticker
+        let trade = make_test_scraped_trade(100, "P000001", 1);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Verify issuer has NULL ticker (default from make_test_scraped_trade)
+        // Actually, make_test_scraped_trade sets issuer_ticker to Some("TST")
+        // So we need to manually set it to NULL for this test
+        db.conn
+            .execute(
+                "UPDATE issuers SET issuer_ticker = NULL WHERE issuer_id = 1",
+                [],
+            )
+            .expect("clear ticker");
+
+        let count = db.count_unenriched_prices().expect("count");
+        assert_eq!(
+            count, 0,
+            "trade without issuer_ticker should be excluded"
+        );
+    }
+
+    #[test]
+    fn test_count_unenriched_prices_with_ticker() {
+        let mut db = open_test_db();
+        // Insert trade with ticker (make_test_scraped_trade sets issuer_ticker to "TST")
+        let trade = make_test_scraped_trade(101, "P000002", 2);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        let count = db.count_unenriched_prices().expect("count");
+        assert_eq!(count, 1, "trade with ticker should be counted");
+    }
+
+    #[test]
+    fn test_count_unenriched_prices_excludes_already_enriched() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(102, "P000003", 3);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Initially counted
+        assert_eq!(db.count_unenriched_prices().expect("count before"), 1);
+
+        // Mark as enriched
+        db.update_trade_prices(102, Some(150.0), Some(100.0), Some(15000.0))
+            .expect("update");
+
+        // Should no longer be counted
+        let count = db.count_unenriched_prices().expect("count after");
+        assert_eq!(count, 0, "enriched trade should be excluded");
+    }
+
+    #[test]
+    fn test_get_unenriched_price_trades_basic() {
+        let mut db = open_test_db();
+        let trade1 = make_test_scraped_trade(201, "P000010", 10);
+        let trade2 = make_test_scraped_trade(202, "P000011", 11);
+        db.upsert_scraped_trades(&[trade1, trade2])
+            .expect("upsert");
+
+        let rows = db
+            .get_unenriched_price_trades(None)
+            .expect("get_unenriched");
+        assert_eq!(rows.len(), 2, "should return both trades");
+        assert_eq!(rows[0].tx_id, 201);
+        assert_eq!(rows[0].issuer_ticker, "TST");
+        assert_eq!(rows[0].tx_date, "2025-06-10");
+        assert_eq!(rows[1].tx_id, 202);
+    }
+
+    #[test]
+    fn test_get_unenriched_price_trades_with_limit() {
+        let mut db = open_test_db();
+        let trade1 = make_test_scraped_trade(301, "P000020", 20);
+        let trade2 = make_test_scraped_trade(302, "P000021", 21);
+        let trade3 = make_test_scraped_trade(303, "P000022", 22);
+        db.upsert_scraped_trades(&[trade1, trade2, trade3])
+            .expect("upsert");
+
+        let rows = db
+            .get_unenriched_price_trades(Some(2))
+            .expect("get_unenriched with limit");
+        assert_eq!(rows.len(), 2, "should respect limit parameter");
+        assert_eq!(rows[0].tx_id, 301);
+        assert_eq!(rows[1].tx_id, 302);
+    }
+
+    #[test]
+    fn test_get_unenriched_price_trades_has_range_fields() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(401, "P000030", 30);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Enrich with size range data
+        let detail = ScrapedTradeDetail {
+            asset_type: Some("stock".to_string()),
+            committees: vec![],
+            labels: vec![],
+            filing_id: None,
+            filing_url: None,
+            has_capital_gains: None,
+            price: None,
+            size: None,
+            size_range_high: Some(50000),
+            size_range_low: Some(15001),
+        };
+        db.update_trade_detail(401, &detail).expect("update");
+
+        let rows = db
+            .get_unenriched_price_trades(None)
+            .expect("get_unenriched");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].size_range_low, Some(15001));
+        assert_eq!(rows[0].size_range_high, Some(50000));
+        assert_eq!(rows[0].value, 50000);
+    }
+
+    #[test]
+    fn test_update_trade_prices_stores_values() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(501, "P000040", 40);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        db.update_trade_prices(501, Some(123.45), Some(100.5), Some(12406.725))
+            .expect("update");
+
+        // Query back via raw SQL
+        let (price, shares, value, enriched_at): (Option<f64>, Option<f64>, Option<f64>, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT trade_date_price, estimated_shares, estimated_value, price_enriched_at FROM trades WHERE tx_id = 501",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("query");
+
+        assert_eq!(price, Some(123.45));
+        assert_eq!(shares, Some(100.5));
+        assert_eq!(value, Some(12406.725));
+        assert!(enriched_at.is_some(), "price_enriched_at should be set");
+    }
+
+    #[test]
+    fn test_update_trade_prices_stores_none() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(502, "P000041", 41);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Update with all None (invalid ticker case)
+        db.update_trade_prices(502, None, None, None)
+            .expect("update");
+
+        let (price, shares, value, enriched_at): (Option<f64>, Option<f64>, Option<f64>, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT trade_date_price, estimated_shares, estimated_value, price_enriched_at FROM trades WHERE tx_id = 502",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("query");
+
+        assert_eq!(price, None);
+        assert_eq!(shares, None);
+        assert_eq!(value, None);
+        assert!(
+            enriched_at.is_some(),
+            "price_enriched_at should still be set even with None values"
+        );
+    }
+
+    #[test]
+    fn test_update_trade_prices_skips_on_rerun() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(503, "P000042", 42);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Initially unenriched
+        assert_eq!(db.count_unenriched_prices().expect("count before"), 1);
+
+        // Enrich
+        db.update_trade_prices(503, Some(150.0), Some(200.0), Some(30000.0))
+            .expect("update");
+
+        // Should no longer be counted as unenriched
+        assert_eq!(
+            db.count_unenriched_prices().expect("count after"),
+            0,
+            "enriched trade should not be re-processed"
+        );
     }
 }

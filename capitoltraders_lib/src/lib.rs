@@ -23,7 +23,7 @@ pub use capitoltrades_api::{
 pub use client::CachedClient;
 pub use db::{
     Db, DbError, DbIssuerFilter, DbIssuerRow, DbPoliticianFilter, DbPoliticianRow, DbTradeFilter,
-    DbTradeRow, IssuerStatsRow, PoliticianStatsRow,
+    DbTradeRow, IssuerStatsRow, PoliticianStatsRow, PriceEnrichmentRow,
 };
 pub use error::CapitolTradesError;
 pub use pricing::{estimate_shares, parse_trade_range, ShareEstimate, TradeRange};
