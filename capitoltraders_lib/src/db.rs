@@ -1176,6 +1176,25 @@ impl Db {
         Ok(())
     }
 
+    /// Update the current price for a trade by tx_id.
+    ///
+    /// Sets current_price and refreshes price_enriched_at timestamp.
+    /// Called during the second phase of price enrichment (current prices by ticker).
+    pub fn update_current_price(
+        &self,
+        tx_id: i64,
+        current_price: Option<f64>,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE trades
+             SET current_price = ?1,
+                 price_enriched_at = datetime('now')
+             WHERE tx_id = ?2",
+            params![current_price, tx_id],
+        )?;
+        Ok(())
+    }
+
     /// Persist scraped issuer detail data to the database.
     ///
     /// Updates the issuers table (with COALESCE protection for nullable fields),
@@ -4596,6 +4615,51 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
             db.count_unenriched_prices().expect("count after"),
             0,
             "enriched trade should not be re-processed"
+        );
+    }
+
+    #[test]
+    fn test_update_current_price_stores_value() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(504, "P000043", 43);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        db.update_current_price(504, Some(155.50)).expect("update");
+
+        let (current_price, enriched_at): (Option<f64>, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT current_price, price_enriched_at FROM trades WHERE tx_id = 504",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("query");
+
+        assert_eq!(current_price, Some(155.50));
+        assert!(enriched_at.is_some(), "price_enriched_at should be set");
+    }
+
+    #[test]
+    fn test_update_current_price_stores_none() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(505, "P000044", 44);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        db.update_current_price(505, None).expect("update");
+
+        let (current_price, enriched_at): (Option<f64>, Option<String>) = db
+            .conn
+            .query_row(
+                "SELECT current_price, price_enriched_at FROM trades WHERE tx_id = 505",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("query");
+
+        assert_eq!(current_price, None);
+        assert!(
+            enriched_at.is_some(),
+            "price_enriched_at should be set even with None value"
         );
     }
 }
