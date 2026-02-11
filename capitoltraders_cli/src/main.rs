@@ -1,6 +1,6 @@
 //! CLI binary for querying congressional trading data from CapitolTrades.
 //!
-//! Provides four subcommands (`trades`, `politicians`, `issuers`, `sync`) with
+//! Provides six subcommands (`trades`, `politicians`, `issuers`, `sync`, `enrich-prices`, `portfolio`) with
 //! extensive filtering, and supports output as table, JSON, CSV, Markdown, or XML.
 
 mod commands;
@@ -43,6 +43,8 @@ enum Commands {
     Sync(commands::sync::SyncArgs),
     /// Enrich trades with Yahoo Finance price data
     EnrichPrices(commands::enrich_prices::EnrichPricesArgs),
+    /// View portfolio positions with P&L
+    Portfolio(commands::portfolio::PortfolioArgs),
 }
 
 #[tokio::main]
@@ -98,6 +100,7 @@ async fn main() -> Result<()> {
         }
         Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,
         Commands::EnrichPrices(args) => commands::enrich_prices::run(args).await?,
+        Commands::Portfolio(args) => commands::portfolio::run(args, &format)?,
     }
 
     Ok(())
