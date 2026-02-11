@@ -37,7 +37,13 @@ Users can see what politicians are trading, what those positions are currently w
 
 ### Active
 
-(None -- define next milestone requirements via `/gsd:new-milestone`)
+- [ ] OpenFEC API client with .env API key management
+- [ ] FEC candidate ID mapping (CapitolTrades politician to FEC candidate)
+- [ ] Schedule A contribution data ingestion (all available cycles)
+- [ ] Donation storage in SQLite (new tables, schema v3 migration)
+- [ ] Donation analysis: top donors, sector breakdown, employer-to-issuer correlation
+- [ ] `donations` subcommand with filtering and all 5 output formats
+- [ ] Donation summary integrated into portfolio/trades output
 
 ### Out of Scope
 
@@ -65,7 +71,8 @@ Users can see what politicians are trading, what those positions are currently w
 
 - **Tech stack**: Rust workspace, must integrate with existing capitoltraders_lib and capitoltraders_cli crates
 - **Database**: SQLite only, schema changes via versioned migrations (PRAGMA user_version)
-- **API dependency**: Yahoo Finance is unofficial/undocumented; may break or rate-limit aggressively
+- **API dependency (Yahoo)**: Yahoo Finance is unofficial/undocumented; may break or rate-limit aggressively
+- **API dependency (FEC)**: OpenFEC API requires API key; rate limited to 1,000 calls/hour, 100 results/page
 - **Data quality**: Trade value ranges are imprecise; share counts not always disclosed; some tickers may not match Yahoo symbols
 - **Enrichment pattern**: Must follow existing sentinel CASE upsert pattern to avoid overwriting good data
 
@@ -85,5 +92,18 @@ Users can see what politicians are trading, what those positions are currently w
 | Unrealized P&L at query time | Computed via current_price subquery; avoids storing stale P&L values | Fresh calculation on each portfolio query |
 | Option trades note in table/markdown only | Data formats (JSON/CSV/XML) should be clean; notes are for human consumption | Clean data exports, informative CLI output |
 
+## Current Milestone: v1.2 FEC Donation Integration
+
+**Goal:** Integrate OpenFEC donation data to show who funds each politician, correlated against their trading activity.
+
+**Target features:**
+- OpenFEC API client with .env API key
+- FEC candidate ID mapping
+- Schedule A contribution data (all cycles)
+- Donation storage (schema v3)
+- Donation analysis (top donors, sector breakdown, employer-to-issuer correlation)
+- `donations` subcommand
+- Donation context in portfolio/trades output
+
 ---
-*Last updated: 2026-02-11 after v1.1 milestone*
+*Last updated: 2026-02-11 after v1.2 milestone start*
