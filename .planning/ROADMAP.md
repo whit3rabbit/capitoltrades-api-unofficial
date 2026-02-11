@@ -113,10 +113,10 @@ Plans:
   5. Option positions display separately with "valuation deferred" note
   6. All output formats (table, JSON, CSV, markdown, XML) work for portfolio command
   7. Enrichment command displays progress and summary (X/Y succeeded, Z failed, N skipped)
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 06-01: [Plan details created during plan-phase]
+- [ ] 06-01-PLAN.md -- Portfolio command with output formatting (PortfolioRow + 5 format functions + CLI wiring + filter validation)
 
 ## Progress
 
@@ -130,7 +130,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Ticker Validation & Trade Value Estimation | 1/1 | Complete | 2026-02-11 |
 | 4. Price Enrichment Pipeline | 1/1 | Complete | 2026-02-11 |
 | 5. Portfolio Calculator (FIFO) | 2/2 | Complete | 2026-02-10 |
-| 6. CLI Commands & Output | 0/? | Not started | - |
+| 6. CLI Commands & Output | 0/1 | Not started | - |
 
 ## Requirement Coverage
 
