@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-09)
 
 **Core value:** Users can see what politicians are trading, what those positions are currently worth, and whether politicians are making or losing money on their trades.
-**Current focus:** Phase 5 - Portfolio Calculator (FIFO)
+**Current focus:** Phase 5 complete - ready for Phase 6
 
 ## Current Position
 
 Phase: 5 of 6 (Portfolio Calculator FIFO)
-Plan: 2 of 3 complete
-Status: Phase 5 in progress
-Last activity: 2026-02-11 - Completed Phase 5 Plan 2 (Portfolio DB operations)
+Plan: 2 of 2 complete
+Status: Phase 5 complete - ready for Phase 6
+Last activity: 2026-02-10 - Completed Phase 5 execution (FIFO calculator + DB integration)
 
-Progress: [████████████░] 88% (Phase 5: 2/3 plans complete)
+Progress: [██████████] 100% (Phase 5 complete)
 
 ## Performance Metrics
 
@@ -34,12 +34,11 @@ Progress: [████████████░] 88% (Phase 5: 2/3 plans comp
 | 05-portfolio-calculator-fifo | 2 | 7 min | 3.5 min |
 
 **Recent Trend:**
-- 2026-02-11: 05-02 completed in 5 min (Portfolio DB operations)
-- 2026-02-11: 05-01 completed in 2 min (FIFO portfolio calculator)
+- 2026-02-10: 05-02 completed in 5 min (Portfolio DB operations)
+- 2026-02-10: 05-01 completed in 2 min (FIFO portfolio calculator)
 - 2026-02-11: 04-01 completed in 4 min (price enrichment pipeline)
 
 *Updated after each plan completion*
-| Phase 05-portfolio-calculator-fifo P02 | 5 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -59,6 +58,10 @@ Recent decisions affecting current work:
 - Two-phase price enrichment: Historical prices by (ticker, date) first, then current prices by ticker - enables share estimation and mark-to-market (04-01)
 - Arc<YahooClient> pattern: YahooConnector does not implement Clone, wrap in Arc for sharing across spawned tasks (04-01)
 - Rate limiting strategy: 200-500ms jittered delay per request + concurrency limit 5 to avoid Yahoo Finance throttling (04-01)
+- VecDeque for FIFO lot queue: efficient front/back operations for buy/sell matching (05-01)
+- Oversold positions: Err return with warning log, no panics (05-01)
+- Portfolio DB upsert: ON CONFLICT(politician_id, issuer_ticker) for idempotent writes (05-02)
+- Unrealized P&L: computed at query time via current_price subquery from trades table (05-02)
 
 ### Pending Todos
 
@@ -70,6 +73,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11 - Phase execution
-Stopped at: Completed 05-02-PLAN.md (Portfolio DB operations)
-Resume file: .planning/phases/05-portfolio-calculator-fifo/05-02-SUMMARY.md
+Last session: 2026-02-10 - Phase 5 execution complete
+Stopped at: Phase 5 verified and complete
+Resume file: .planning/phases/05-portfolio-calculator-fifo/05-portfolio-calculator-fifo-VERIFICATION.md
