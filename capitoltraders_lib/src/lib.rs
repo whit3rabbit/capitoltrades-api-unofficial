@@ -8,6 +8,7 @@ pub mod cache;
 pub mod client;
 pub mod db;
 pub mod error;
+pub mod portfolio;
 pub mod pricing;
 pub mod scrape;
 pub mod validation;
@@ -26,6 +27,7 @@ pub use db::{
     DbTradeRow, IssuerStatsRow, PoliticianStatsRow, PriceEnrichmentRow,
 };
 pub use error::CapitolTradesError;
+pub use portfolio::{calculate_positions, Lot, Position, TradeFIFO};
 pub use pricing::{estimate_shares, parse_trade_range, ShareEstimate, TradeRange};
 pub use scrape::{
     ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
