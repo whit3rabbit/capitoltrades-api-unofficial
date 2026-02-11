@@ -95,10 +95,11 @@ Plans:
   5. Option trades classified separately and excluded from stock position calculations
   6. Positions never go negative (oversold positions logged as warnings)
   7. Portfolio calculator handles 100K trades in under 500ms
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 05-01: [Plan details created during plan-phase]
+- [ ] 05-01-PLAN.md -- FIFO calculator core (Lot/Position/TradeFIFO types, buy/sell/calculate_positions logic, TDD with 14+ tests)
+- [ ] 05-02-PLAN.md -- DB integration (query_trades_for_portfolio, upsert_positions, get_portfolio with unrealized P&L, option trade counting)
 
 ### Phase 6: CLI Commands & Output
 **Goal**: Users can enrich prices and view portfolios via CLI
@@ -128,7 +129,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Yahoo Finance Client Integration | 1/1 | Complete | 2026-02-10 |
 | 3. Ticker Validation & Trade Value Estimation | 1/1 | Complete | 2026-02-11 |
 | 4. Price Enrichment Pipeline | 1/1 | Complete | 2026-02-11 |
-| 5. Portfolio Calculator (FIFO) | 0/? | Not started | - |
+| 5. Portfolio Calculator (FIFO) | 0/2 | Not started | - |
 | 6. CLI Commands & Output | 0/? | Not started | - |
 
 ## Requirement Coverage
