@@ -1,6 +1,6 @@
 # Capitol Traders
 
-A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com).
+A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com), enriching trades with Yahoo Finance market prices, and tracking per-politician portfolio positions with P&L.
 
 There is no public API (as far as I can tell). The CLI uses an **unofficial API** by scraping the public site (Next.js RSC payloads) and normalizes the data for output.
 The vendored [capitoltrades_api](https://github.com/TommasoAmici/capitoltrades) crate is still used for shared types
@@ -89,6 +89,26 @@ capitoltraders politicians --db capitoltraders.db --output json
 
 # Query enriched issuers with performance data
 capitoltraders issuers --db capitoltraders.db --sector information-technology
+
+# Enrich trades with Yahoo Finance prices (historical + current)
+capitoltraders enrich-prices --db capitoltraders.db
+
+# Enrich with custom batch size
+capitoltraders enrich-prices --db capitoltraders.db --batch-size 100
+
+# View per-politician portfolio positions with P&L
+capitoltraders portfolio --db capitoltraders.db
+
+# Filter portfolio by politician, party, state, or ticker
+capitoltraders portfolio --db capitoltraders.db --politician P000197
+capitoltraders portfolio --db capitoltraders.db --party democrat --state CA
+capitoltraders portfolio --db capitoltraders.db --ticker AAPL
+
+# Portfolio output as JSON
+capitoltraders portfolio --db capitoltraders.db --output json
+
+# Include closed positions (shares near zero)
+capitoltraders portfolio --db capitoltraders.db --include-closed
 ```
 
 ### Subcommands
@@ -209,6 +229,36 @@ committee memberships, performance metrics, and EOD price history. Smart-skip av
 already-enriched records. Progress bars show enrichment status. A circuit breaker stops after
 `--max-failures` consecutive HTTP failures.
 
+**enrich-prices** -- Enrich trades with Yahoo Finance market prices.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+| `--batch-size` | Maximum trades to enrich per run | 50 |
+| `--force` | Re-enrich already-enriched trades (reserved, not yet active) | off |
+
+Enrichment runs in two phases: (1) historical trade-date prices fetched per unique (ticker, date) pair,
+then (2) current prices fetched per unique ticker. Trades without valid tickers are marked as processed
+and skipped on future runs. Rate limiting (200-500ms jittered delay, max 5 concurrent) prevents Yahoo
+Finance throttling. A circuit breaker trips after 10 consecutive failures. Progress displays ticker
+counts and success/fail/skip summary.
+
+**portfolio** -- View per-politician stock positions with unrealized P&L.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+| `--politician` | Filter by politician ID (e.g. `P000197`) | all |
+| `--party` | `democrat` (`d`), `republican` (`r`) | all |
+| `--state` | US state code, e.g. `CA`, `TX` | all |
+| `--ticker` | Filter by ticker symbol, e.g. `AAPL` | all |
+| `--include-closed` | Include positions with near-zero shares | off |
+
+Requires a synced and price-enriched database (`sync` then `enrich-prices`). Positions are calculated
+using FIFO (First-In-First-Out) accounting from estimated share counts. Output columns: Politician,
+Ticker, Shares, Avg Cost, Current Price, Current Value, Unrealized P&L, P&L %. Option trades are
+excluded from position calculations and noted separately in table/markdown output.
+
 ### Global Flags
 
 | Flag | Description | Default |
@@ -246,15 +296,15 @@ These schemas describe the CLI output (arrays of items), not the PaginatedRespon
 capitoltraders/
   Cargo.toml                    # workspace root
   capitoltrades_api/            # vendored upstream API client
-  capitoltraders_lib/           # library: cache, analysis, validation, scraping, db, error types
-  capitoltraders_cli/           # CLI binary
-  schema/sqlite.sql             # SQLite schema aligned with CLI JSON output
+  capitoltraders_lib/           # library: cache, analysis, validation, scraping, db, yahoo, pricing, portfolio
+  capitoltraders_cli/           # CLI binary (6 subcommands)
+  schema/sqlite.sql             # SQLite schema (v2) with price columns and positions table
 ```
 
 ## Development
 
 ```sh
-# Run all tests (294 total)
+# Run all tests (366 total)
 cargo test --workspace
 
 # Lint
@@ -274,13 +324,17 @@ filing details, committee memberships, performance data). Senate filings often u
 
 ## SQLite
 
-The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql`. Tables map directly to
-the CLI JSON output schemas (`schema/*.schema.json`), including nested data:
+The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql` (currently at v2). Tables map
+directly to the CLI JSON output schemas (`schema/*.schema.json`), including nested data:
 
 - `trades`, `assets`, `issuers`, `politicians`
 - `trade_committees`, `trade_labels`, `politician_committees`
 - `issuer_stats`, `politician_stats`, `issuer_performance`, `issuer_eod_prices`
+- `positions` (materialized FIFO portfolio positions per politician per ticker)
 - `ingest_meta` (tracks `last_trade_pub_date` for incremental sync)
+
+The trades table includes price enrichment columns: `trade_date_price`, `current_price`,
+`price_enriched_at`, `estimated_shares`, `estimated_value`. These are populated by `enrich-prices`.
 
 Incremental runs use `last_trade_pub_date` to request only recent pages from the API, then upsert by
 primary key to keep the database current. Enrichment (`--enrich`) populates the join and detail tables

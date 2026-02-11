@@ -7,7 +7,7 @@ This guide provides concrete patterns and conventions for agentic coding in this
 ```bash
 # Primary workspace commands
 cargo check --workspace          # Fast compilation check
-cargo test --workspace           # Run all 294 tests
+cargo test --workspace           # Run all 366 tests
 cargo clippy --workspace         # Lint with all clippy rules
 cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
@@ -235,6 +235,8 @@ pub enum Commands {
     Politicians(PoliticiansArgs),
     Issuers(IssuersArgs),
     Sync(SyncArgs),
+    EnrichPrices(EnrichPricesArgs),   // DB-only: Yahoo Finance price enrichment
+    Portfolio(PortfolioArgs),          // DB-only: per-politician positions with P&L
 }
 ```
 
@@ -373,6 +375,35 @@ let where_clause = if clauses.is_empty() {
 };
 ```
 
+## Yahoo Finance & Portfolio Patterns
+
+```rust
+// YahooClient wraps yahoo_finance_api with DashMap caching
+// Arc<YahooClient> for sharing across tasks (YahooConnector is not Clone)
+let yahoo = Arc::new(YahooClient::new()?);
+
+// Price fetching with weekend/holiday fallback (7-day lookback)
+let price: Option<f64> = yahoo.get_price_on_date_with_fallback("AAPL", date).await?;
+let current: Option<f64> = yahoo.get_current_price("AAPL").await?;
+
+// Dollar range parsing and share estimation
+let range = parse_trade_range(Some(15001.0), Some(50000.0));  // TradeRange with midpoint
+let estimate = estimate_shares(&range.unwrap(), 150.0);        // ShareEstimate
+
+// DB price enrichment operations
+let unenriched = db.get_unenriched_price_trades(Some(50))?;   // PriceEnrichmentRow vec
+db.update_trade_prices(tx_id, price, shares, value)?;          // Always sets price_enriched_at
+db.update_current_price(ticker, price)?;                       // Phase 2 of enrichment
+
+// FIFO portfolio calculator (pure logic, no DB)
+let positions = calculate_positions(trades);  // HashMap<(politician_id, ticker), Position>
+
+// DB portfolio operations
+db.upsert_positions(&positions)?;             // ON CONFLICT update
+let portfolio = db.get_portfolio(&filter)?;   // Vec<PortfolioPosition> with unrealized P&L
+let option_count = db.count_option_trades(Some("P000197"))?;
+```
+
 ## Red Flags & Anti-Patterns
 
 - **Don't modify vendored capitoltrades_api** without documenting in project memory
@@ -384,6 +415,8 @@ let where_clause = if clauses.is_empty() {
 - **Avoid async blocks in CLI entry points** - use async fn directly
 - **Don't overwrite enriched data** - upserts use sentinel CASE protection
 - **Don't write to SQLite from multiple threads** - use mpsc channel pattern
+- **Don't clone YahooClient** - wrap in Arc instead (YahooConnector is not Clone)
+- **Don't forget issuer JOIN** - ticker lives on issuers table, not trades; all price queries need JOIN
 
 ## Common Issues & Solutions
 
@@ -395,6 +428,11 @@ let where_clause = if clauses.is_empty() {
 - **SQLite contention**: Use mpsc channel for concurrent writes, unchecked_transaction for reads
 - **Enrichment data loss**: Sentinel CASE in upserts prevents re-sync from overwriting enriched fields
 - **Stale page-size note**: Scrape mode ignores --page-size (fixed at 12); DB mode respects it
+- **YahooConnector not Clone**: Wrap YahooClient in Arc for sharing across spawned tasks
+- **Ticker on issuers table**: All price-related DB queries must JOIN issuers to access issuer_ticker
+- **yahoo_finance_api Decimal is f64**: No conversion needed (type alias without 'decimal' feature)
+- **response.quotes() errors**: Yahoo API returns Ok(response) but quotes() can fail with NoQuotes
+- **Schema v2 fresh DBs**: Base schema.sql includes all columns; migrations only for existing DBs
 
 ## When to Ask
 
@@ -404,3 +442,5 @@ let where_clause = if clauses.is_empty() {
 - When modifying the SQLite schema (must add versioned migration)
 - If performance issues arise in the cache layer
 - Before changing enrichment pipeline concurrency patterns
+- Before modifying FIFO portfolio calculator logic (affects P&L correctness)
+- When changing Yahoo Finance rate limiting or circuit breaker thresholds
