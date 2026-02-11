@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-09)
 
 **Core value:** Users can see what politicians are trading, what those positions are currently worth, and whether politicians are making or losing money on their trades.
-**Current focus:** Phase 4 - Price Enrichment Pipeline
+**Current focus:** Phase 5 - Portfolio Calculator (FIFO)
 
 ## Current Position
 
-Phase: 4 of 6 (Price Enrichment Pipeline)
-Plan: 1 of 1 complete
-Status: Phase 4 complete - ready for Phase 5
-Last activity: 2026-02-11 - Completed Phase 4 Plan 1 (price enrichment pipeline)
+Phase: 5 of 6 (Portfolio Calculator FIFO)
+Plan: 1 of 3 complete
+Status: Phase 5 in progress
+Last activity: 2026-02-11 - Completed Phase 5 Plan 1 (FIFO portfolio calculator)
 
-Progress: [██████████] 100% (Phase 4 complete)
+Progress: [███████████░░] 83% (Phase 5: 1/3 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 5.0 min
-- Total execution time: 0.33 hours
+- Total plans completed: 5
+- Average duration: 4.4 min
+- Total execution time: 0.37 hours
 
 **By Phase:**
 
@@ -31,11 +31,12 @@ Progress: [██████████] 100% (Phase 4 complete)
 | 02-yahoo-finance-client-integration | 1 | 6 min | 6 min |
 | 03-ticker-validation-trade-value-estimation | 1 | 5 min | 5 min |
 | 04-price-enrichment-pipeline | 1 | 4 min | 4 min |
+| 05-portfolio-calculator-fifo | 1 | 2 min | 2 min |
 
 **Recent Trend:**
+- 2026-02-11: 05-01 completed in 2 min (FIFO portfolio calculator)
 - 2026-02-11: 04-01 completed in 4 min (price enrichment pipeline)
 - 2026-02-11: 03-01 completed in 5 min (pricing calculation and DB access)
-- 2026-02-10: 02-01 completed in 6 min (yahoo finance client)
 
 *Updated after each plan completion*
 
@@ -69,5 +70,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-11 - Phase execution
-Stopped at: Completed Phase 4 Plan 1 (price enrichment pipeline)
-Resume file: .planning/phases/04-price-enrichment-pipeline/04-01-SUMMARY.md
+Stopped at: Completed 05-01-PLAN.md (FIFO portfolio calculator)
+Resume file: .planning/phases/05-portfolio-calculator-fifo/05-01-SUMMARY.md
