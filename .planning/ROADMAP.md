@@ -78,10 +78,10 @@ Plans:
   5. Circuit breaker trips after N consecutive failures, logs summary
   6. Rate limiting (300ms jittered delay, max 5 concurrent) prevents 429 errors
   7. Enrichment progress displays ticker count and success/fail/skip counts
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 04-01: [Plan details created during plan-phase]
+- [ ] 04-01-PLAN.md -- Price enrichment pipeline (historical + current price fetching, CLI subcommand wiring, rate limiting, circuit breaker)
 
 ### Phase 5: Portfolio Calculator (FIFO)
 **Goal**: Per-politician net positions with realized and unrealized P&L calculated
@@ -127,7 +127,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 1. Schema Migration & Data Model | 1/1 | Complete | 2026-02-10 |
 | 2. Yahoo Finance Client Integration | 1/1 | Complete | 2026-02-10 |
 | 3. Ticker Validation & Trade Value Estimation | 1/1 | Complete | 2026-02-11 |
-| 4. Price Enrichment Pipeline | 0/? | Not started | - |
+| 4. Price Enrichment Pipeline | 0/1 | Not started | - |
 | 5. Portfolio Calculator (FIFO) | 0/? | Not started | - |
 | 6. CLI Commands & Output | 0/? | Not started | - |
 
