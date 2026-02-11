@@ -37,22 +37,54 @@ impl Position {
     }
 
     pub fn buy(&mut self, shares: f64, price: f64, tx_date: String) {
-        // TODO: implement
+        self.lots.push_back(Lot {
+            shares,
+            cost_basis: price,
+            tx_date,
+        });
     }
 
     pub fn sell(&mut self, shares: f64, price: f64) -> Result<(), String> {
-        // TODO: implement
-        Err("not implemented".to_string())
+        let mut remaining = shares;
+
+        while remaining > EPSILON {
+            let lot = match self.lots.front_mut() {
+                Some(l) => l,
+                None => {
+                    return Err(format!(
+                        "Oversold position: politician_id={}, ticker={}, remaining_shares={}",
+                        self.politician_id, self.ticker, remaining
+                    ));
+                }
+            };
+
+            let shares_to_sell = lot.shares.min(remaining);
+            let pnl = shares_to_sell * (price - lot.cost_basis);
+            self.realized_pnl += pnl;
+
+            lot.shares -= shares_to_sell;
+            remaining -= shares_to_sell;
+
+            if lot.shares < EPSILON {
+                self.lots.pop_front();
+            }
+        }
+
+        Ok(())
     }
 
     pub fn shares_held(&self) -> f64 {
-        // TODO: implement
-        0.0
+        self.lots.iter().map(|lot| lot.shares).sum()
     }
 
     pub fn avg_cost_basis(&self) -> f64 {
-        // TODO: implement
-        0.0
+        let total_shares: f64 = self.lots.iter().map(|lot| lot.shares).sum();
+        if total_shares < EPSILON {
+            return 0.0;
+        }
+
+        let total_cost: f64 = self.lots.iter().map(|lot| lot.shares * lot.cost_basis).sum();
+        total_cost / total_shares
     }
 }
 
@@ -70,8 +102,40 @@ pub struct TradeFIFO {
 
 /// Calculate positions from chronologically-ordered trades.
 pub fn calculate_positions(trades: Vec<TradeFIFO>) -> HashMap<(String, String), Position> {
-    // TODO: implement
-    HashMap::new()
+    let mut positions: HashMap<(String, String), Position> = HashMap::new();
+
+    for trade in trades {
+        let key = (trade.politician_id.clone(), trade.ticker.clone());
+        let position = positions
+            .entry(key.clone())
+            .or_insert_with(|| Position::new(trade.politician_id.clone(), trade.ticker.clone()));
+
+        match trade.tx_type.as_str() {
+            "buy" | "receive" => {
+                position.buy(trade.estimated_shares, trade.trade_date_price, trade.tx_date);
+            }
+            "sell" => {
+                if let Err(e) = position.sell(trade.estimated_shares, trade.trade_date_price) {
+                    eprintln!("Warning: {}", e);
+                }
+            }
+            "exchange" => {
+                // No-op, log occurrence
+                eprintln!(
+                    "Exchange transaction skipped: tx_id={}, politician={}, ticker={}",
+                    trade.tx_id, trade.politician_id, trade.ticker
+                );
+            }
+            _ => {
+                eprintln!(
+                    "Warning: Unknown tx_type '{}' for tx_id={}, politician={}, ticker={}",
+                    trade.tx_type, trade.tx_id, trade.politician_id, trade.ticker
+                );
+            }
+        }
+    }
+
+    positions
 }
 
 #[cfg(test)]
