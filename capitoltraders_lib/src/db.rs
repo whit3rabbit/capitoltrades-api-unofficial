@@ -6,6 +6,7 @@ use chrono::NaiveDate;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
+use crate::portfolio::TradeFIFO;
 use crate::scrape::{ScrapedTrade, ScrapedTradeDetail};
 use crate::types::{IssuerDetail, PoliticianDetail, Trade};
 
@@ -1747,6 +1748,77 @@ impl Db {
             result.push(row?);
         }
         Ok(result)
+    }
+
+    /// Query trades for FIFO portfolio calculation.
+    ///
+    /// Returns only stock trades with non-null estimated_shares and trade_date_price,
+    /// ordered chronologically (tx_date ASC, tx_id ASC) for deterministic FIFO processing.
+    pub fn query_trades_for_portfolio(&self) -> Result<Vec<TradeFIFO>, DbError> {
+        let sql = "SELECT t.tx_id, t.politician_id, i.issuer_ticker, t.tx_type, t.tx_date,
+                          t.estimated_shares, t.trade_date_price
+                   FROM trades t
+                   JOIN issuers i ON t.issuer_id = i.issuer_id
+                   JOIN assets a ON t.asset_id = a.asset_id
+                   WHERE t.estimated_shares IS NOT NULL
+                     AND t.trade_date_price IS NOT NULL
+                     AND a.asset_type = 'stock'
+                   ORDER BY t.tx_date ASC, t.tx_id ASC";
+
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TradeFIFO {
+                tx_id: row.get(0)?,
+                politician_id: row.get(1)?,
+                ticker: row.get(2)?,
+                tx_type: row.get(3)?,
+                tx_date: row.get(4)?,
+                estimated_shares: row.get(5)?,
+                trade_date_price: row.get(6)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Upsert calculated positions to the positions table.
+    ///
+    /// Inserts all positions (including closed positions with shares_held near zero)
+    /// for audit trail. Uses ON CONFLICT to update existing positions.
+    pub fn upsert_positions(
+        &self,
+        positions: &std::collections::HashMap<(String, String), crate::portfolio::Position>,
+    ) -> Result<usize, DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        let mut count = 0;
+        for ((politician_id, ticker), position) in positions {
+            tx.execute(
+                "INSERT INTO positions (politician_id, issuer_ticker, shares_held, cost_basis, realized_pnl, last_updated)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
+                 ON CONFLICT(politician_id, issuer_ticker)
+                 DO UPDATE SET
+                   shares_held = excluded.shares_held,
+                   cost_basis = excluded.cost_basis,
+                   realized_pnl = excluded.realized_pnl,
+                   last_updated = excluded.last_updated",
+                params![
+                    politician_id,
+                    ticker,
+                    position.shares_held(),
+                    position.avg_cost_basis(),
+                    position.realized_pnl,
+                ],
+            )?;
+            count += 1;
+        }
+
+        tx.commit()?;
+        Ok(count)
     }
 }
 
@@ -4661,5 +4733,276 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
             enriched_at.is_some(),
             "price_enriched_at should be set even with None value"
         );
+    }
+
+    #[test]
+    fn test_query_trades_for_portfolio_empty() {
+        let db = open_test_db();
+        let trades = db
+            .query_trades_for_portfolio()
+            .expect("query_trades_for_portfolio");
+        assert_eq!(trades.len(), 0);
+    }
+
+    #[test]
+    fn test_query_trades_for_portfolio_filters_options() {
+        let db = open_test_db();
+
+        // Insert politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert issuer
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // Insert stock asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert stock asset");
+
+        // Insert option asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (2, 'stock-option')",
+                [],
+            )
+            .expect("insert option asset");
+
+        // Insert stock trade with prices
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert stock trade");
+
+        // Insert option trade with prices
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (2, 'P000001', 2, 1, '2024-01-02', '2024-01-02', '2024-01-02', 'buy', 0, 'self', 'house', 1000, 1, 'http://example.com', 0, 10.0, 100.0)",
+                [],
+            )
+            .expect("insert option trade");
+
+        let trades = db
+            .query_trades_for_portfolio()
+            .expect("query_trades_for_portfolio");
+
+        assert_eq!(trades.len(), 1, "Should only return stock trade");
+        assert_eq!(trades[0].tx_id, 1);
+        assert_eq!(trades[0].ticker, "AAPL");
+    }
+
+    #[test]
+    fn test_query_trades_for_portfolio_ordering() {
+        let db = open_test_db();
+
+        // Insert test data
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+
+        // Insert trades in non-chronological order
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (3, 'P000001', 1, 1, '2024-01-03', '2024-01-03', '2024-01-03', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert trade 3");
+
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert trade 1");
+
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (2, 'P000001', 1, 1, '2024-01-02', '2024-01-02', '2024-01-02', 'sell', 0, 'self', 'house', 2000, 1, 'http://example.com', 0, 40.0, 50.0)",
+                [],
+            )
+            .expect("insert trade 2");
+
+        let trades = db
+            .query_trades_for_portfolio()
+            .expect("query_trades_for_portfolio");
+
+        assert_eq!(trades.len(), 3);
+        assert_eq!(trades[0].tx_id, 1, "Should be ordered by tx_date ASC");
+        assert_eq!(trades[1].tx_id, 2);
+        assert_eq!(trades[2].tx_id, 3);
+    }
+
+    #[test]
+    fn test_query_trades_for_portfolio_skips_unenriched() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+
+        // Insert trade without estimated_shares (NULL)
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0)",
+                [],
+            )
+            .expect("insert unenriched trade");
+
+        let trades = db
+            .query_trades_for_portfolio()
+            .expect("query_trades_for_portfolio");
+
+        assert_eq!(
+            trades.len(),
+            0,
+            "Should exclude trades with NULL estimated_shares"
+        );
+    }
+
+    #[test]
+    fn test_upsert_positions_basic() {
+        use crate::portfolio::Position;
+        use std::collections::HashMap;
+
+        let db = open_test_db();
+
+        // Insert politician for foreign key
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        let mut positions = HashMap::new();
+        let mut pos = Position::new("P000001".to_string(), "AAPL".to_string());
+        pos.buy(100.0, 50.0, "2024-01-01".to_string());
+
+        positions.insert(("P000001".to_string(), "AAPL".to_string()), pos);
+
+        let count = db.upsert_positions(&positions).expect("upsert_positions");
+        assert_eq!(count, 1);
+
+        // Verify row in positions table
+        let (shares, cost_basis, realized_pnl): (f64, f64, f64) = db
+            .conn
+            .query_row(
+                "SELECT shares_held, cost_basis, realized_pnl FROM positions WHERE politician_id = 'P000001' AND issuer_ticker = 'AAPL'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query position");
+
+        assert_eq!(shares, 100.0);
+        assert_eq!(cost_basis, 50.0);
+        assert_eq!(realized_pnl, 0.0);
+    }
+
+    #[test]
+    fn test_upsert_positions_updates_existing() {
+        use crate::portfolio::Position;
+        use std::collections::HashMap;
+
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // First upsert
+        let mut positions = HashMap::new();
+        let mut pos = Position::new("P000001".to_string(), "AAPL".to_string());
+        pos.buy(100.0, 50.0, "2024-01-01".to_string());
+        positions.insert(("P000001".to_string(), "AAPL".to_string()), pos);
+        db.upsert_positions(&positions).expect("upsert_positions 1");
+
+        // Second upsert with updated position
+        let mut positions2 = HashMap::new();
+        let mut pos2 = Position::new("P000001".to_string(), "AAPL".to_string());
+        pos2.buy(100.0, 50.0, "2024-01-01".to_string());
+        pos2.sell(40.0, 70.0).expect("sell");
+        positions2.insert(("P000001".to_string(), "AAPL".to_string()), pos2);
+        let count = db.upsert_positions(&positions2).expect("upsert_positions 2");
+
+        assert_eq!(count, 1);
+
+        // Verify updated values
+        let (shares, cost_basis, realized_pnl): (f64, f64, f64) = db
+            .conn
+            .query_row(
+                "SELECT shares_held, cost_basis, realized_pnl FROM positions WHERE politician_id = 'P000001' AND issuer_ticker = 'AAPL'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query position");
+
+        assert_eq!(shares, 60.0);
+        assert_eq!(cost_basis, 50.0);
+        assert_eq!(realized_pnl, 800.0); // (70-50)*40
     }
 }
