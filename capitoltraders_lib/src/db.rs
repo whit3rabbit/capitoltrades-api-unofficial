@@ -1820,6 +1820,157 @@ impl Db {
         tx.commit()?;
         Ok(count)
     }
+
+    /// Query portfolio positions with unrealized P&L.
+    ///
+    /// Joins positions with current prices from trades table, computes unrealized P&L
+    /// and percent change. By default filters closed positions (shares_held > 0.0001).
+    pub fn get_portfolio(&self, filter: &PortfolioFilter) -> Result<Vec<PortfolioPosition>, DbError> {
+        let mut sql = String::from(
+            "SELECT
+               p.politician_id,
+               p.issuer_ticker,
+               p.shares_held,
+               p.cost_basis,
+               p.realized_pnl,
+               (SELECT t2.current_price
+                FROM trades t2
+                JOIN issuers i2 ON t2.issuer_id = i2.issuer_id
+                WHERE i2.issuer_ticker = p.issuer_ticker
+                  AND t2.current_price IS NOT NULL
+                ORDER BY t2.price_enriched_at DESC
+                LIMIT 1) as current_price,
+               (SELECT t2.price_enriched_at
+                FROM trades t2
+                JOIN issuers i2 ON t2.issuer_id = i2.issuer_id
+                WHERE i2.issuer_ticker = p.issuer_ticker
+                  AND t2.current_price IS NOT NULL
+                ORDER BY t2.price_enriched_at DESC
+                LIMIT 1) as price_date,
+               p.last_updated
+             FROM positions p",
+        );
+
+        let mut joins_politician = false;
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
+
+        // Build WHERE clause
+        let mut where_clauses = Vec::new();
+
+        if !filter.include_closed {
+            where_clauses.push("p.shares_held > 0.0001".to_string());
+        }
+
+        if let Some(ref politician_id) = filter.politician_id {
+            where_clauses.push(format!("p.politician_id = ?{}", param_idx));
+            params_vec.push(Box::new(politician_id.clone()));
+            param_idx += 1;
+        }
+
+        if let Some(ref ticker) = filter.ticker {
+            where_clauses.push(format!("p.issuer_ticker = ?{}", param_idx));
+            params_vec.push(Box::new(ticker.clone()));
+            param_idx += 1;
+        }
+
+        if filter.party.is_some() || filter.state.is_some() {
+            sql.push_str(" JOIN politicians pol ON p.politician_id = pol.politician_id");
+            joins_politician = true;
+        }
+
+        if let Some(ref party) = filter.party {
+            where_clauses.push(format!("pol.party = ?{}", param_idx));
+            params_vec.push(Box::new(party.clone()));
+            param_idx += 1;
+        }
+
+        if let Some(ref state) = filter.state {
+            where_clauses.push(format!("UPPER(pol.state_id) = UPPER(?{})", param_idx));
+            params_vec.push(Box::new(state.clone()));
+            param_idx += 1;
+        }
+
+        if !where_clauses.is_empty() {
+            sql.push_str(&format!(" WHERE {}", where_clauses.join(" AND ")));
+        }
+
+        sql.push_str(" ORDER BY p.shares_held * p.cost_basis DESC");
+
+        let _ = (joins_politician, param_idx); // suppress unused warnings
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            let politician_id: String = row.get(0)?;
+            let ticker: String = row.get(1)?;
+            let shares_held: f64 = row.get(2)?;
+            let cost_basis: f64 = row.get(3)?;
+            let realized_pnl: f64 = row.get(4)?;
+            let current_price: Option<f64> = row.get(5)?;
+            let price_date: Option<String> = row.get(6)?;
+            let last_updated: String = row.get(7)?;
+
+            let unrealized_pnl = current_price.map(|price| (price - cost_basis) * shares_held);
+            let unrealized_pnl_pct = current_price.map(|price| {
+                if cost_basis > 0.0001 {
+                    ((price - cost_basis) / cost_basis) * 100.0
+                } else {
+                    0.0
+                }
+            });
+            let current_value = current_price.map(|price| price * shares_held);
+
+            Ok(PortfolioPosition {
+                politician_id,
+                ticker,
+                shares_held,
+                cost_basis,
+                realized_pnl,
+                unrealized_pnl,
+                unrealized_pnl_pct,
+                current_price,
+                current_value,
+                price_date,
+                last_updated,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Count option trades (non-stock, non-unknown asset types).
+    ///
+    /// Returns count of trades where asset_type is NOT 'stock' and NOT 'unknown'.
+    /// Optionally filters by politician_id.
+    pub fn count_option_trades(&self, politician_id: Option<&str>) -> Result<i64, DbError> {
+        let count: i64 = match politician_id {
+            Some(pol_id) => {
+                let sql = "SELECT COUNT(*)
+                           FROM trades t
+                           JOIN assets a ON t.asset_id = a.asset_id
+                           WHERE a.asset_type != 'stock'
+                             AND a.asset_type != 'unknown'
+                             AND t.politician_id = ?1";
+                self.conn.query_row(sql, params![pol_id], |row| row.get(0))?
+            }
+            None => {
+                let sql = "SELECT COUNT(*)
+                           FROM trades t
+                           JOIN assets a ON t.asset_id = a.asset_id
+                           WHERE a.asset_type != 'stock'
+                             AND a.asset_type != 'unknown'";
+                self.conn.query_row(sql, [], |row| row.get(0))?
+            }
+        };
+        Ok(count)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -1951,6 +2102,32 @@ pub struct DbIssuerFilter {
     pub state: Option<Vec<String>>,
     pub country: Option<Vec<String>>,
     pub limit: Option<i64>,
+}
+
+/// A portfolio position with unrealized P&L calculations.
+#[derive(Debug, Clone, Serialize)]
+pub struct PortfolioPosition {
+    pub politician_id: String,
+    pub ticker: String,
+    pub shares_held: f64,
+    pub cost_basis: f64,
+    pub realized_pnl: f64,
+    pub unrealized_pnl: Option<f64>,
+    pub unrealized_pnl_pct: Option<f64>,
+    pub current_price: Option<f64>,
+    pub current_value: Option<f64>,
+    pub price_date: Option<String>,
+    pub last_updated: String,
+}
+
+/// Filter parameters for [`Db::get_portfolio`].
+#[derive(Debug, Default)]
+pub struct PortfolioFilter {
+    pub politician_id: Option<String>,
+    pub ticker: Option<String>,
+    pub party: Option<String>,
+    pub state: Option<String>,
+    pub include_closed: bool,
 }
 
 /// A trade row for price enrichment, including ticker and date information.
@@ -5004,5 +5181,282 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         assert_eq!(shares, 60.0);
         assert_eq!(cost_basis, 50.0);
         assert_eq!(realized_pnl, 800.0); // (70-50)*40
+    }
+
+    #[test]
+    fn test_get_portfolio_empty() {
+        let db = open_test_db();
+        let filter = PortfolioFilter::default();
+        let positions = db.get_portfolio(&filter).expect("get_portfolio");
+        assert_eq!(positions.len(), 0);
+    }
+
+    #[test]
+    fn test_get_portfolio_with_unrealized_pnl() {
+        let db = open_test_db();
+
+        // Insert politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert issuer
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // Insert position
+        db.conn
+            .execute(
+                "INSERT INTO positions (politician_id, issuer_ticker, shares_held, cost_basis, realized_pnl, last_updated)
+                 VALUES ('P000001', 'AAPL', 100.0, 50.0, 0.0, '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("insert position");
+
+        // Insert asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+
+        // Insert trade with current_price
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, current_price, price_enriched_at)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 75.0, '2024-01-02T00:00:00Z')",
+                [],
+            )
+            .expect("insert trade");
+
+        let filter = PortfolioFilter::default();
+        let positions = db.get_portfolio(&filter).expect("get_portfolio");
+
+        assert_eq!(positions.len(), 1);
+        let pos = &positions[0];
+        assert_eq!(pos.ticker, "AAPL");
+        assert_eq!(pos.shares_held, 100.0);
+        assert_eq!(pos.cost_basis, 50.0);
+        assert_eq!(pos.current_price, Some(75.0));
+        assert_eq!(pos.unrealized_pnl, Some(2500.0)); // (75-50)*100
+        assert_eq!(pos.unrealized_pnl_pct, Some(50.0)); // (75-50)/50*100
+        assert_eq!(pos.current_value, Some(7500.0)); // 75*100
+    }
+
+    #[test]
+    fn test_get_portfolio_filters_closed() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert position with shares_held = 0
+        db.conn
+            .execute(
+                "INSERT INTO positions (politician_id, issuer_ticker, shares_held, cost_basis, realized_pnl, last_updated)
+                 VALUES ('P000001', 'AAPL', 0.0, 50.0, 1000.0, '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("insert closed position");
+
+        // Default filter (include_closed = false)
+        let filter = PortfolioFilter::default();
+        let positions = db.get_portfolio(&filter).expect("get_portfolio");
+        assert_eq!(
+            positions.len(),
+            0,
+            "Closed position should be filtered by default"
+        );
+
+        // With include_closed = true
+        let filter = PortfolioFilter {
+            include_closed: true,
+            ..Default::default()
+        };
+        let positions = db.get_portfolio(&filter).expect("get_portfolio");
+        assert_eq!(positions.len(), 1, "Closed position should be included");
+        assert_eq!(positions[0].shares_held, 0.0);
+    }
+
+    #[test]
+    fn test_get_portfolio_filter_by_politician() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician 1");
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000002', 'NY', 'Republican', 'Jane', 'Smith', '1975-01-01', 'female', 'senate')",
+                [],
+            )
+            .expect("insert politician 2");
+
+        db.conn
+            .execute(
+                "INSERT INTO positions (politician_id, issuer_ticker, shares_held, cost_basis, realized_pnl, last_updated)
+                 VALUES ('P000001', 'AAPL', 100.0, 50.0, 0.0, '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("insert position 1");
+
+        db.conn
+            .execute(
+                "INSERT INTO positions (politician_id, issuer_ticker, shares_held, cost_basis, realized_pnl, last_updated)
+                 VALUES ('P000002', 'MSFT', 200.0, 60.0, 0.0, '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("insert position 2");
+
+        let filter = PortfolioFilter {
+            politician_id: Some("P000001".to_string()),
+            ..Default::default()
+        };
+        let positions = db.get_portfolio(&filter).expect("get_portfolio");
+
+        assert_eq!(positions.len(), 1);
+        assert_eq!(positions[0].politician_id, "P000001");
+        assert_eq!(positions[0].ticker, "AAPL");
+    }
+
+    #[test]
+    fn test_count_option_trades() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // Insert stock asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert stock asset");
+
+        // Insert option asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (2, 'stock-option')",
+                [],
+            )
+            .expect("insert option asset");
+
+        // Insert unknown asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (3, 'unknown')",
+                [],
+            )
+            .expect("insert unknown asset");
+
+        // Insert stock trade
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0)",
+                [],
+            )
+            .expect("insert stock trade");
+
+        // Insert option trades
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (2, 'P000001', 2, 1, '2024-01-02', '2024-01-02', '2024-01-02', 'buy', 0, 'self', 'house', 1000, 1, 'http://example.com', 0)",
+                [],
+            )
+            .expect("insert option trade 1");
+
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (3, 'P000001', 2, 1, '2024-01-03', '2024-01-03', '2024-01-03', 'sell', 0, 'self', 'house', 500, 1, 'http://example.com', 0)",
+                [],
+            )
+            .expect("insert option trade 2");
+
+        // Insert unknown trade
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (4, 'P000001', 3, 1, '2024-01-04', '2024-01-04', '2024-01-04', 'buy', 0, 'self', 'house', 2000, 1, 'http://example.com', 0)",
+                [],
+            )
+            .expect("insert unknown trade");
+
+        let count = db.count_option_trades(None).expect("count_option_trades");
+        assert_eq!(count, 2, "Should count only option trades (not stock or unknown)");
+
+        let count_filtered = db
+            .count_option_trades(Some("P000001"))
+            .expect("count_option_trades filtered");
+        assert_eq!(count_filtered, 2);
+    }
+
+    #[test]
+    fn test_get_portfolio_missing_current_price() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert position without corresponding current_price trade
+        db.conn
+            .execute(
+                "INSERT INTO positions (politician_id, issuer_ticker, shares_held, cost_basis, realized_pnl, last_updated)
+                 VALUES ('P000001', 'AAPL', 100.0, 50.0, 0.0, '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("insert position");
+
+        let filter = PortfolioFilter::default();
+        let positions = db.get_portfolio(&filter).expect("get_portfolio");
+
+        assert_eq!(positions.len(), 1);
+        let pos = &positions[0];
+        assert_eq!(pos.current_price, None);
+        assert_eq!(pos.unrealized_pnl, None);
+        assert_eq!(pos.unrealized_pnl_pct, None);
+        assert_eq!(pos.current_value, None);
     }
 }

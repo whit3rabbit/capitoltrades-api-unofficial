@@ -24,7 +24,8 @@ pub use capitoltrades_api::{
 pub use client::CachedClient;
 pub use db::{
     Db, DbError, DbIssuerFilter, DbIssuerRow, DbPoliticianFilter, DbPoliticianRow, DbTradeFilter,
-    DbTradeRow, IssuerStatsRow, PoliticianStatsRow, PriceEnrichmentRow,
+    DbTradeRow, IssuerStatsRow, PoliticianStatsRow, PortfolioFilter, PortfolioPosition,
+    PriceEnrichmentRow,
 };
 pub use error::CapitolTradesError;
 pub use portfolio::{calculate_positions, Lot, Position, TradeFIFO};
