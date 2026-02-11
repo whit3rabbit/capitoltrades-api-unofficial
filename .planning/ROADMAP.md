@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Ticker Validation & Trade Value Estimation** - Validate tickers, estimate shares from dollar ranges
 - [x] **Phase 4: Price Enrichment Pipeline** - Batch fetch historical and current prices with rate limiting
 - [x] **Phase 5: Portfolio Calculator (FIFO)** - Calculate net positions and realized/unrealized P&L
-- [ ] **Phase 6: CLI Commands & Output** - Add enrich-prices and portfolio subcommands with output formatting
+- [x] **Phase 6: CLI Commands & Output** - Add enrich-prices and portfolio subcommands with output formatting
 
 ## Phase Details
 
@@ -116,7 +116,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 06-01-PLAN.md -- Portfolio command with output formatting (PortfolioRow + 5 format functions + CLI wiring + filter validation)
+- [x] 06-01-PLAN.md -- Portfolio command with output formatting (PortfolioRow + 5 format functions + CLI wiring + filter validation)
 
 ## Progress
 
@@ -130,7 +130,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Ticker Validation & Trade Value Estimation | 1/1 | Complete | 2026-02-11 |
 | 4. Price Enrichment Pipeline | 1/1 | Complete | 2026-02-11 |
 | 5. Portfolio Calculator (FIFO) | 2/2 | Complete | 2026-02-10 |
-| 6. CLI Commands & Output | 0/1 | Not started | - |
+| 6. CLI Commands & Output | 1/1 | Complete | 2026-02-11 |
 
 ## Requirement Coverage
 
