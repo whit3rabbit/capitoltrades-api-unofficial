@@ -41,6 +41,8 @@ enum Commands {
     Issuers(commands::issuers::IssuersArgs),
     /// Sync data into a SQLite database
     Sync(commands::sync::SyncArgs),
+    /// Enrich trades with Yahoo Finance price data
+    EnrichPrices(commands::enrich_prices::EnrichPricesArgs),
 }
 
 #[tokio::main]
@@ -95,6 +97,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,
+        Commands::EnrichPrices(args) => commands::enrich_prices::run(args).await?,
     }
 
     Ok(())
