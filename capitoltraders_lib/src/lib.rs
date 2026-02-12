@@ -8,6 +8,7 @@ pub mod cache;
 pub mod client;
 pub mod db;
 pub mod error;
+pub mod fec_mapping;
 pub mod portfolio;
 pub mod pricing;
 pub mod scrape;
@@ -28,6 +29,7 @@ pub use db::{
     PriceEnrichmentRow,
 };
 pub use error::CapitolTradesError;
+pub use fec_mapping::{FecMapping, FecMappingError, Legislator, download_legislators, match_legislators_to_politicians};
 pub use portfolio::{calculate_positions, Lot, Position, TradeFIFO};
 pub use pricing::{estimate_shares, parse_trade_range, ShareEstimate, TradeRange};
 pub use scrape::{
