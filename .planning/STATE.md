@@ -10,25 +10,36 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 7 of 12 (Foundation & Environment Setup)
-Plan: -- (not yet planned)
-Status: Ready to plan
-Last activity: 2026-02-11 -- Roadmap created, requirements defined
+Plan: 1 of 1 (completed)
+Status: Phase 7 complete
+Last activity: 2026-02-12 -- Completed plan 07-01 (foundation and environment setup)
 
-Progress: [..........] 0% (0/6 v1.2 phases)
+Progress: [#.........] 17% (1/6 v1.2 phases)
 
 ## Performance Metrics
 
-**Velocity (from v1.1):**
-- Total plans completed: 7
-- Average duration: 4.4 min
-- Total execution time: 0.52 hours
+**Velocity (v1.1 + v1.2):**
+- Total plans completed: 8
+- Average duration: 7.5 min (v1.1: 4.4 min, v1.2: 20 min)
+- Total execution time: 0.85 hours
+
+**Phase 7 Plan 1:**
+- Duration: 20 min
+- Completed: 2026-02-12
+- Tasks: 2
+- Files: 8 (7 modified, 1 created)
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions logged in PROJECT.md Key Decisions table.
-No pending decisions for v1.2 yet.
+**Phase 7 Plan 1:**
+- dotenvy loads .env silently at startup (no panic if missing) to allow non-donation commands without API key
+- require_openfec_api_key() defers API key validation until donation commands need it (Phase 8+)
+- fec_mappings uses composite PK (politician_id, fec_candidate_id) for multiple FEC IDs per politician
+- Schema v3 migration follows IF NOT EXISTS pattern for idempotency
+
+All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
@@ -42,6 +53,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-11
-Stopped at: Roadmap and requirements created for v1.2
-Next step: Plan Phase 7 (Foundation & Environment Setup)
+Last session: 2026-02-12
+Stopped at: Completed Phase 7 Plan 1 (Foundation & Environment Setup)
+Next step: Plan and execute Phase 8 (FEC Crosswalk Loading)
