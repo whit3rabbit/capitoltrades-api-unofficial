@@ -18,3 +18,4 @@ reqwest = { workspace = true }
 regex = "1"
 yahoo_finance_api = "4.1.0"
 time = { version = "0.3", features = ["macros"] }
+serde_yml = { workspace = true }

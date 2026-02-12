@@ -49,6 +49,9 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load .env file if present (silently ignore if missing)
+    let _ = dotenvy::dotenv();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
@@ -104,4 +107,20 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Require the OpenFEC API key from environment, providing helpful error if missing.
+pub fn require_openfec_api_key() -> Result<String> {
+    std::env::var("OPENFEC_API_KEY").map_err(|_| {
+        anyhow::anyhow!(
+            "OpenFEC API key not found.\n\n\
+             To use donation-related features, you need an API key from api.data.gov:\n\
+             1. Sign up at https://api.data.gov/signup/\n\
+             2. Check your email for the API key\n\
+             3. Create a .env file in the project root:\n\
+                echo 'OPENFEC_API_KEY=your_key_here' > .env\n\
+             4. See .env.example for a template\n\n\
+             Note: .env is gitignored and will not be committed."
+        )
+    })
 }
