@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "committee_id": "C00345777",
+      "name": "NANCY PELOSI FOR CONGRESS",
+      "committee_type": "H",
+      "designation": "P",
+      "party": "DEM",
+      "state": "CA",
+      "cycles": [2020, 2022, 2024]
+    },
+    {
+      "committee_id": "C00410118",
+      "name": "PAC TO THE FUTURE",
+      "committee_type": "N",
+      "designation": "D",
+      "party": "DEM",
+      "state": "CA",
+      "cycles": [2020, 2022, 2024]
+    }
+  ],
+  "pagination": {
+    "count": 2,
+    "page": 1,
+    "pages": 1,
+    "per_page": 20
+  }
+}

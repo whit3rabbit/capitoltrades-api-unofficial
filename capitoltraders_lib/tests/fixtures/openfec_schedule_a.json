@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "sub_id": "4062820241724544081",
+      "committee": {
+        "committee_id": "C00345777",
+        "name": "NANCY PELOSI FOR CONGRESS"
+      },
+      "contributor_name": "SMITH, JOHN",
+      "contributor_state": "CA",
+      "contributor_employer": "GOOGLE LLC",
+      "contributor_occupation": "SOFTWARE ENGINEER",
+      "contribution_receipt_date": "2024-03-15",
+      "contribution_receipt_amount": 2800.0
+    },
+    {
+      "sub_id": "4062820241724544082",
+      "committee": {
+        "committee_id": "C00345777",
+        "name": "NANCY PELOSI FOR CONGRESS"
+      },
+      "contributor_name": "DOE, JANE",
+      "contributor_state": "NY",
+      "contributor_employer": "GOLDMAN SACHS",
+      "contributor_occupation": "ANALYST",
+      "contribution_receipt_date": "2024-03-14",
+      "contribution_receipt_amount": 1000.0
+    }
+  ],
+  "pagination": {
+    "count": 150,
+    "per_page": 2,
+    "last_indexes": {
+      "last_index": 230880619,
+      "last_contribution_receipt_date": "2024-03-14"
+    }
+  }
+}

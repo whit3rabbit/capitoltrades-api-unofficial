@@ -1,0 +1,21 @@
+{
+  "results": [
+    {
+      "candidate_id": "H8CA05035",
+      "name": "PELOSI, NANCY",
+      "party": "DEM",
+      "office": "H",
+      "state": "CA",
+      "district": "11",
+      "cycles": [2020, 2022, 2024],
+      "candidate_status": "C",
+      "incumbent_challenge": "I"
+    }
+  ],
+  "pagination": {
+    "count": 1,
+    "page": 1,
+    "pages": 1,
+    "per_page": 20
+  }
+}

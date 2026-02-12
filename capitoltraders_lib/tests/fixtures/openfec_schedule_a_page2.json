@@ -1,0 +1,22 @@
+{
+  "results": [
+    {
+      "sub_id": "4062820241724544083",
+      "committee": {
+        "committee_id": "C00345777",
+        "name": "NANCY PELOSI FOR CONGRESS"
+      },
+      "contributor_name": "JOHNSON, BOB",
+      "contributor_state": "TX",
+      "contributor_employer": "SELF-EMPLOYED",
+      "contributor_occupation": "CONSULTANT",
+      "contribution_receipt_date": "2024-03-10",
+      "contribution_receipt_amount": 500.0
+    }
+  ],
+  "pagination": {
+    "count": 150,
+    "per_page": 2,
+    "last_indexes": null
+  }
+}

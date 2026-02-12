@@ -19,3 +19,8 @@ regex = "1"
 yahoo_finance_api = "4.1.0"
 time = { version = "0.3", features = ["macros"] }
 serde_yml = { workspace = true }
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+serde_json = { workspace = true }
