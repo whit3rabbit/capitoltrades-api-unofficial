@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 7 of 12 (Foundation & Environment Setup)
-Plan: 2 of 2 (completed)
-Status: Phase 7 complete
-Last activity: 2026-02-12 -- Completed plan 07-02 (FEC mapping module and sync-fec CLI)
+Phase: 8 of 12 (OpenFEC API Client)
+Plan: 1 of 2 (completed)
+Status: Phase 8 in progress
+Last activity: 2026-02-12 -- Completed plan 08-01 (OpenFEC types, error enum, and client)
 
-Progress: [##........] 17% (1/6 v1.2 phases)
+Progress: [##........] 25% (1.5/6 v1.2 phases)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 9
-- Average duration: 10.3 min (v1.1: 4.4 min, v1.2: 28.5 min)
-- Total execution time: 1.47 hours
+- Total plans completed: 10
+- Average duration: 9.5 min (v1.1: 4.4 min, v1.2: 19.8 min)
+- Total execution time: 1.52 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -34,6 +34,12 @@ Progress: [##........] 17% (1/6 v1.2 phases)
 - Completed: 2026-02-12
 - Tasks: 2
 - Files: 7 (5 modified, 2 created)
+
+**Phase 8 Plan 1:**
+- Duration: 2 min
+- Completed: 2026-02-12
+- Tasks: 2
+- Files: 5 (4 created, 1 modified)
 
 ## Accumulated Context
 
@@ -52,6 +58,12 @@ Progress: [##........] 17% (1/6 v1.2 phases)
 - Download both current + historical legislators to maximize match coverage
 - Use tracing::warn! for collision detection instead of failing entire sync
 
+**Phase 8 Plan 1:**
+- No DashMap cache in OpenFecClient (caching belongs at DB level in Phase 9)
+- Schedule A query has NO page field - keyset pagination only with last_index + last_contribution_receipt_date
+- API key passed as query parameter, never as header
+- HTTP 429 and 403 status codes mapped to typed errors for circuit breaker logic
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -67,5 +79,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed Phase 7 Plan 2 (FEC Mapping Module and sync-fec CLI)
-Next step: Plan and execute Phase 8 (OpenFEC API Client)
+Stopped at: Completed Phase 8 Plan 1 (OpenFEC API Client foundation)
+Next step: Execute Phase 8 Plan 2 (wiremock integration tests for OpenFEC client)
