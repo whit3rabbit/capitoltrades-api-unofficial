@@ -41,6 +41,8 @@ enum Commands {
     Issuers(commands::issuers::IssuersArgs),
     /// Sync data into a SQLite database
     Sync(commands::sync::SyncArgs),
+    /// Sync FEC candidate ID mappings from congress-legislators dataset
+    SyncFec(commands::sync_fec::SyncFecArgs),
     /// Enrich trades with Yahoo Finance price data
     EnrichPrices(commands::enrich_prices::EnrichPricesArgs),
     /// View portfolio positions with P&L
@@ -102,6 +104,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,
+        Commands::SyncFec(args) => commands::sync_fec::run(args).await?,
         Commands::EnrichPrices(args) => commands::enrich_prices::run(args).await?,
         Commands::Portfolio(args) => commands::portfolio::run(args, &format)?,
     }

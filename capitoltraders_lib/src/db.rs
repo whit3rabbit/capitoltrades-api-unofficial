@@ -2000,6 +2000,83 @@ impl Db {
         };
         Ok(count)
     }
+
+    /// Get all politicians as (politician_id, last_name, state_id) tuples for FEC matching
+    pub fn get_politicians_for_fec_matching(&self) -> Result<Vec<(String, String, String)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT politician_id, last_name, state_id FROM politicians"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Upsert FEC candidate ID mappings
+    pub fn upsert_fec_mappings(&mut self, mappings: &[crate::fec_mapping::FecMapping]) -> Result<usize, DbError> {
+        let tx = self.conn.transaction()?;
+        let mut count = 0;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO fec_mappings (politician_id, fec_candidate_id, bioguide_id, last_synced)
+                 VALUES (?1, ?2, ?3, datetime('now'))
+                 ON CONFLICT(politician_id, fec_candidate_id) DO UPDATE SET
+                   bioguide_id = excluded.bioguide_id,
+                   last_synced = datetime('now')"
+            )?;
+            for mapping in mappings {
+                stmt.execute(params![
+                    mapping.politician_id,
+                    mapping.fec_candidate_id,
+                    mapping.bioguide_id,
+                ])?;
+                count += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+
+    /// Get all FEC candidate IDs for a given politician
+    pub fn get_fec_ids_for_politician(&self, politician_id: &str) -> Result<Vec<String>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT fec_candidate_id FROM fec_mappings WHERE politician_id = ?1"
+        )?;
+        let rows = stmt.query_map([politician_id], |row| row.get(0))?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Get politician_id for a given bioguide_id
+    pub fn get_politician_id_for_bioguide(&self, bioguide_id: &str) -> Result<Option<String>, DbError> {
+        self.conn
+            .query_row(
+                "SELECT DISTINCT politician_id FROM fec_mappings WHERE bioguide_id = ?1 LIMIT 1",
+                params![bioguide_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(DbError::from)
+    }
+
+    /// Count total FEC mappings
+    pub fn count_fec_mappings(&self) -> Result<i64, DbError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM fec_mappings", [], |row| row.get(0)
+        )?;
+        Ok(count)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -5653,5 +5730,146 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(pos.unrealized_pnl, None);
         assert_eq!(pos.unrealized_pnl_pct, None);
         assert_eq!(pos.current_value, None);
+    }
+
+    #[test]
+    fn test_upsert_fec_mappings() {
+        let mut db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        let mappings = vec![
+            crate::fec_mapping::FecMapping {
+                politician_id: "P000001".to_string(),
+                fec_candidate_id: "H0CA05080".to_string(),
+                bioguide_id: "D000001".to_string(),
+            },
+            crate::fec_mapping::FecMapping {
+                politician_id: "P000001".to_string(),
+                fec_candidate_id: "H0CA05120".to_string(),
+                bioguide_id: "D000001".to_string(),
+            },
+        ];
+
+        let count = db.upsert_fec_mappings(&mappings).expect("upsert_fec_mappings");
+        assert_eq!(count, 2);
+
+        // Verify we can query them back
+        let fec_ids = db.get_fec_ids_for_politician("P000001").expect("get_fec_ids");
+        assert_eq!(fec_ids.len(), 2);
+        assert!(fec_ids.contains(&"H0CA05080".to_string()));
+        assert!(fec_ids.contains(&"H0CA05120".to_string()));
+    }
+
+    #[test]
+    fn test_get_fec_ids_for_politician() {
+        let mut db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000002', 'TX', 'Republican', 'John', 'Smith', '1965-05-15', 'male', 'senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        let mappings = vec![crate::fec_mapping::FecMapping {
+            politician_id: "P000002".to_string(),
+            fec_candidate_id: "S4TX00123".to_string(),
+            bioguide_id: "S000002".to_string(),
+        }];
+
+        db.upsert_fec_mappings(&mappings).expect("upsert");
+
+        let fec_ids = db.get_fec_ids_for_politician("P000002").expect("get_fec_ids");
+        assert_eq!(fec_ids.len(), 1);
+        assert_eq!(fec_ids[0], "S4TX00123");
+    }
+
+    #[test]
+    fn test_get_fec_ids_for_unknown_politician() {
+        let db = open_test_db();
+
+        let fec_ids = db
+            .get_fec_ids_for_politician("P999999")
+            .expect("get_fec_ids for unknown politician");
+        assert_eq!(fec_ids.len(), 0, "Should return empty vec for unknown politician");
+    }
+
+    #[test]
+    fn test_get_politician_id_for_bioguide() {
+        let mut db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000003', 'NY', 'Democrat', 'Alice', 'Johnson', '1975-03-20', 'female', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        let mappings = vec![crate::fec_mapping::FecMapping {
+            politician_id: "P000003".to_string(),
+            fec_candidate_id: "H0NY05080".to_string(),
+            bioguide_id: "J000003".to_string(),
+        }];
+
+        db.upsert_fec_mappings(&mappings).expect("upsert");
+
+        let pol_id = db
+            .get_politician_id_for_bioguide("J000003")
+            .expect("get_politician_id_for_bioguide");
+        assert_eq!(pol_id, Some("P000003".to_string()));
+    }
+
+    #[test]
+    fn test_get_politician_id_for_unknown_bioguide() {
+        let db = open_test_db();
+
+        let pol_id = db
+            .get_politician_id_for_bioguide("X999999")
+            .expect("get_politician_id for unknown bioguide");
+        assert_eq!(pol_id, None, "Should return None for unknown bioguide");
+    }
+
+    #[test]
+    fn test_upsert_fec_mappings_idempotent() {
+        let mut db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000004', 'FL', 'Republican', 'Bob', 'Brown', '1980-07-10', 'male', 'senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        let mappings = vec![crate::fec_mapping::FecMapping {
+            politician_id: "P000004".to_string(),
+            fec_candidate_id: "S6FL00456".to_string(),
+            bioguide_id: "B000004".to_string(),
+        }];
+
+        // First upsert
+        let count1 = db.upsert_fec_mappings(&mappings).expect("first upsert");
+        assert_eq!(count1, 1);
+
+        // Second upsert (should update, not error)
+        let count2 = db.upsert_fec_mappings(&mappings).expect("second upsert");
+        assert_eq!(count2, 1);
+
+        // Verify count is still 1 (idempotent)
+        let total = db.count_fec_mappings().expect("count");
+        assert_eq!(total, 1, "Upsert should be idempotent");
     }
 }
