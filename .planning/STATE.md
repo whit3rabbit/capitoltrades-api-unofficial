@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 8 of 12 (OpenFEC API Client)
-Plan: 1 of 2 (completed)
-Status: Phase 8 in progress
-Last activity: 2026-02-12 -- Completed plan 08-01 (OpenFEC types, error enum, and client)
+Plan: 2 of 2 (completed)
+Status: Phase 8 complete
+Last activity: 2026-02-12 -- Completed plan 08-02 (OpenFEC integration tests and fixtures)
 
-Progress: [##........] 25% (1.5/6 v1.2 phases)
+Progress: [###.......] 33% (2/6 v1.2 phases)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 10
-- Average duration: 9.5 min (v1.1: 4.4 min, v1.2: 19.8 min)
-- Total execution time: 1.52 hours
+- Total plans completed: 11
+- Average duration: 8.9 min (v1.1: 4.4 min, v1.2: 16.8 min)
+- Total execution time: 1.57 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -40,6 +40,12 @@ Progress: [##........] 25% (1.5/6 v1.2 phases)
 - Completed: 2026-02-12
 - Tasks: 2
 - Files: 5 (4 created, 1 modified)
+
+**Phase 8 Plan 2:**
+- Duration: 3 min
+- Completed: 2026-02-12
+- Tasks: 2
+- Files: 6 (5 created, 1 modified)
 
 ## Accumulated Context
 
@@ -64,6 +70,11 @@ Progress: [##........] 25% (1.5/6 v1.2 phases)
 - API key passed as query parameter, never as header
 - HTTP 429 and 403 status codes mapped to typed errors for circuit breaker logic
 
+**Phase 8 Plan 2:**
+- Mount more specific wiremock mocks first to prevent false matches in pagination test
+- Include /v1 in base_url for with_base_url() to match production client behavior
+- Combined deserialization and integration tests in single file (both validate same fixtures)
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -79,5 +90,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed Phase 8 Plan 1 (OpenFEC API Client foundation)
-Next step: Execute Phase 8 Plan 2 (wiremock integration tests for OpenFEC client)
+Stopped at: Completed Phase 8 Plan 2 (OpenFEC integration tests and fixtures)
+Next step: Execute Phase 9 (Politician-Committee Mapping)
