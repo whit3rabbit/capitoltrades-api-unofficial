@@ -1,41 +1,614 @@
-# Feature Landscape
+# Feature Landscape: OpenFEC Donation Integration
 
-**Domain:** Stock Price Enrichment and Portfolio Tracking for Congressional Trade Analysis
-**Researched:** 2026-02-09
+**Domain:** FEC Campaign Donation Integration for Congressional Trade Analysis
+**Researched:** 2026-02-11
 **Confidence:** MEDIUM
 
-## Table Stakes
+OpenFEC API provides programmatic access to Federal Election Commission campaign finance data. This research documents available data fields, mapping strategies, and feature recommendations for integrating donation data with Capitol Traders' stock trade analysis.
+
+## Executive Summary
+
+The OpenFEC API exposes Schedule A (individual contributions) data via `/schedules/schedule_a/` endpoint with keyset pagination and 100 calls/hour rate limit. Core challenge: FEC is committee-centric (not politician-centric), requiring multi-step name-to-candidate-to-committee mapping. Employer field is free text (self-reported), making employer-to-issuer correlation complex but valuable.
+
+**Recommended approach:** Phase 1 sync Schedule A data to SQLite with politician-to-committee mapping. Phase 2 add employer-to-issuer fuzzy matching. Phase 3 add timing correlation between donations and trades.
+
+## Schedule A Data Fields
+
+Based on OpenFEC API documentation and Schedule A column documentation, individual contribution records include:
+
+### Core Identification Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `committee_id` | String | FEC committee ID (C + 8 digits) | "C00385534" |
+| `committee_name` | String | Committee name | "Pelosi for Congress" |
+| `contributor_id` | String | Unique contributor ID (when available) | "C12345678" |
+| `transaction_id` | String | Unique transaction ID | "SA11AI.12345" |
+| `sub_id` | Integer | OpenFEC internal unique ID | 123456789 |
+
+### Contributor Information Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `contributor_name` | String | Full name of contributor | "John Smith" |
+| `contributor_first_name` | String | First name | "John" |
+| `contributor_middle_name` | String | Middle name | "A" |
+| `contributor_last_name` | String | Last name | "Smith" |
+| `contributor_prefix` | String | Name prefix | "Dr." |
+| `contributor_suffix` | String | Name suffix | "Jr." |
+| `contributor_street_1` | String | Street address line 1 | "123 Main St" |
+| `contributor_street_2` | String | Street address line 2 | "Apt 4B" |
+| `contributor_city` | String | City | "San Francisco" |
+| `contributor_state` | String | Two-letter state code | "CA" |
+| `contributor_zip` | String | ZIP code (5 or 9 digits) | "94102" |
+| `contributor_employer` | String | Self-reported employer name | "Google LLC" |
+| `contributor_occupation` | String | Self-reported occupation | "Software Engineer" |
+
+**Data Quality Notes:**
+- Employer and occupation required for contributions >$200, but self-reported (inconsistent spelling/format)
+- Name fields can be incomplete (some filings use only `contributor_name`, not split fields)
+- Address standardization varies by committee
+
+### Contribution Amount Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `contribution_receipt_amount` | Decimal | Individual contribution amount | 2500.00 |
+| `contributor_aggregate_ytd` | Decimal | Year-to-date total from this contributor | 5000.00 |
+| `receipt_type` | String | Type of contribution (code) | "15" |
+| `receipt_type_full` | String | Full receipt type description | "Contribution" |
+
+**Legal Context:**
+- Individual contribution limit (2025-2026 cycle): $3,300 per election
+- Primary and general elections have separate limits
+- `contributor_aggregate_ytd` useful for identifying max-out donors
+
+### Date and Timing Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `contribution_receipt_date` | Date | Date contribution received | "2024-03-15" |
+| `report_year` | Integer | Year of report | 2024 |
+| `report_type` | String | Filing report type | "Q1" |
+| `election_type` | String | Election type (P=primary, G=general) | "G" |
+| `two_year_transaction_period` | Integer | Election cycle (even year) | 2024 |
+
+**Cycle Notes:**
+- FEC uses 2-year cycles (2023-2024, 2025-2026)
+- Senate candidates report across multiple cycles for 6-year terms
+- Use `two_year_transaction_period` to filter by cycle
+
+### Metadata Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `memo_code` | String | "X" if memo entry (excluded from totals) | "X" or null |
+| `memo_text` | String | Additional notes/explanation | "Reattribution from joint account" |
+| `file_number` | Integer | FEC filing number | 123456 |
+| `amendment_indicator` | String | "A" if amended filing | "A" or "N" |
+| `image_number` | String | Link to source PDF | "201234567890" |
+| `pdf_url` | String | Direct link to PDF | "https://docquery.fec.gov/pdf/..." |
+
+**Important:** `memo_code="X"` means amount excluded from totals (reimbursements, redesignations, reattributions). Filter these out when aggregating totals.
+
+## Candidate-to-Committee Mapping
+
+FEC uses committee_id for donations, not candidate_id. Mapping politicians to committees requires multi-step lookup.
+
+### Step 1: Politician Name to Candidate ID
+
+**Endpoint:** `/candidates/search/?q={name}`
+
+**Example:**
+```
+GET /v1/candidates/search/?q=Nancy%20Pelosi&api_key={key}
+```
+
+**Response Fields (relevant):**
+- `candidate_id` - FEC candidate ID (format: H2CA12123 = House, CA district 12, ID 123)
+- `name` - Official candidate name
+- `office` - H (House), S (Senate), or P (Presidential)
+- `state` - Two-letter state code
+- `district` - District number (House only, 00 for at-large)
+- `party` - Party affiliation
+- `election_years` - Array of election years
+- `active_through` - Most recent election year
+
+**Candidate ID Format:**
+- First letter: H (House), S (Senate), P (Presidential)
+- Next 2 letters: State code
+- Next 2 digits: District (House) or 00 (Senate/Presidential)
+- Last 3 digits: Sequential ID
+
+**Examples:**
+- H2CA12123 = House, California district 12
+- S2GA00172 = Senate, Georgia
+- P00003392 = Presidential
+
+### Step 2: Candidate ID to Committee IDs
+
+**Endpoint:** `/committees/?candidate_id={candidate_id}`
+
+**Example:**
+```
+GET /v1/committees/?candidate_id=H2CA12123&api_key={key}
+```
+
+**Response Fields (relevant):**
+- `committee_id` - Committee ID (C + 8 digits)
+- `name` - Committee name
+- `committee_type` - Committee type code (see below)
+- `designation` - P (principal), A (authorized), U (unauthorized)
+- `candidate_ids` - Array of associated candidate IDs
+
+**Committee Types:**
+- H = House candidate committee
+- S = Senate candidate committee
+- P = Presidential candidate committee
+- X = Non-qualified committee
+- Y = Leadership PAC
+- Z = Party committee
+
+**Multiple Committees:**
+Most politicians have 2-5 associated committees:
+- Principal campaign committee (designation=P)
+- Joint fundraising committees (designation=A)
+- Leadership PACs (committee_type=Y, separate from campaign)
+
+**For complete donation picture:** Query Schedule A for all authorized committees associated with the candidate.
+
+### Step 3: Cache Strategy
+
+Multi-step lookups are expensive (2 API calls per politician). Cache aggressively:
+
+**Cache Key:** `politician_name_normalized`
+**Cache Value:**
+```json
+{
+  "candidate_id": "H2CA12123",
+  "committee_ids": ["C00385534", "C00475863"],
+  "cached_at": "2024-03-15T10:00:00Z"
+}
+```
+
+**TTL:** 30 days (committee associations rarely change mid-cycle)
+
+**Normalization:** Lowercase, strip punctuation, collapse whitespace
+- "Nancy Pelosi" -> "nancy pelosi"
+- "Alexandria Ocasio-Cortez" -> "alexandria ocasiocortez"
+
+## OpenFEC API Constraints
+
+### Rate Limiting
+
+- **Limit:** 100 calls per hour via api.data.gov
+- **Cannot increase:** api.data.gov enforces globally, no higher tiers
+- **Enforcement:** 429 Too Many Requests after limit
+- **Reset:** Rolling 1-hour window
+
+**Impact on sync:**
+- 50K donation records at 100 records/page = 500 API calls = 5 hours minimum
+- Full sync for 535 members of Congress = days to weeks
+- **Mitigation:** Incremental sync (date-based), on-demand per politician, aggressive caching
+
+### Pagination
+
+Schedule A uses **keyset pagination** (not page numbers):
+
+**Request:**
+```
+GET /v1/schedules/schedule_a/?committee_id=C00385534&per_page=100&api_key={key}
+```
+
+**Response pagination object:**
+```json
+{
+  "pagination": {
+    "count": 12543,
+    "per_page": 100,
+    "last_indexes": {
+      "last_index": "123456789",
+      "last_contribution_receipt_date": "2024-03-15"
+    }
+  }
+}
+```
+
+**Next page request:**
+```
+GET /v1/schedules/schedule_a/?committee_id=C00385534&per_page=100&last_index=123456789&last_contribution_receipt_date=2024-03-15&api_key={key}
+```
+
+**Key differences from standard pagination:**
+- No page numbers
+- Must pass `last_index` and `last_contribution_receipt_date` from previous response
+- Cannot jump to arbitrary page
+- Performance: Constant time (no offset penalty)
+
+### Query Filters
+
+Available Schedule A filters:
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `committee_id` | String | Filter by committee | `committee_id=C00385534` |
+| `contributor_name` | String | Partial name match | `contributor_name=Smith` |
+| `contributor_state` | String | Two-letter state | `contributor_state=CA` |
+| `contributor_city` | String | City name | `contributor_city=San%20Francisco` |
+| `contributor_employer` | String | Employer name | `contributor_employer=Google` |
+| `contributor_occupation` | String | Occupation | `contributor_occupation=Engineer` |
+| `min_date` | Date | Minimum contribution date | `min_date=2024-01-01` |
+| `max_date` | Date | Maximum contribution date | `max_date=2024-12-31` |
+| `min_amount` | Decimal | Minimum contribution amount | `min_amount=1000` |
+| `max_amount` | Decimal | Maximum contribution amount | `max_amount=5000` |
+| `two_year_transaction_period` | Integer | Election cycle | `two_year_transaction_period=2024` |
+| `is_individual` | Boolean | Filter to individual contributors | `is_individual=true` |
+
+**Filter caveats:**
+- `is_individual=true` should exclude PACs, but known issues with ActBlue conduit contributions showing as committees
+- `contributor_name` is substring match (not fuzzy)
+- No employer-to-industry mapping in API (must do client-side)
+
+### Sort Options
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `sort` | `contribution_receipt_date`, `contributor_aggregate_ytd` | Sort field |
+| `sort_order` | `asc`, `desc` | Sort direction |
+
+**Default:** `sort=-contribution_receipt_date` (newest first)
+
+**Pagination requirement:** When sorting by `contribution_receipt_date`, pagination uses `last_contribution_receipt_date` in keyset.
+
+### Data Coverage
+
+**Historical Range:**
+- Candidate/committee data: 1980+ (full FEC history)
+- Schedule A itemized contributions: **Last 4 years only via API**
+- Older Schedule A data: Available via bulk downloads, not API
+
+**Current cycles available (as of 2026-02-11):**
+- 2022 (2021-2022 cycle) - complete
+- 2024 (2023-2024 cycle) - complete
+- 2026 (2025-2026 cycle) - in progress
+
+**Update frequency:** Daily (FEC processes filings daily)
+
+**Amendment handling:** API returns most recent version (amended filings replace original)
+
+## Employer-to-Issuer Correlation Strategy
+
+Core differentiator: Link donation employers to stock issuers to identify conflicts of interest.
+
+### Challenge: Free Text Employer Field
+
+Employer names are self-reported, no standardization:
+
+**Same entity, multiple spellings:**
+- "Google"
+- "Google Inc"
+- "Google LLC"
+- "Alphabet Inc"
+- "Alphabet"
+- "GOOGLE" (all caps)
+
+**Abbreviations:**
+- "Goldman Sachs" vs "GS"
+- "Bank of America" vs "BofA" vs "BOA"
+- "JPMorgan Chase" vs "JP Morgan" vs "JPMC"
+
+**Generic/uninformative entries:**
+- "Self-employed"
+- "Retired"
+- "Not employed"
+- "N/A"
+- "None"
+
+**Spelling errors:**
+- "Mircosoft" (Microsoft)
+- "Goolge" (Google)
+
+### Recommended Approach: Tiered Matching
+
+#### Tier 1: Exact Match (High Confidence)
+
+Normalize both employer and issuer, check for exact match:
+
+**Normalization steps:**
+1. Lowercase
+2. Remove legal suffixes (Inc, LLC, Corp, Corporation, Company, Co, LP, LLP)
+3. Remove punctuation (periods, commas, ampersands)
+4. Remove "The" prefix
+5. Collapse whitespace
+
+**Examples:**
+- "The Goldman Sachs Group, Inc." -> "goldman sachs group"
+- "Microsoft Corporation" -> "microsoft"
+- "Bank of America, N.A." -> "bank of america"
+
+**Confidence:** 100% (exact match after normalization)
+
+#### Tier 2: Fuzzy Match (Medium Confidence)
+
+Use Jaro-Winkler or Levenshtein distance for near matches:
+
+**Jaro-Winkler similarity:** 0.0 (no match) to 1.0 (exact match)
+
+**Thresholds:**
+- 0.95+ = High confidence (minor spelling variation)
+- 0.85-0.94 = Medium confidence (abbreviation or missing word)
+- 0.70-0.84 = Low confidence (flag for manual review)
+- <0.70 = Reject (too different)
+
+**Example matches:**
+- "Google LLC" vs "Alphabet Inc" -> 0.52 (reject, different legal entities)
+- "Goldman Sachs" vs "Goldman Sachs Group" -> 0.92 (medium confidence)
+- "Microsoft" vs "Mircosoft" -> 0.96 (high confidence, typo)
+
+**Rust crate:** `strsim` (Jaro-Winkler implementation)
+
+#### Tier 3: Manual Seed Data (Explicit Mapping)
+
+Maintain manual mapping for top employers:
+
+**Seed data format (TOML or SQLite):**
+```toml
+[employer_mappings]
+"Google" = ["GOOGL", "GOOG"]
+"Google LLC" = ["GOOGL", "GOOG"]
+"Alphabet Inc" = ["GOOGL", "GOOG"]
+"Goldman Sachs" = ["GS"]
+"Goldman Sachs Group" = ["GS"]
+"The Goldman Sachs Group Inc" = ["GS"]
+"Bank of America" = ["BAC"]
+"BofA" = ["BAC"]
+```
+
+**Priority:** Check seed data first (most reliable), then fuzzy match for unknowns
+
+**Maintenance:** Export unmatched employers to CSV, manually review top 100 by donation volume, add to seed data
+
+### Output: Flagged Matches, Not Auto-Links
+
+Never auto-link employer to issuer without user confirmation:
+
+**Correlation output format:**
+```
+Potential Employer-Issuer Matches:
+
+Employer: "Google LLC"
+Issuer: "Alphabet Inc. Class A"
+Ticker: GOOGL
+Confidence: MEDIUM (0.52 fuzzy match)
+Total Donations: $45,000
+Total Trade Value: $250,000
+Match Count: 23 donations, 5 trades
+Action: [CONFIRM] [REJECT] [MANUAL_LINK]
+```
+
+**User workflow:**
+1. Run correlation analysis
+2. Review flagged matches (sorted by confidence descending)
+3. Confirm/reject each match
+4. Store confirmed mappings in `employer_issuer_links` table
+
+**Schema:**
+```sql
+CREATE TABLE employer_issuer_links (
+    employer_normalized TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    confidence REAL,
+    confirmed_by_user BOOLEAN DEFAULT 0,
+    created_at TEXT
+);
+```
+
+## Sector-Based Donation Analysis
+
+Group employers by industry sector to compare donation sources to trade portfolio sectors.
+
+### Challenge: No Industry Data in FEC API
+
+FEC does not provide industry/sector classification. Employer field is free text.
+
+### Option 1: Manual Sector Mapping (Recommended for MVP)
+
+Seed top 200 employers by donation volume with sector assignments:
+
+**Sector taxonomy (simplified GICS):**
+- Communication Services
+- Consumer Discretionary
+- Consumer Staples
+- Energy
+- Financials
+- Health Care
+- Industrials
+- Information Technology
+- Materials
+- Real Estate
+- Utilities
+- Other (Non-profit, Government, Self-employed, Retired)
+
+**Seed data format:**
+```toml
+[employer_sectors]
+"Google LLC" = "Information Technology"
+"Alphabet Inc" = "Information Technology"
+"Goldman Sachs" = "Financials"
+"JPMorgan Chase" = "Financials"
+"Kaiser Permanente" = "Health Care"
+"Boeing" = "Industrials"
+```
+
+**Coverage:** Top 200 employers cover approximately 60-70% of total donation volume (Pareto principle)
+
+**Fallback:** "Unknown Sector" for unclassified employers
+
+### Option 2: NAICS Code Lookup (Future Enhancement)
+
+Map employer to NAICS (North American Industry Classification System) code:
+
+**NAICS structure:**
+- 2-digit: Sector (e.g., 51 = Information)
+- 3-digit: Subsector (e.g., 511 = Publishing Industries)
+- 4-digit: Industry Group (e.g., 5112 = Software Publishers)
+- 6-digit: Industry (e.g., 511210 = Software Publishers)
+
+**Challenge:** Requires employer name -> company legal name -> NAICS lookup
+- No free NAICS API with name-based lookup
+- Commercial options: Melissa Data, SIC-NAICS API ($$$)
+- SEC EDGAR provides NAICS for public companies (CIK-based, not name-based)
+
+**Verdict:** Defer NAICS integration. Manual sector mapping sufficient for MVP.
+
+### Analysis Output
+
+**Top Industries by Total Contributions:**
+```
+Politician: Nancy Pelosi (2024 cycle)
+
+Industry                    Total      Donors    Avg
+Information Technology      $850,000   234       $3,632
+Financials                  $620,000   187       $3,316
+Health Care                 $410,000   145       $2,828
+Real Estate                 $280,000   98        $2,857
+Legal Services              $195,000   67        $2,910
+Unknown Sector              $245,000   112       $2,188
+```
+
+**Compare to portfolio sector exposure:**
+```
+Donations by Sector vs Portfolio Holdings by Sector:
+
+Sector                  Donations    Portfolio Value    Delta
+Information Technology  $850,000     $1.2M             aligned
+Financials             $620,000     $50,000           over-donated
+Health Care            $410,000     $800,000          under-donated
+```
+
+**Insight:** Politician receives $620K from Finance sector but holds only $50K in financial stocks - potential avoidance of appearance of conflict. Or: Politician receives $850K from Tech sector AND holds $1.2M in tech stocks - potential conflict.
+
+## Donation-to-Trade Timing Correlation
+
+Analyze temporal proximity between donations from employers and trades in related stocks.
+
+### Analysis Approach
+
+For each trade, look back N days (30/60/90) for donations from employers matching the issuer:
+
+**Pseudocode:**
+```
+for trade in trades:
+    employer_matches = fuzzy_match(trade.issuer, all_employers)
+    lookback_start = trade.trade_date - 60 days
+    lookback_end = trade.trade_date
+
+    related_donations = donations.filter(
+        employer IN employer_matches,
+        contribution_date BETWEEN lookback_start AND lookback_end
+    )
+
+    if related_donations.count() > 0:
+        flag_correlation(trade, related_donations)
+```
+
+**Output:**
+```
+Timing Correlation Findings:
+
+Trade: 2024-03-20, BUY $100K-$250K Nvidia (NVDA)
+Related Donations (60 days prior):
+  - 2024-02-15: John Smith, Nvidia Corporation, $2,900 (35 days before)
+  - 2024-03-01: Jane Doe, Nvidia, $1,000 (19 days before)
+  Total: $3,900 from 2 donors
+
+Trade: 2024-05-10, SELL $50K-$100K Goldman Sachs (GS)
+Related Donations (60 days prior):
+  - 2024-03-15: Bob Jones, Goldman Sachs, $5,000 (56 days before)
+  Total: $5,000 from 1 donor
+```
+
+### Performance Considerations
+
+**Dataset size:**
+- Major politician: 10,000 donations/cycle, 200 trades/year
+- Naive approach: 10,000 x 200 = 2M comparisons per politician
+
+**Optimization strategies:**
+
+1. **Index donation table by date:**
+   ```sql
+   CREATE INDEX idx_donations_date ON donations(contribution_receipt_date);
+   ```
+
+2. **Pre-filter donations to known employers:**
+   Only consider donations from employers present in trade issuers list (reduces 10K donations to ~500 relevant)
+
+3. **Use SQL window functions:**
+   ```sql
+   SELECT t.trade_date, t.ticker, d.contributor_employer, d.amount
+   FROM trades t
+   JOIN donations d ON fuzzy_match(t.issuer, d.contributor_employer)
+   WHERE d.contribution_receipt_date BETWEEN t.trade_date - 60 AND t.trade_date
+   ```
+
+4. **In-memory join for small datasets:**
+   If politician has <5K donations, load into memory and iterate (faster than SQL for small N)
+
+**Estimate:** Well-optimized query <1 second for typical politician (1K donations, 100 trades)
+
+### False Positive Handling
+
+**Generic employers produce noise:**
+- "Google" - common employer, many donations, most unrelated to specific GOOGL trades
+- "Retired" - not actually employer-issuer match
+
+**Mitigation:**
+- Exclude generic employer values ("Retired", "Self-employed", "Not employed")
+- Require minimum employer match confidence (0.85+ Jaro-Winkler)
+- Weight by donation amount (flag $5K donation, ignore $50 donation)
+
+**Output includes confidence score:**
+```
+Trade: BUY $100K GOOGL
+Related Donation: John Smith, "Googel Inc", $2,900
+Employer Match Confidence: 0.88 (typo correction)
+Temporal Proximity: 20 days
+Correlation Score: MEDIUM
+```
+
+## Table Stakes Features
 
 Features users expect. Missing = product feels incomplete.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Historical price at trade date | Without this, enrichment is meaningless - need to know what price they actually traded at | Medium | Requires Yahoo Finance historical API lookup per ticker per trade date. Handle weekends/holidays with nearest trading day. |
-| Current price per ticker | Users expect to see "what is it worth now?" - table stakes for any portfolio tool | Low | Single lookup per ticker, can be cached briefly (e.g., 5 min TTL for batch CLI). |
-| Net position per politician per ticker | Portfolio = current holdings after all buys/sells - users can't calculate P&L without this | High | Requires FIFO/LIFO accounting across all trades. Must handle partial fills, exchanges, receives (non-purchase acquisitions). |
-| Realized P&L (closed positions) | Show profit/loss on positions that were fully sold - core financial metric | Medium | Track cost basis, match buys to sells using FIFO, calculate (sell price - buy price) * shares. |
-| Unrealized P&L (open positions) | Show profit/loss on current holdings using current price - expected for any portfolio | Medium | (current price - average cost basis) * remaining shares. Requires current price lookup. |
-| Trade date validation | Congressional trades have 45-day disclosure lag - need to validate trade_date exists and is historical | Low | Check trade_date is not null, not in future, not before politician's term start. |
-| Ticker symbol validation | Invalid/delisted tickers will break enrichment - must validate before API calls | Medium | Check ticker exists in Yahoo Finance, handle delisted stocks gracefully (mark as unenrichable, don't fail batch). |
-| Batch processing with resumability | CLI enrichment may process thousands of trades - must be resumable after failures | Medium | Track enrichment status per trade (unenriched/enriched/failed), skip already-enriched on re-run. Pattern already exists from Phase 5 trade detail enrichment. |
-| Graceful failure handling | Some tickers will fail (delisted, data gaps, API errors) - don't fail entire batch | Low | Circuit breaker pattern from Phase 5, mark individual trades as failed, continue processing. Log failures for review. |
-| Option classification | Options (calls/puts) are ~20-30% of congressional trades - must distinguish from stock | Low | Already have asset_type field from Phase 5. Classify stock-option separately, defer valuation (complex). |
+| Feature | Why Expected | Complexity | Priority |
+|---------|--------------|------------|----------|
+| Schedule A individual contributions sync | Core FEC data - without this, no donation data exists. | MEDIUM | P1 |
+| Politician-to-committee mapping | Users expect "Nancy Pelosi" not "C00385534". | MEDIUM | P1 |
+| Top donors by amount per politician | "Who funds this politician?" - table stakes for any campaign finance tool. | LOW | P1 |
+| Total donations by election cycle | Campaign finance is cycle-based (2-year for House). | LOW | P1 |
+| Donation date range filtering | "Show donations from 2024" - expected temporal filtering. | LOW | P1 |
+| Employer/occupation display | FEC requires these fields for donations >$200. | LOW | P1 |
+| Committee type classification | Users need to know if donations went to campaign vs leadership PAC. | MEDIUM | P1 |
+| Sync resumability with checkpoints | FEC data is large (10K-50K donations/politician). Must resume after interruption. | MEDIUM | P1 |
+| Donation amount aggregation (YTD) | Schedule A includes year-to-date totals per contributor. | LOW | P1 |
+| Data staleness indicators | Campaign finance data updated daily. Users need to know data age. | LOW | P1 |
 
-## Differentiators
+## Differentiator Features
 
 Features that set product apart. Not expected, but valued.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Trade value estimation using historical price | Congressional disclosures use dollar ranges ($1K-15K, etc.) not exact amounts - historical price lets you estimate actual share count | High | Reverse-calculate shares = midpoint of range / historical price. Increases accuracy of position tracking. Requires range parsing. |
-| Cost basis per position (average weighted) | Show average purchase price for remaining holdings - helps understand if position is profitable | Medium | Track cumulative cost across all buys, divide by remaining shares. More sophisticated than just FIFO cost basis. |
-| Aggregate portfolio P&L per politician | "How much has Nancy Pelosi made overall?" - compelling analysis feature | Medium | Sum realized + unrealized P&L across all positions. Requires all above calculations to be complete. |
-| Sector-level portfolio analysis | "What sectors is this politician betting on?" - strategic insight beyond ticker-level | Medium | Leverage Yahoo Finance sector metadata (already available in their API). Group positions by sector, show exposure. |
-| Time-weighted return calculation | Show portfolio performance over time, not just absolute P&L - fairer comparison | High | Complex calculation requiring position values at multiple time points. Likely defer to v2. |
-| Wash sale detection | Identify potential wash sales (sell + rebuy within 30 days) - tax/compliance insight | Medium | Flag trades where same ticker sold then bought within 30 days. Informational only (we're not doing their taxes). |
-| Data staleness indicators | Show when prices were last updated - transparency about data freshness | Low | Store enriched_at timestamp per ticker price, display age in output. Already have pattern from Phase 5. |
-| Performance vs S&P 500 benchmark | "Did they beat the market?" - compelling narrative feature | Medium | Fetch S&P 500 historical returns, compare politician portfolio return. Requires time-series data. Defer to v2. |
-| Historical portfolio snapshots | Track portfolio composition changes over time - "they sold all their tech stocks in March 2024" | High | Requires storing position snapshots at intervals or reconstructing from trade history. Significant complexity, defer. |
+| Feature | Value Proposition | Complexity | Priority |
+|---------|-------------------|------------|----------|
+| Employer-to-issuer correlation | "Do donations from Goldman Sachs employees correlate with GS trades?" - unique insight linking money to trades. | HIGH | P2 |
+| Sector-based donation analysis | "Which industries fund this politician vs which sectors they trade?" - strategic pattern detection. | MEDIUM | P2 |
+| Donation-to-trade timing correlation | "Did they buy defense stocks after receiving defense contractor donations?" - suspicious timing patterns. | HIGH | P3 |
+| Top industries by total contributions | OpenSecrets-style industry aggregation. "Tech gave $2M, Finance gave $1.5M". | MEDIUM | P2 |
+| Individual donor lookup | "Did Elon Musk donate to this politician?" - reverse search from donor name. | LOW | P2 |
+| Committee-level donation breakdown | Show donations to campaign vs leadership PAC - reveals fundraising strategy. | LOW | P2 |
+| Max-out donor identification | Contributors who gave legal limit ($3,300). Indicates high-value supporters. | LOW | P2 |
+| First-time vs repeat donor analysis | "How many new donors vs recurring donors this cycle?" - fundraising health metric. | MEDIUM | P3 |
+| Geographic donor concentration | "50% of donations from CA, 30% from NY" - reveals donor base geography. | LOW | P2 |
 
 ## Anti-Features
 
@@ -43,256 +616,332 @@ Features to explicitly NOT build.
 
 | Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| Real-time price updates | This is a batch CLI tool for analysis, not a trading platform. Real-time adds complexity (websockets, polling) with no user value. | Refresh prices on-demand when user runs enrichment command. Cache current prices for 5-15 min to avoid redundant API calls within same session. |
-| Full options valuation (Greeks, Black-Scholes) | Options pricing is extremely complex (strike, expiry, IV, Greeks). Congressional disclosures often lack strike/expiry details. Adds massive complexity for limited value. | Classify options separately, calculate simple P&L if we have strike/expiry, otherwise mark as "option (valuation N/A)". Focus on stock positions. |
-| Tax reporting features | We don't have enough data (exact purchase amounts, tax lots, account types). IRS reporting requires precision we can't guarantee. Liability risk. | Provide informational P&L only with clear disclaimer: "Not for tax reporting purposes". Flag potential wash sales for awareness, but don't calculate tax liability. |
-| Multi-currency conversion | Congressional trades are overwhelmingly USD stocks. Foreign stocks are rare edge cases. Currency conversion adds API dependencies and complexity. | Assume USD. If foreign ticker detected, mark position as "foreign security (P&L not calculated)" and skip enrichment. Document limitation. |
-| Intraday price tracking | Congressional trades disclose date only, not time. Intraday prices irrelevant and add API cost. | Use daily close price for historical lookups. Sufficient accuracy given 45-day disclosure lag and date-only precision. |
-| Portfolio rebalancing recommendations | This crosses from analysis into investment advice. Out of scope for a transparency/research tool. | Provide data (positions, P&L, sectors) and let users draw their own conclusions. We're a data tool, not a robo-advisor. |
-| Social features (following politicians, alerts) | Adds backend infrastructure (user accounts, notifications, storage). This is a local CLI tool, not a SaaS platform. | Output data to CSV/JSON/DB. Users can build their own alerting using standard tools (cron + grep, etc.). Keep tool stateless. |
+| Full campaign finance platform | Trying to replicate OpenSecrets adds massive scope. FEC has 100+ filing types. | Focus narrowly on Schedule A individual contributions to authorized committees. Link to OpenSecrets for full analysis. |
+| Automatic employer-issuer matching | Employer names are messy. Auto-matching produces false positives. | Flag suggested matches with confidence scores. Require user review/confirmation. Export for manual verification. |
+| Legal compliance analysis | FEC contribution limits, coordination rules are complex legal domains with liability. | Provide raw donation data only. Explicit disclaimer: "Not legal advice, not for compliance purposes." |
+| Real-time donation alerts | FEC data updated daily, not real-time. Polling/webhooks add complexity without value. | Sync on-demand when user runs sync command. Cache 24 hours. Batch CLI tool, not monitoring platform. |
+| Donor identity resolution across name variations | "John Smith" vs "John A Smith" - name matching is AI-hard. FEC doesn't provide unique donor IDs. | Display names as reported in filings. Provide fuzzy search for user-driven lookup. Never auto-merge donors. |
+| Industry classification automation | Mapping "Software Engineer at Tech Startup" to NAICS requires NLP or massive lookup. | Seed common employers manually (top 200). Provide "Unknown Sector" bucket. Export unclassified for manual review. |
+| Expenditure tracking (Schedule B) | Schedule B is disbursements (spending). Different schema, different analysis. | Phase 1 is receipts (Schedule A) only. Document expenditures as future consideration. |
+| Historical amendment tracking | Committees file amendments to correct errors. Tracking revision history is complex. | Use most recent filing data from OpenFEC. FEC API already provides amended records. Don't track revision history. |
+| Multi-candidate aggregation | "Show all donations to Democratic senators" - cross-politician reporting tool scope. | Focus on per-politician analysis. Users can export JSON/CSV and aggregate externally. |
+| FEC filing document parsing | Direct parsing of FEC PDFs is massive complexity. OpenFEC API already does this. | Use OpenFEC API exclusively. Never parse raw filings. If OpenFEC doesn't have it, document as limitation. |
 
 ## Feature Dependencies
 
 ```
-Historical Price Lookup
-    └──requires──> Ticker Symbol Validation
-                       └──requires──> Trade Date Validation
+Schedule A Individual Contributions Sync
+    └──requires──> Politician-to-Committee Mapping
+                       ├──requires──> Candidate ID Lookup (/candidates/search)
+                       └──requires──> Committee Lookup (/committees?candidate_id=X)
 
-Net Position Calculation (FIFO)
-    └──requires──> Historical Price Lookup (for cost basis)
-    └──requires──> Trade Type Classification (buy/sell/exchange)
+Top Donors by Amount
+    └──requires──> Schedule A Sync (data must exist)
+    └──requires──> Donor Name Aggregation (GROUP BY contributor_name)
 
-Unrealized P&L
-    └──requires──> Net Position Calculation
-    └──requires──> Current Price Lookup
+Employer-to-Issuer Correlation
+    ├──requires──> Schedule A Sync (need employer field)
+    ├──requires──> Trade Data (need issuer names)
+    ├──requires──> Fuzzy String Matching (Jaro-Winkler or Levenshtein)
+    └──requires──> Manual Seed Data (top employer mappings)
 
-Realized P&L
-    └──requires──> Net Position Calculation (closed positions)
-    └──requires──> Historical Price Lookup (both buy and sell prices)
+Sector-based Donation Analysis
+    ├──requires──> Schedule A Sync (need employer field)
+    ├──requires──> Employer-to-Sector Mapping (manual seed data)
+    └──enhances──> Portfolio Sector Analysis (compare donation sectors to trade sectors)
 
-Aggregate Portfolio P&L
-    └──requires──> Unrealized P&L
-    └──requires──> Realized P&L
+Donation-to-Trade Timing Correlation
+    ├──requires──> Schedule A Sync (need donation dates)
+    ├──requires──> Employer-to-Issuer Correlation (link employers to tickers)
+    ├──requires──> Trade Data (need trade dates and tickers)
+    └──requires──> Date Windowing Logic (look-back: 30/60/90 days)
 
-Trade Value Estimation ──enhances──> Net Position Calculation (better share count)
-Cost Basis (Avg Weighted) ──enhances──> Unrealized P&L (alternative cost basis method)
-Sector Analysis ──enhances──> Aggregate Portfolio P&L (grouping dimension)
+Top Industries by Total Contributions
+    ├──requires──> Employer-to-Sector Mapping
+    └──requires──> Sector-based Donation Analysis
 
-Wash Sale Detection ──conflicts──> Clean P&L Calculation (creates exceptions/asterisks)
+Committee-level Breakdown
+    ├──requires──> Politician-to-Committee Mapping (know all committees)
+    └──requires──> Committee Type Classification (committee metadata from /committees)
+
+Max-out Donor Identification
+    ├──requires──> Schedule A Sync (need contributor_aggregate_ytd)
+    └──requires──> Legal Limit Constants (contribution limits by cycle: $3,300 for 2025-2026)
 ```
-
-### Dependency Notes
-
-- **Historical Price Lookup requires Ticker Validation:** Must verify ticker exists before making expensive API calls. Invalid tickers fail gracefully.
-- **Historical Price Lookup requires Trade Date Validation:** Can't look up price for invalid/future dates. Weekends need nearest trading day logic.
-- **Net Position requires Historical Price Lookup:** FIFO accounting needs purchase price per lot to calculate cost basis. Can't calculate positions without knowing what was paid.
-- **P&L calculations require Net Position:** Can't calculate profit/loss without knowing current holdings and cost basis. Position calculation is foundation.
-- **Trade Value Estimation enhances Position Calculation:** Reverse-engineering share count from dollar ranges + historical price improves accuracy. Congressional disclosures give ranges like "$15K-50K" - historical price lets us estimate shares = midpoint / price.
-- **Wash Sale Detection conflicts with Clean P&L:** Marking wash sales adds complexity to P&L reporting (need asterisks, footnotes). Defer to v2 if at all.
 
 ## MVP Recommendation
 
-Prioritize core enrichment and position tracking. Defer analysis features to validate foundation first.
+### Phase 1: Data Sync and Basic Reporting
 
-### Launch With (v1)
+**Goal:** Sync Schedule A donations to SQLite, query by politician, display donor list with amounts/employers.
 
-Minimum viable enrichment - prove the data pipeline works:
+**Must-have features:**
+1. Schedule A individual contributions sync
+2. Politician-to-committee mapping (with caching)
+3. Candidate ID lookup (/candidates/search)
+4. Top donors by amount per politician
+5. Total donations by election cycle
+6. Donation date range filtering (--since/--until)
+7. Committee type classification
+8. Sync resumability with date-based checkpoints
+9. Data staleness indicators (synced_at timestamp)
+10. Employer/occupation display
 
-1. **Historical price at trade date** - Core enrichment value
-2. **Current price per ticker** - Required for unrealized P&L
-3. **Ticker symbol validation** - Prevent batch failures
-4. **Trade date validation** - Data quality gate
-5. **Batch processing with resumability** - Handle scale (1000s of trades)
-6. **Graceful failure handling** - Resilience for production use
-7. **Option classification** - Distinguish options from stock (no valuation yet)
-8. **Net position per politician per ticker (FIFO)** - Portfolio foundation
-9. **Unrealized P&L per position** - "What are current holdings worth?"
-10. **Data staleness indicators** - Transparency about price freshness
+**Output formats:** table, JSON, CSV (follow existing output.rs patterns)
 
-### Add After Validation (v1.x)
+**Estimate:** 2-3 weeks implementation
 
-Once core enrichment is proven stable:
+**Success criteria:** User can run `capitoltraders donations --politician "Nancy Pelosi" --cycle 2024` and see top donors with employers/amounts.
 
-- **Realized P&L (closed positions)** - Requires robust position tracking, add when FIFO accounting is validated
-- **Trade value estimation** - Enhance position accuracy using historical prices
-- **Cost basis (average weighted)** - Alternative to FIFO, useful comparison
-- **Aggregate portfolio P&L per politician** - Headline feature, requires all P&L components working
+### Phase 2: Employer Correlation
 
-### Future Consideration (v2+)
+**Goal:** Link donation employers to stock issuers, identify potential conflicts.
 
-Defer until v1 is in production use:
+**Add features:**
+- Employer-to-issuer fuzzy matching (Jaro-Winkler, 0.85+ threshold)
+- Manual seed data for top 200 employers (TOML config)
+- Flagged matches with confidence scores (not auto-linked)
+- User confirmation workflow (review/confirm/reject matches)
+- Correlation output: employer, ticker, confidence, donation total, trade value
 
-- **Sector-level portfolio analysis** - Requires sector metadata integration
-- **Wash sale detection** - Edge case, adds complexity to P&L reporting
-- **Performance vs S&P 500 benchmark** - Requires time-series infrastructure
-- **Historical portfolio snapshots** - Major feature, requires storage architecture redesign
+**Estimate:** 2 weeks implementation + 1 week seed data curation
 
-## Feature Prioritization Matrix
+**Success criteria:** User can run `capitoltraders correlate-donations --politician "Nancy Pelosi"` and review suggested employer-issuer matches.
 
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| Historical price at trade date | HIGH | MEDIUM | P1 |
-| Current price per ticker | HIGH | LOW | P1 |
-| Ticker symbol validation | HIGH | MEDIUM | P1 |
-| Trade date validation | HIGH | LOW | P1 |
-| Batch processing with resumability | HIGH | MEDIUM | P1 |
-| Graceful failure handling | HIGH | LOW | P1 |
-| Option classification | HIGH | LOW | P1 |
-| Net position (FIFO) | HIGH | HIGH | P1 |
-| Unrealized P&L | HIGH | MEDIUM | P1 |
-| Data staleness indicators | MEDIUM | LOW | P1 |
-| Realized P&L | HIGH | MEDIUM | P2 |
-| Trade value estimation | MEDIUM | HIGH | P2 |
-| Cost basis (avg weighted) | MEDIUM | MEDIUM | P2 |
-| Aggregate portfolio P&L | HIGH | MEDIUM | P2 |
-| Sector analysis | MEDIUM | MEDIUM | P3 |
-| Wash sale detection | LOW | MEDIUM | P3 |
-| Performance vs benchmark | MEDIUM | HIGH | P3 |
-| Historical snapshots | HIGH | HIGH | P3 |
+### Phase 3: Advanced Analysis
 
-**Priority key:**
-- P1: Must have for launch (v1.0)
-- P2: Should have, add when possible (v1.x)
-- P3: Nice to have, future consideration (v2+)
+**Goal:** Sector analysis and timing correlation.
 
-## Implementation Complexity Notes
+**Add features:**
+- Employer-to-sector mapping (manual seed for top 200)
+- Top industries by total contributions
+- Committee-level donation breakdown
+- Donation-to-trade timing correlation (60-day look-back)
+- Geographic donor concentration
+- Max-out donor identification
 
-### Historical Price Lookup (MEDIUM Complexity)
-- Yahoo Finance unofficial APIs (yfinance library most popular in Rust ecosystem)
-- Handle weekends/holidays - need "nearest trading day" logic
-- Rate limiting - batch lookups to avoid API throttling
-- Delisted stocks - some tickers won't have data, need fallback
-- Date range validation - can't look up future dates
-- **Estimate:** 2-3 days implementation + 1 day testing edge cases
+**Estimate:** 3-4 weeks implementation
 
-### Net Position Calculation (HIGH Complexity)
-- FIFO accounting across all trades per ticker per politician
-- Handle multiple transaction types: buy, sell, exchange, receive
-- Partial position tracking - some positions never fully closed
-- Edge cases: stock splits, mergers (out of scope for v1, document limitation)
-- Congressional trade quirks: dollar ranges not exact shares, need estimation
-- Validation: positions should never go negative (unless short selling, which politicians rarely do)
-- **Estimate:** 4-5 days implementation + 2 days testing with real trade data
+**Success criteria:** User can identify that politician received $500K from Tech sector, then bought $1M in tech stocks 30 days later.
 
-### Trade Value Estimation (HIGH Complexity)
-- Parse dollar range strings ("$15,001 - $50,000") into numeric ranges
-- Calculate midpoint of range
-- Divide by historical price to estimate shares
-- Round to reasonable share counts (no fractional shares for stocks)
-- Handle edge cases: very small trades (under $1K), very large trades (over $50M)
-- Accuracy validation - compare estimated vs reported ranges
-- **Estimate:** 3-4 days implementation + 1 day validation
+## Implementation Estimates
 
-### Realized P&L (MEDIUM Complexity)
-- Match sell transactions to buy transactions using FIFO
-- Calculate gain/loss per matched pair: (sell_price - buy_price) * shares
-- Sum across all closed positions
-- Handle partial sells - only realize P&L on portion sold
-- Edge case: sells before buys in trade history (data quality issue)
-- **Estimate:** 2-3 days implementation + 1 day testing
+| Feature | Complexity | Estimate | Rationale |
+|---------|------------|----------|-----------|
+| Schedule A sync | MEDIUM | 2-3 days | OpenFEC keyset pagination, rate limiting, incremental sync |
+| Politician-to-committee mapping | MEDIUM | 2-3 days | Multi-step lookup, name disambiguation, caching |
+| Top donors aggregation | LOW | 1 day | SQL GROUP BY contributor_name, ORDER BY sum DESC |
+| Date range filtering | LOW | 0.5 day | WHERE contribution_receipt_date BETWEEN |
+| Committee type classification | LOW | 1 day | Fetch committee metadata, map codes to labels |
+| Sync resumability | MEDIUM | 1-2 days | Track last_contribution_date, use min_date for incremental |
+| Employer-to-issuer fuzzy matching | HIGH | 4-5 days | Jaro-Winkler implementation, threshold tuning, normalization |
+| Employer-to-sector mapping | MEDIUM | 2-3 days | Manual seed data curation for top 200 employers |
+| Timing correlation | HIGH | 3-4 days | Date windowing SQL, indexed queries, performance optimization |
 
-### Sector Analysis (MEDIUM Complexity)
-- Yahoo Finance API provides sector metadata per ticker
-- Map tickers to sectors during price enrichment
-- Store sector in database (new field in tickers table)
-- Group positions by sector for reporting
-- Handle unknown sectors gracefully (ETFs, bonds, etc.)
-- **Estimate:** 2 days implementation + 0.5 day testing
+**Total Phase 1:** 10-15 days (2-3 weeks)
+**Total Phase 2:** 10-12 days (2 weeks)
+**Total Phase 3:** 15-20 days (3-4 weeks)
 
-## Complexity Factors Specific to Congressional Trades
+## Data Volume Estimates
 
-### Dollar Range Ambiguity
-Congressional disclosures use ranges ($1K-15K, $15K-50K, $50K-100K, etc.) not exact amounts. This creates uncertainty:
-- **Impact on position tracking:** Can't calculate exact share counts without price data
-- **Mitigation:** Use historical price to estimate shares = range_midpoint / historical_price
-- **Accuracy:** ±50% error possible (if trade was at range boundary), but better than no estimate
-- **Validation:** Calculate value = estimated_shares * historical_price, check if within original range
+### Per-Politician Data
 
-### 45-Day Disclosure Lag
-Trades disclosed 30-45 days after execution:
-- **Impact on analysis:** Prices may have moved significantly by time of disclosure
-- **Impact on enrichment:** Historical lookup always needed, can't use "current" price
-- **User expectation:** Show both trade-date price and current price for context
-- **Note:** This is why real-time features are anti-features - data is inherently stale
+**Major politicians (Pelosi, McConnell, leadership):**
+- 10,000-50,000 donations per 2-year cycle
+- 3-5 associated committees
+- 500-1,000 unique donors per cycle
 
-### Incomplete Transaction Details
-Many trades lack key details:
-- Missing transaction type (buy/sell sometimes unclear)
-- Missing ticker symbols (only company name given)
-- Options trades often lack strike/expiry
-- **Mitigation:** Classify as "incomplete data" and skip P&L calculation, show in separate report
-- **Data quality flag:** Track completeness metrics, surface in enrichment summary
+**Average House member:**
+- 1,000-5,000 donations per cycle
+- 1-2 committees
+- 200-500 unique donors
 
-### Asset Type Diversity
-Congressional trades include:
-- Common stock (bulk of trades, easy)
-- Stock options (calls/puts, complex valuation)
-- Municipal bonds (limited price data)
-- Cryptocurrency (newer, volatile)
-- Real estate/funds (not publicly traded)
-- **Mitigation:** Focus v1 on stocks only (80%+ of volume), classify others separately
+**Average Senator:**
+- 5,000-15,000 donations per 6-year term (across 3 cycles)
+- 2-3 committees
+- 500-1,500 unique donors
+
+### API Call Estimates
+
+**Full sync for one politician:**
+- Candidate search: 1 call
+- Committee lookup: 1 call
+- Schedule A pages: 10-500 calls (100 records/page)
+- **Total:** 12-502 calls
+
+**Full sync for all 535 members of Congress:**
+- Candidate/committee: 1,070 calls
+- Schedule A (average 5K donations each): ~30,000 calls
+- **Total:** ~31,000 calls
+- **Time at 100 calls/hour:** 310 hours = 13 days continuous
+
+**Mitigation:** On-demand sync per politician (not bulk sync), incremental date-based updates
+
+### Storage Estimates
+
+**Donations table (per politician, 2-year cycle):**
+- Average politician: 2,000 donations x 1KB/row = 2 MB
+- Major politician: 20,000 donations x 1KB/row = 20 MB
+- All 535 members: ~1 GB total (assuming average dataset)
+
+**Committee mappings cache:**
+- 535 politicians x 3 committees average = ~1,600 entries
+- ~100 KB total
+
+**Employer-issuer seed data:**
+- 200 manual mappings x 200 bytes = ~40 KB
+
+**Total database size:** 1-2 GB for full congressional dataset (all members, current cycle)
+
+## Known Data Quality Issues
+
+### Issue: ActBlue/WinRed Conduit Contributions
+
+**Problem:** Donations through ActBlue (Democratic) or WinRed (Republican) often show `contributor_id` as the conduit committee, not the individual donor.
+
+**Impact:** `is_individual=true` filter may include conduit contributions, inflating individual donor counts.
+
+**Mitigation:** Filter out known conduit committee IDs (ActBlue = C00401224, WinRed = C00694323).
+
+**OpenFEC issue:** [GitHub Issue #1426 - Handle itemized receipts from individuals with committee contributor IDs](https://github.com/fecgov/openFEC/issues/1426)
+
+### Issue: Employer Name Inconsistency
+
+**Problem:** Same employer reported dozens of ways:
+- "Google" (1,234 records)
+- "Google Inc" (567 records)
+- "Google LLC" (890 records)
+- "Alphabet Inc" (345 records)
+- "GOOGLE" (123 records)
+
+**Impact:** Aggregating by raw employer name underreports totals.
+
+**Mitigation:** Normalize employer names before aggregation (lowercase, strip legal suffixes, collapse whitespace).
+
+**Research finding:** [FEC standardizer using Random Forest achieves 0.96 F1 score for donor name clustering](https://github.com/cjdd3b/fec-standardizer/wiki/Defining-donor-clusters) but occasionally groups identical names from same ZIP (false positives).
+
+### Issue: Generic Employer Values
+
+**Problem:** FEC requires employer for donations >$200, but many report:
+- "Retired" (10-15% of donations)
+- "Self-employed" (5-10%)
+- "Not employed"
+- "N/A"
+- "None"
+
+**Impact:** Cannot correlate these to stock issuers.
+
+**Mitigation:** Exclude from employer-issuer matching. Classify as "Non-employment Income" sector.
+
+### Issue: Occupation Ambiguity
+
+**Problem:** Occupation field is free text, no standardization:
+- "Software Engineer" at Google vs "Engineer" at Google vs "SWE" at Google
+- "Attorney" vs "Lawyer" vs "Legal Counsel"
+
+**Impact:** Occupation-based filtering unreliable.
+
+**Mitigation:** Don't rely on occupation for critical logic. Display as-is, don't aggregate by occupation.
+
+## Regulatory and Compliance Context
+
+### Individual Contribution Limits (2025-2026 Cycle)
+
+- **Per candidate per election:** $3,300
+- **Primary vs general:** Separate limits (total $6,600 if both)
+- **National party committee per year:** $41,300
+- **State/district/local party committee per year:** $10,000
+- **PAC (multicandidate) per year:** $5,000
+- **PAC (non-multicandidate) per year:** $10,000
+
+**Source:** [FEC Contribution Limits 2025-2026](https://www.fec.gov/help-candidates-and-committees/candidate-taking-receipts/contribution-limits/)
+
+### Reporting Thresholds
+
+- **$200 threshold:** Contributions over $200 (aggregate per calendar year) must be itemized with name, address, employer, occupation.
+- **Under $200:** Reported as aggregate total, no itemization.
+
+**Impact:** Schedule A only shows donations >$200. Small donations ($5, $25) not itemized.
+
+### Schedule A vs Schedule B
+
+- **Schedule A:** Itemized receipts (contributions TO the committee)
+- **Schedule B:** Itemized disbursements (expenditures BY the committee)
+
+**This research focuses on Schedule A only.** Schedule B (spending) is separate analysis domain.
+
+### Independent Expenditures (Super PACs)
+
+**Out of scope for Phase 1:**
+- Super PACs make "independent expenditures" (not coordinated with candidate)
+- Unlimited contributions to Super PACs allowed
+- Reported separately from candidate committees
+- Different analysis (who's spending on behalf of candidate, not who's funding candidate directly)
+
+**Mitigation:** Document that we track authorized committee contributions only. Link to OpenSecrets for Super PAC analysis.
 
 ## Sources
 
-### Portfolio Tracking Features
-- [11 Best Portfolio Analysis Software For Investors in 2026 - MarketDash](https://www.marketdash.io/blog/best-portfolio-analysis-software)
-- [15 Best Stock Portfolio Trackers in February 2026 - Benzinga](https://www.benzinga.com/money/best-portfolio-tracker)
-- [11 Best Stock Portfolio Trackers for 2026 Reviewed - ValueWalk](https://www.valuewalk.com/investing/best-stock-portfolio-tracker/)
-- [Stock Portfolio Management & Tracker - Yahoo Finance](https://finance.yahoo.com/portfolios/)
+### OpenFEC API Documentation (HIGH Confidence)
+- [OpenFEC API Documentation](https://api.open.fec.gov/developers/) - Official interactive API docs
+- [Schedule A column documentation - fecgov/openFEC Wiki](https://github.com/fecgov/openFEC/wiki/Schedule-A-column-documentation) - Field definitions
+- [GitHub - fecgov/openFEC](https://github.com/fecgov/openFEC) - Source code and issue tracker
+- [18F - OpenFEC API Update - 67 million more records](https://18f.gsa.gov/2015/07/15/openfec-api-update/) - API design rationale
+- [OpenFEC makes campaign finance data more accessible - Sunlight Foundation](https://sunlightfoundation.com/2015/07/08/openfec-makes-campaign-finance-data-more-accessible-with-new-api-heres-how-to-get-started/) - Getting started guide
 
-### Trade Enrichment Patterns
-- [Trade data enrichment for Transaction Cost Analysis - LSEG Devportal](https://developers.lseg.com/en/article-catalog/article/trade-data-enrichment-for-transaction-cost-analysis)
-- [Trade Enrichment | How is it achieved | Components - Fintelligents](https://fintelligents.com/trade-enrichment/)
-- [The TRADE predictions series 2026: Key insights on data](https://www.thetradenews.com/the-trade-predictions-series-2026-key-insights-on-data/)
+### FEC Filing Requirements (HIGH Confidence)
+- [Individual contributions - FEC.gov](https://www.fec.gov/help-candidates-and-committees/filing-reports/individual-contributions/) - Official filing rules
+- [Contribution limits for 2025-2026](https://www.fec.gov/help-candidates-and-committees/candidate-taking-receipts/contribution-limits/) - Current limits
+- [Committee master file description - FEC.gov](https://www.fec.gov/campaign-finance-data/committee-master-file-description/) - Committee data fields
+- [Candidate master file description - FEC.gov](https://www.fec.gov/campaign-finance-data/candidate-master-file-description/) - Candidate ID format
 
-### Congressional Trading Tools
-- [Congress Trading - Quiver Quantitative](https://www.quiverquant.com/congresstrading/)
-- [What's Trading on Capitol Hill? - Capitol Trades](https://www.capitoltrades.com/)
-- [US politician trade tracker - Trendlyne](https://us.trendlyne.com/us/politicians/recent-trades/)
-- [Congress Stock Trades Tracker - InsiderFinance](https://www.insiderfinance.io/congress-trades)
-- [Using a Congress Stock Tracker to Guide Your Trades - Intellectia](https://intellectia.ai/blog/best-congress-stock-tracker)
+### Candidate-Committee Mapping (MEDIUM Confidence)
+- [Differences Between Candidate ID vs Committee ID - FEC](https://ispolitical.com/What-is-the-Difference-Between-FEC-Candidate-IDs-and-Committee-IDs/) - ID format explanation
+- [Registering a committee - FEC.gov](https://www.fec.gov/help-candidates-and-committees/filing-reports/registering-committee/) - Committee types
+- [OpenFEC (Independent Publisher) - Microsoft Learn](https://learn.microsoft.com/en-us/connectors/openfec/) - API connector documentation
 
-### P&L Calculation
-- [How to Calculate Your Trading Profit & Loss (P&L) with Ease - SoftFX](https://www.soft-fx.com/blog/how-to-calculate-your-profit-and-loss-for-your-trading-positions/)
-- [What is PnL and How to Calculate it? - QuadCode](https://quadcode.com/glossary/what-is-pl-and-how-to-calculate-it)
-- [How to Calculate Stock Profit - Charles Schwab](https://www.schwab.com/learn/story/how-to-calculate-stock-profit)
-- [Position and P&L - IBKR Guides](https://www.ibkrguides.com/traderworkstation/position-and-pnl.htm)
-- [How to manually compute the P&L of your stocks, options and futures trades - TradMetria](https://trademetria.com/blog/how-to-manually-compute-the-pl-of-your-stocks-options-and-futures-trades/)
+### Data Quality and Normalization (MEDIUM Confidence)
+- [Defining donor clusters - fec-standardizer Wiki](https://github.com/cjdd3b/fec-standardizer/wiki/Defining-donor-clusters) - Random Forest donor name matching (0.96 F1)
+- [Contributions by individuals file description - FEC.gov](https://www.fec.gov/campaign-finance-data/contributions-individuals-file-description/) - Bulk data format
+- [Handle itemized receipts with committee contributor IDs - Issue #1426](https://github.com/fecgov/openFEC/issues/1426) - ActBlue conduit issue
+- [Resolve individual vs committee filtering issues - Issue #1779](https://github.com/fecgov/openFEC/issues/1779) - is_individual filter bugs
 
-### Options Tracking
-- [Basic Call and Put Options Strategies - Charles Schwab](https://www.schwab.com/learn/story/basic-call-and-put-options-strategies)
-- [Options profit calculator](https://www.optionsprofitcalculator.com/)
-- [Long Put Calculator - Options Profit Calculator](https://www.optionsprofitcalculator.com/calculator/long-put.html)
+### Employer-Issuer Correlation (MEDIUM Confidence)
+- [SEC EDGAR - Company Search](https://www.sec.gov/edgar/searchedgar/companysearch.html) - Public company lookup
+- [SEC EDGAR APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) - Company metadata JSON
+- [Yahoo Finance Stocklist Scraper](https://github.com/jaungiers/Yahoo-Finance-Stocklist-Scraper) - Ticker to company name mapping
+- [SEC CIK/CUSIP/Ticker service](https://github.com/danielsobrado/edgar-cik-cusip-ticker-sector-service) - Multi-identifier mapping
 
-### Position Tracking (FIFO/LIFO)
-- [LIFO vs FIFO: Which is Better for Day Traders? - Warrior Trading](https://www.warriortrading.com/lifo-vs-fifo-which-is-better-for-day-traders/)
-- [FIFO Method Explained (2025): Guide for Traders - The Trading Analyst](https://thetradinganalyst.com/fifo-method/)
-- [How to Sell Stock With FIFO or LIFO - Nasdaq](https://www.nasdaq.com/articles/how-sell-stock-fifo-or-lifo-2016-03-19)
-- [How to Determine Which Shares to Sell, FIFO or LIFO - Zacks](https://finance.zacks.com/determine-shares-sell-fifo-lifo-9766.html)
-- [Understanding FIFO / FILO on stocks for tax reporting - Claimyr](https://claimyr.com/government-services/irs/Understanding-FIFO-FILO-on-stocks-for-tax-reporting-which-method-is-better/2025-04-11)
+### Industry Classification (LOW Confidence)
+- [OpenSecrets Industry Codes](https://www.opensecrets.org/open-data/api-documentation) - Manual industry categorization
+- [OpenSecrets Bulk Data](https://www.opensecrets.org/open-data/bulk-data) - CRP_Categories.txt industry mapping
+- [Employer & Industry - Adept ID](https://docs.adept-id.com/docs/employer-industry) - Employer taxonomy concepts
+- [BLS Industries by NAICS Code](https://www.bls.gov/iag/tgs/iag_index_naics.htm) - NAICS structure (no employer name mapping)
 
-### Congressional Trading Analysis Pitfalls
-- [Estimating Congressional Trade Values: Range Analysis Guide - Nancy Pelosi Stock Tracker](https://nancypelosistocktracker.org/articles/estimating-trade-values)
-- [Congress Trading Report 2024 - Unusual Whales](https://unusualwhales.com/congress-trading-report-2024)
-- [Capitol Losses: The Mediocre Performance of Congressional Stock Portfolios](https://j-hai.github.io/assets/pdf/capitol.pdf)
-- [Do senators and house members beat the stock market? - ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0047272722000044)
+### API Pagination and Rate Limits (MEDIUM Confidence)
+- [18F - OpenFEC API rate limiting](https://github.com/fecgov/openFEC) - 100 calls/hour via API Umbrella
+- [OpenFEC API makes new itemized data available - Sunlight Foundation](https://sunlightfoundation.com/2015/08/18/openfec-api-makes-new-itemized-data-available/) - Keyset pagination design
 
-### Yahoo Finance API
-- [Download historical data in Yahoo Finance - Yahoo Help](https://help.yahoo.com/kb/SLN2311.html)
-- [Yahoo Finance API - A Complete Guide - AlgoTrading101](https://algotrading101.com/learn/yahoo-finance-api-guide/)
-- [GitHub - ranaroussi/yfinance: Download market data from Yahoo! Finance's API](https://github.com/ranaroussi/yfinance)
-- [How To Use The Yahoo Finance API - Market Data](https://www.marketdata.app/how-to-use-the-yahoo-finance-api/)
+### Campaign Finance Analysis Tools (Context)
+- [OpenSecrets](https://www.opensecrets.org/) - Competitive analysis (industry aggregation)
+- [OpenSecrets Donor Lookup](https://www.opensecrets.org/donor-lookup) - Individual donor search
+- [FEC Campaign Finance Data](https://www.fec.gov/data/browse-data/) - Official FEC web interface
 
-### Data Quality and Missing Data
-- [A Better Way for Finance (and Others) to Handle Missing Data - Chicago Booth Review](https://www.chicagobooth.edu/review/better-way-finance-others-handle-missing-data)
-- [How to identify and Handle Missing Trading Data to clean up - Medium](https://medium.com/@malarraju14/how-to-identify-and-handle-missing-trading-data-to-clean-up-7fcbca224157)
-- [Handling Missing Data in Trading Datasets - BlueChip Algos](https://bluechipalgos.com/blog/handling-missing-data-in-trading-datasets/)
-
-### Portfolio Data Validation
-- [How to Streamline Your Investment Tracking with a Portfolio Tracker Using Data Validation in Google Sheets - FileDrop](https://getfiledrop.com/how-to-streamline-your-investment-tracking-with-a-portfolio-tracker-using-data-validation-in-google-sheets/)
-- [Portfolio-performance - Help Documentation](https://help.portfolio-performance.info/en/reference/view/securities/all-securities/)
+### Congressional Trading and Donations (Context)
+- [Congressional Stock Trading Conflicts - Campaign Legal Center](https://campaignlegal.org/update/congressional-stock-trading-continues-raise-conflicts-interest-concerns) - Ethics context
+- [InsiderFinance Congress Trades Tracker](https://www.insiderfinance.io/congress-trades) - Competitive landscape
 
 ---
-*Feature research for: Stock Price Enrichment and Portfolio Tracking for Congressional Trade Analysis*
-*Researched: 2026-02-09*
-*Confidence: MEDIUM (verified via multiple web sources, no official library documentation available for Context7 verification)*
+
+**Confidence Assessment:**
+- **API Fields and Endpoints:** HIGH (verified via OpenFEC docs and GitHub)
+- **Candidate-Committee Mapping:** MEDIUM (documented in API, but multi-step complexity)
+- **Employer-Issuer Correlation:** MEDIUM (approach documented in research, but no production implementation reference)
+- **Industry Classification:** LOW (no authoritative free API found, manual mapping recommended)
+- **Data Quality Issues:** MEDIUM (documented in GitHub issues, community research)
+
+**Research Gaps:**
+- No official OpenFEC field-by-field data dictionary found (GitHub wiki partially complete)
+- Industry/sector classification not provided by FEC API (must build externally)
+- ActBlue conduit contribution filtering not fully documented (known issue, no official solution)
+- Employer name normalization best practices scattered across community tools (no single authority)
