@@ -63,6 +63,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 2)?;
         }
 
+        if version < 3 {
+            self.migrate_v3()?;
+            self.conn.pragma_update(None, "user_version", 3)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -102,6 +107,30 @@ impl Db {
                 Err(e) => return Err(e.into()),
             }
         }
+        Ok(())
+    }
+
+    fn migrate_v3(&self) -> Result<(), DbError> {
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS fec_mappings (
+                politician_id TEXT NOT NULL,
+                fec_candidate_id TEXT NOT NULL,
+                bioguide_id TEXT NOT NULL,
+                election_cycle INTEGER,
+                last_synced TEXT NOT NULL,
+                PRIMARY KEY (politician_id, fec_candidate_id),
+                FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fec_mappings_fec_id ON fec_mappings(fec_candidate_id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fec_mappings_bioguide ON fec_mappings(bioguide_id)",
+            [],
+        )?;
         Ok(())
     }
 
@@ -2570,6 +2599,89 @@ CREATE INDEX IF NOT EXISTS idx_politician_committees_committee ON politician_com
 CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
 ";
 
+    /// The V2 schema with enriched_at and price columns but without fec_mappings table.
+    const V2_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS assets (
+    asset_id INTEGER PRIMARY KEY,
+    asset_type TEXT NOT NULL,
+    asset_ticker TEXT,
+    instrument TEXT
+);
+CREATE TABLE IF NOT EXISTS issuers (
+    issuer_id INTEGER PRIMARY KEY,
+    state_id TEXT,
+    c2iq TEXT,
+    country TEXT,
+    issuer_name TEXT NOT NULL,
+    issuer_ticker TEXT,
+    sector TEXT,
+    enriched_at TEXT
+);
+CREATE TABLE IF NOT EXISTS politicians (
+    politician_id TEXT PRIMARY KEY,
+    state_id TEXT NOT NULL,
+    party TEXT NOT NULL,
+    party_other TEXT,
+    district TEXT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    nickname TEXT,
+    middle_name TEXT,
+    full_name TEXT,
+    dob TEXT NOT NULL,
+    gender TEXT NOT NULL,
+    social_facebook TEXT,
+    social_twitter TEXT,
+    social_youtube TEXT,
+    website TEXT,
+    chamber TEXT NOT NULL,
+    enriched_at TEXT
+);
+CREATE TABLE IF NOT EXISTS trades (
+    tx_id INTEGER PRIMARY KEY,
+    politician_id TEXT NOT NULL,
+    asset_id INTEGER NOT NULL,
+    issuer_id INTEGER NOT NULL,
+    pub_date TEXT NOT NULL,
+    filing_date TEXT NOT NULL,
+    tx_date TEXT NOT NULL,
+    tx_type TEXT NOT NULL,
+    tx_type_extended TEXT,
+    has_capital_gains INTEGER NOT NULL,
+    owner TEXT NOT NULL,
+    chamber TEXT NOT NULL,
+    price REAL,
+    size INTEGER,
+    size_range_high INTEGER,
+    size_range_low INTEGER,
+    value INTEGER NOT NULL,
+    filing_id INTEGER NOT NULL,
+    filing_url TEXT NOT NULL,
+    reporting_gap INTEGER NOT NULL,
+    comment TEXT,
+    enriched_at TEXT,
+    trade_date_price REAL,
+    current_price REAL,
+    price_enriched_at TEXT,
+    estimated_shares REAL,
+    estimated_value REAL,
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE,
+    FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
+    FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS positions (
+    politician_id TEXT NOT NULL,
+    issuer_ticker TEXT NOT NULL,
+    shares_held REAL NOT NULL,
+    cost_basis REAL NOT NULL,
+    realized_pnl REAL NOT NULL DEFAULT 0.0,
+    last_updated TEXT NOT NULL,
+    PRIMARY KEY (politician_id, issuer_ticker),
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+";
+
     #[test]
     fn test_init_creates_enriched_at_columns() {
         let db = open_test_db();
@@ -2583,7 +2695,7 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 2);
+        assert_eq!(get_user_version(&db), 3);
     }
 
     #[test]
@@ -2615,8 +2727,8 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         assert!(has_column(&db, "politicians", "enriched_at"));
         assert!(has_column(&db, "issuers", "enriched_at"));
 
-        // Verify user_version is now 2 (both v1 and v2 migrations applied)
-        assert_eq!(get_user_version(&db), 2);
+        // Verify user_version is now 3 (all migrations v1, v2, v3 applied)
+        assert_eq!(get_user_version(&db), 3);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -2683,8 +2795,8 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         ).expect("check positions table");
         assert!(table_exists, "positions table should exist");
 
-        // Verify user_version is now 2
-        assert_eq!(get_user_version(&db), 2);
+        // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
+        assert_eq!(get_user_version(&db), 3);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -2698,9 +2810,9 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
     #[test]
     fn test_migration_v2_idempotent() {
         let db = open_test_db();
-        // DB is now at v2. Call init again -- must not error
+        // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 2);
+        assert_eq!(get_user_version(&db), 3);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -2708,6 +2820,89 @@ CREATE INDEX IF NOT EXISTS idx_eod_prices_date ON issuer_eod_prices(price_date);
         assert!(has_column(&db, "trades", "price_enriched_at"));
         assert!(has_column(&db, "trades", "estimated_shares"));
         assert!(has_column(&db, "trades", "estimated_value"));
+    }
+
+    #[test]
+    fn test_fresh_db_has_fec_mappings_table() {
+        let db = Db::open_in_memory().unwrap();
+        db.init().unwrap();
+        // Verify table exists by querying it
+        let count: i64 = db.conn.query_row(
+            "SELECT COUNT(*) FROM fec_mappings", [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_migration_v2_to_v3() {
+        // Simulate a v2 database: create v2 schema with price columns,
+        // set user_version to 2
+        let db = Db::open_in_memory().expect("open in-memory db");
+        db.conn.execute_batch(V2_SCHEMA).expect("create v2 schema");
+        db.conn.pragma_update(None, "user_version", 2).expect("set user_version to 2");
+
+        // Verify no fec_mappings table yet
+        let table_exists: bool = db.conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='fec_mappings'",
+            [],
+            |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            }
+        ).unwrap();
+        assert!(!table_exists, "fec_mappings table should not exist yet");
+        assert_eq!(get_user_version(&db), 2);
+
+        // Insert a test politician before migration
+        db.conn.execute("INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')", []).expect("insert asset");
+        db.conn.execute("INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'TestCorp')", []).expect("insert issuer");
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'senate')",
+            [],
+        ).expect("insert test politician");
+
+        // Run init which should apply v3 migration
+        db.init().expect("init with v3 migration");
+
+        // Verify fec_mappings table now exists
+        let table_exists: bool = db.conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='fec_mappings'",
+            [],
+            |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            }
+        ).expect("check fec_mappings table");
+        assert!(table_exists, "fec_mappings table should exist after migration");
+
+        // Verify user_version is now 3
+        assert_eq!(get_user_version(&db), 3);
+
+        // Verify pre-existing politician data is preserved
+        let name: String = db.conn.query_row(
+            "SELECT first_name FROM politicians WHERE politician_id = 'P000001'",
+            [],
+            |row| row.get(0),
+        ).expect("query test politician");
+        assert_eq!(name, "Jane");
+    }
+
+    #[test]
+    fn test_init_sets_version_3() {
+        let db = Db::open_in_memory().unwrap();
+        db.init().unwrap();
+        let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
+        assert_eq!(version, 3);
+    }
+
+    #[test]
+    fn test_migration_v3_idempotent() {
+        let db = Db::open_in_memory().unwrap();
+        db.init().unwrap();
+        db.init().unwrap(); // Should not fail
+        let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
+        assert_eq!(version, 3);
     }
 
     #[test]

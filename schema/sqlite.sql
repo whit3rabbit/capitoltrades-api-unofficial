@@ -157,6 +157,16 @@ CREATE TABLE IF NOT EXISTS ingest_meta (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS fec_mappings (
+    politician_id TEXT NOT NULL,
+    fec_candidate_id TEXT NOT NULL,
+    bioguide_id TEXT NOT NULL,
+    election_cycle INTEGER,
+    last_synced TEXT NOT NULL,
+    PRIMARY KEY (politician_id, fec_candidate_id),
+    FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_trades_politician ON trades(politician_id);
 CREATE INDEX IF NOT EXISTS idx_trades_issuer ON trades(issuer_id);
 CREATE INDEX IF NOT EXISTS idx_trades_pub_date ON trades(pub_date);
@@ -175,3 +185,5 @@ CREATE INDEX IF NOT EXISTS idx_trades_price_enriched ON trades(price_enriched_at
 CREATE INDEX IF NOT EXISTS idx_positions_politician ON positions(politician_id);
 CREATE INDEX IF NOT EXISTS idx_positions_ticker ON positions(issuer_ticker);
 CREATE INDEX IF NOT EXISTS idx_positions_updated ON positions(last_updated);
+CREATE INDEX IF NOT EXISTS idx_fec_mappings_fec_id ON fec_mappings(fec_candidate_id);
+CREATE INDEX IF NOT EXISTS idx_fec_mappings_bioguide ON fec_mappings(bioguide_id);
