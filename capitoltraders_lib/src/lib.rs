@@ -9,6 +9,7 @@ pub mod client;
 pub mod db;
 pub mod error;
 pub mod fec_mapping;
+pub mod openfec;
 pub mod portfolio;
 pub mod pricing;
 pub mod scrape;
@@ -30,6 +31,7 @@ pub use db::{
 };
 pub use error::CapitolTradesError;
 pub use fec_mapping::{FecMapping, FecMappingError, Legislator, download_legislators, match_legislators_to_politicians};
+pub use openfec::{OpenFecClient, OpenFecError};
 pub use portfolio::{calculate_positions, Lot, Position, TradeFIFO};
 pub use pricing::{estimate_shares, parse_trade_range, ShareEstimate, TradeRange};
 pub use scrape::{
