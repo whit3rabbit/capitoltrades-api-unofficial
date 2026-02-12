@@ -34,10 +34,11 @@ Full details: `.planning/milestones/v1.1-ROADMAP.md`
   2. .env file is loaded at startup and .gitignore excludes it from version control
   3. Congress-legislators dataset is parsed and politician-to-FEC-ID mappings are stored in SQLite
   4. A lookup by politician name or Bioguide ID returns the correct FEC candidate ID(s)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: TBD
+- [ ] 07-01-PLAN.md -- Environment setup, dependencies, schema v3 migration with fec_mappings table
+- [ ] 07-02-PLAN.md -- FEC mapping module, YAML parsing, DB operations, sync-fec CLI command
 
 #### Phase 8: OpenFEC API Client
 **Goal**: System can communicate with the OpenFEC API, handling pagination, rate limits, and errors correctly
@@ -123,7 +124,7 @@ Plans:
 | 4. Price Enrichment Pipeline | v1.1 | 1/1 | Complete | 2026-02-11 |
 | 5. Portfolio Calculator (FIFO) | v1.1 | 2/2 | Complete | 2026-02-10 |
 | 6. CLI Commands & Output | v1.1 | 1/1 | Complete | 2026-02-11 |
-| 7. Foundation & Environment Setup | v1.2 | 0/TBD | Not started | - |
+| 7. Foundation & Environment Setup | v1.2 | 0/2 | Planned | - |
 | 8. OpenFEC API Client | v1.2 | 0/TBD | Not started | - |
 | 9. Politician-to-Committee Mapping & Schema v3 | v1.2 | 0/TBD | Not started | - |
 | 10. Donation Sync Pipeline | v1.2 | 0/TBD | Not started | - |
