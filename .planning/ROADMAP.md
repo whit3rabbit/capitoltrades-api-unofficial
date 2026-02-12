@@ -56,20 +56,21 @@ Plans:
 - [x] 08-01-PLAN.md -- OpenFEC types, error enum, and client with three endpoint methods
 - [x] 08-02-PLAN.md -- JSON fixtures and wiremock integration tests for all endpoints
 
-#### Phase 9: Politician-to-Committee Mapping & Schema v3
+#### Phase 9: Politician-to-Committee Mapping & Schema v4
 **Goal**: Database schema supports donation storage and politician-to-committee resolution is fully operational
 **Depends on**: Phase 8
 **Requirements**: REQ-v1.2-004, REQ-v1.2-005
 **Success Criteria** (what must be TRUE):
-  1. Schema v3 migration adds donations, fec_mappings, and donation_sync_meta tables without breaking existing v2 data
-  2. Fresh database creation includes all v1+v2+v3 schema in the base DDL
+  1. Schema v4 migration adds donations, donation_sync_meta, and fec_committees tables without breaking existing v3 data
+  2. Fresh database creation includes all v1+v2+v3+v4 schema in the base DDL
   3. Given a CapitolTrades politician, the system resolves their FEC candidate ID and all authorized committee IDs
   4. Committee resolution uses three-tier cache (memory -> SQLite -> API) to minimize API calls
   5. Committee types are classified (campaign vs leadership PAC vs joint fundraising)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 09-01: TBD
+- [ ] 09-01-PLAN.md -- Schema v4 migration (donations, donation_sync_meta, fec_committees tables) and committee DB operations
+- [ ] 09-02-PLAN.md -- CommitteeResolver with three-tier cache, CommitteeClass enum, and wiremock integration tests
 
 #### Phase 10: Donation Sync Pipeline
 **Goal**: Users can sync FEC donation data into their local database for any politician
@@ -127,7 +128,7 @@ Plans:
 | 6. CLI Commands & Output | v1.1 | 1/1 | Complete | 2026-02-11 |
 | 7. Foundation & Environment Setup | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 8. OpenFEC API Client | v1.2 | 2/2 | Complete | 2026-02-12 |
-| 9. Politician-to-Committee Mapping & Schema v3 | v1.2 | 0/TBD | Not started | - |
+| 9. Politician-to-Committee Mapping & Schema v4 | v1.2 | 0/2 | Planned | - |
 | 10. Donation Sync Pipeline | v1.2 | 0/TBD | Not started | - |
 | 11. Donations CLI Command | v1.2 | 0/TBD | Not started | - |
 | 12. Employer Correlation & Analysis | v1.2 | 0/TBD | Not started | - |
