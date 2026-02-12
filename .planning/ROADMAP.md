@@ -53,8 +53,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 08-01-PLAN.md -- OpenFEC types, error enum, and client with three endpoint methods
-- [ ] 08-02-PLAN.md -- JSON fixtures and wiremock integration tests for all endpoints
+- [x] 08-01-PLAN.md -- OpenFEC types, error enum, and client with three endpoint methods
+- [x] 08-02-PLAN.md -- JSON fixtures and wiremock integration tests for all endpoints
 
 #### Phase 9: Politician-to-Committee Mapping & Schema v3
 **Goal**: Database schema supports donation storage and politician-to-committee resolution is fully operational
@@ -126,7 +126,7 @@ Plans:
 | 5. Portfolio Calculator (FIFO) | v1.1 | 2/2 | Complete | 2026-02-10 |
 | 6. CLI Commands & Output | v1.1 | 1/1 | Complete | 2026-02-11 |
 | 7. Foundation & Environment Setup | v1.2 | 2/2 | Complete | 2026-02-12 |
-| 8. OpenFEC API Client | v1.2 | 0/2 | Not started | - |
+| 8. OpenFEC API Client | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 9. Politician-to-Committee Mapping & Schema v3 | v1.2 | 0/TBD | Not started | - |
 | 10. Donation Sync Pipeline | v1.2 | 0/TBD | Not started | - |
 | 11. Donations CLI Command | v1.2 | 0/TBD | Not started | - |
