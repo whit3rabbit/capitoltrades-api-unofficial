@@ -200,6 +200,8 @@ pub struct ScheduleAQuery {
     pub last_contribution_receipt_date: Option<String>,
     pub sort: Option<String>,
     pub sort_hide_null: Option<bool>,
+    pub min_date: Option<String>,
+    pub max_date: Option<String>,
 }
 
 impl ScheduleAQuery {
@@ -243,6 +245,16 @@ impl ScheduleAQuery {
         self
     }
 
+    pub fn with_min_date(mut self, date: &str) -> Self {
+        self.min_date = Some(date.to_string());
+        self
+    }
+
+    pub fn with_max_date(mut self, date: &str) -> Self {
+        self.max_date = Some(date.to_string());
+        self
+    }
+
     /// Build query parameter pairs (excluding None values).
     /// CRITICAL: Never emits a "page" parameter - Schedule A uses keyset pagination only.
     pub fn to_query_pairs(&self) -> Vec<(String, String)> {
@@ -274,6 +286,12 @@ impl ScheduleAQuery {
         }
         if let Some(hide_null) = self.sort_hide_null {
             params.push(("sort_hide_null".to_string(), hide_null.to_string()));
+        }
+        if let Some(ref min_date) = self.min_date {
+            params.push(("min_date".to_string(), min_date.clone()));
+        }
+        if let Some(ref max_date) = self.max_date {
+            params.push(("max_date".to_string(), max_date.clone()));
         }
 
         params
@@ -351,5 +369,38 @@ mod tests {
         for (key, _) in &pairs {
             assert_ne!(key, "page", "Schedule A query must never emit 'page' parameter");
         }
+    }
+
+    #[test]
+    fn schedule_a_query_with_min_date() {
+        let query = ScheduleAQuery::default().with_min_date("2024-01-01");
+        let pairs = query.to_query_pairs();
+        assert_eq!(pairs.len(), 1);
+        assert!(pairs.contains(&("min_date".to_string(), "2024-01-01".to_string())));
+    }
+
+    #[test]
+    fn schedule_a_query_with_date_range() {
+        let query = ScheduleAQuery::default()
+            .with_min_date("2024-01-01")
+            .with_max_date("2024-12-31");
+        let pairs = query.to_query_pairs();
+        assert_eq!(pairs.len(), 2);
+        assert!(pairs.contains(&("min_date".to_string(), "2024-01-01".to_string())));
+        assert!(pairs.contains(&("max_date".to_string(), "2024-12-31".to_string())));
+    }
+
+    #[test]
+    fn schedule_a_query_dates_with_committee() {
+        // Simulates actual incremental sync query pattern
+        let query = ScheduleAQuery::default()
+            .with_committee_id("C00000001")
+            .with_min_date("2024-01-01")
+            .with_per_page(100);
+        let pairs = query.to_query_pairs();
+        assert_eq!(pairs.len(), 3);
+        assert!(pairs.contains(&("committee_id".to_string(), "C00000001".to_string())));
+        assert!(pairs.contains(&("min_date".to_string(), "2024-01-01".to_string())));
+        assert!(pairs.contains(&("per_page".to_string(), "100".to_string())));
     }
 }
