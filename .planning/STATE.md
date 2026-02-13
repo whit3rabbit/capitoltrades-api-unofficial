@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 9 of 12 (Politician-to-Committee Mapping)
-Plan: 2 of 2 (completed)
-Status: Complete
-Last activity: 2026-02-13 -- Completed plan 09-02 (CommitteeResolver service)
+Phase: 10 of 12 (Donation Sync Pipeline)
+Plan: 1 of 2 (completed)
+Status: In Progress
+Last activity: 2026-02-13 -- Completed plan 10-01 (Donation Sync DB Operations)
 
-Progress: [#####.....] 66% (4/6 v1.2 phases)
+Progress: [######....] 75% (5/6 v1.2 phases)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 13
-- Average duration: 8.9 min (v1.1: 4.4 min, v1.2: 13.1 min)
-- Total execution time: 1.78 hours
+- Total plans completed: 14
+- Average duration: 8.6 min (v1.1: 4.4 min, v1.2: 12.1 min)
+- Total execution time: 1.87 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -58,6 +58,12 @@ Progress: [#####.....] 66% (4/6 v1.2 phases)
 - Completed: 2026-02-13
 - Tasks: 2
 - Files: 4 (2 created, 2 modified)
+
+**Phase 10 Plan 1:**
+- Duration: 5 min
+- Completed: 2026-02-13
+- Tasks: 2
+- Files: 2 (modified)
 
 ## Accumulated Context
 
@@ -100,6 +106,12 @@ Progress: [#####.....] 66% (4/6 v1.2 phases)
 - Made Db::open_in_memory() and Db::conn() public for integration test usage
 - Empty committee results cached to prevent repeated API calls for not-found politicians
 
+**Phase 10 Plan 1:**
+- save_sync_cursor_with_donations uses unchecked_transaction for atomicity (prevents cursor state desync)
+- insert_donation returns false for NULL sub_id (no panic, no insert)
+- load_sync_cursor filters WHERE last_index IS NOT NULL (completion check)
+- mark_sync_completed sets last_index to NULL (signals no more pages)
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -115,5 +127,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed Phase 9 Plan 2 (CommitteeResolver service)
-Next step: Phase 9 complete - Ready for Phase 10 (Donation Sync)
+Stopped at: Completed Phase 10 Plan 1 (Donation Sync DB Operations)
+Next step: Ready for Phase 10 Plan 2 (sync-donations CLI command)
