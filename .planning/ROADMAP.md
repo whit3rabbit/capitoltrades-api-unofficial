@@ -101,8 +101,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 11-01-PLAN.md -- Donation query types, filter struct, individual + aggregation DB query methods with unit tests
-- [ ] 11-02-PLAN.md -- Donations CLI command, output formatting (all 5 formats), XML support, filter validation
+- [x] 11-01-PLAN.md -- Donation query types, filter struct, individual + aggregation DB query methods with unit tests
+- [x] 11-02-PLAN.md -- Donations CLI command, output formatting (all 5 formats), XML support, filter validation
 
 #### Phase 12: Employer Correlation & Analysis
 **Goal**: Users can see connections between donation sources and traded securities
@@ -132,5 +132,5 @@ Plans:
 | 8. OpenFEC API Client | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 9. Politician-to-Committee Mapping & Schema v4 | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 10. Donation Sync Pipeline | v1.2 | 2/2 | Complete | 2026-02-12 |
-| 11. Donations CLI Command | v1.2 | 0/2 | Planned | - |
+| 11. Donations CLI Command | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 12. Employer Correlation & Analysis | v1.2 | 0/TBD | Not started | - |
