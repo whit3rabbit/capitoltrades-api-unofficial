@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 10 of 12 (Donation Sync Pipeline)
-Plan: 2 of 2 (completed)
-Status: Complete
-Last activity: 2026-02-13 -- Completed plan 10-02 (sync-donations CLI Command)
+Phase: 11 of 12 (Donations CLI Command)
+Plan: 1 of 2 (completed)
+Status: In Progress
+Last activity: 2026-02-13 -- Completed plan 11-01 (Donation Query Foundation)
 
-Progress: [#######...] 83% (5/6 v1.2 phases complete, 2/2 plans in Phase 10)
+Progress: [########..] 88% (5/6 v1.2 phases complete, 1/2 plans in Phase 11)
 
 ## Performance Metrics
 
@@ -71,6 +71,12 @@ Progress: [#######...] 83% (5/6 v1.2 phases complete, 2/2 plans in Phase 10)
 - Tasks: 2
 - Files: 3 (1 created, 2 modified)
 
+**Phase 11 Plan 1:**
+- Duration: 4 min
+- Completed: 2026-02-13
+- Tasks: 2
+- Files: 2 (modified)
+
 ## Accumulated Context
 
 ### Decisions
@@ -125,6 +131,12 @@ Progress: [#######...] 83% (5/6 v1.2 phases complete, 2/2 plans in Phase 10)
 - Separate DB handles: setup_db for queries, receiver_db for writes (avoids Arc<Mutex> contention)
 - Duration formatting uses as_secs_f64() instead of humantime crate (avoid new dependency)
 
+**Phase 11 Plan 1:**
+- All donation queries join through donation_sync_meta (not direct politician_id on donations table)
+- NULL contributor names display as 'Unknown' via COALESCE in all queries
+- build_donation_where_clause shared helper avoids duplicating filter logic across 4 query methods
+- Aggregations use COUNT(DISTINCT contributor_name) for accurate contributor counts despite NULL values
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -140,5 +152,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed Phase 10 Plan 2 (sync-donations CLI Command)
-Next step: Phase 10 complete. Ready for Phase 11 or Phase 12 planning.
+Stopped at: Completed Phase 11 Plan 1 (Donation Query Foundation)
+Next step: Phase 11 Plan 2 (donations CLI Command Implementation) ready to execute.
