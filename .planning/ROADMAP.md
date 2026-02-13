@@ -82,10 +82,11 @@ Plans:
   3. Duplicate donations are rejected (sub_id deduplication)
   4. Progress is reported during sync (donations synced count, elapsed time)
   5. Circuit breaker halts sync after 5 consecutive 429 errors with an informative message
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 10-01: TBD
+- [ ] 10-01-PLAN.md -- DB donation sync operations (insert, cursor management, politician lookup) and ScheduleAQuery date range extension
+- [ ] 10-02-PLAN.md -- sync-donations CLI command with concurrent pipeline, circuit breaker, and resume support
 
 #### Phase 11: Donations CLI Command
 **Goal**: Users can query and analyze synced donation data through the CLI
