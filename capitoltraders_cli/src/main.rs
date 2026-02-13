@@ -1,6 +1,6 @@
 //! CLI binary for querying congressional trading data from CapitolTrades.
 //!
-//! Provides seven subcommands (`trades`, `politicians`, `issuers`, `sync`, `sync-fec`, `enrich-prices`, `portfolio`, `sync-donations`) with
+//! Provides eight subcommands (`trades`, `politicians`, `issuers`, `sync`, `sync-fec`, `enrich-prices`, `portfolio`, `sync-donations`, `donations`) with
 //! extensive filtering, and supports output as table, JSON, CSV, Markdown, or XML.
 
 mod commands;
@@ -49,6 +49,8 @@ enum Commands {
     Portfolio(commands::portfolio::PortfolioArgs),
     /// Sync FEC donation data for politicians
     SyncDonations(commands::sync_donations::SyncDonationsArgs),
+    /// Query synced FEC donation data
+    Donations(commands::donations::DonationsArgs),
 }
 
 #[tokio::main]
@@ -113,6 +115,7 @@ async fn main() -> Result<()> {
             let api_key = require_openfec_api_key()?;
             commands::sync_donations::run(args, api_key).await?
         }
+        Commands::Donations(args) => commands::donations::run(args, &format)?,
     }
 
     Ok(())

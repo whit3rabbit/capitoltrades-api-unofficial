@@ -1,5 +1,6 @@
 //! CLI subcommand implementations.
 
+pub mod donations;
 pub mod enrich_prices;
 pub mod issuers;
 pub mod politicians;
