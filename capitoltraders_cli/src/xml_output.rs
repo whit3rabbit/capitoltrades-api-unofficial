@@ -10,7 +10,10 @@ use serde::Serialize;
 use std::io::Cursor;
 
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
-use capitoltraders_lib::{DbIssuerRow, DbPoliticianRow, DbTradeRow, PortfolioPosition};
+use capitoltraders_lib::{
+    ContributorAggRow, DbIssuerRow, DbPoliticianRow, DbTradeRow, DonationRow, EmployerAggRow,
+    PortfolioPosition, StateAggRow,
+};
 
 /// Singularize common array field names for XML child elements.
 fn singular(field: &str) -> &str {
@@ -135,6 +138,26 @@ pub fn db_issuers_to_xml(issuers: &[DbIssuerRow]) -> String {
 /// Serializes a slice of portfolio positions into an XML string with `<portfolio>` as the root element.
 pub fn portfolio_to_xml(positions: &[PortfolioPosition]) -> String {
     items_to_xml("portfolio", "position", positions)
+}
+
+/// Serializes donations into XML with `<donations>` root element.
+pub fn donations_to_xml(donations: &[DonationRow]) -> String {
+    items_to_xml("donations", "donation", donations)
+}
+
+/// Serializes contributor aggregations into XML.
+pub fn contributor_agg_to_xml(rows: &[ContributorAggRow]) -> String {
+    items_to_xml("contributors", "contributor", rows)
+}
+
+/// Serializes employer aggregations into XML.
+pub fn employer_agg_to_xml(rows: &[EmployerAggRow]) -> String {
+    items_to_xml("employers", "employer", rows)
+}
+
+/// Serializes state aggregations into XML.
+pub fn state_agg_to_xml(rows: &[StateAggRow]) -> String {
+    items_to_xml("states", "state", rows)
 }
 
 #[cfg(test)]

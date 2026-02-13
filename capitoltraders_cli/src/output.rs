@@ -5,7 +5,10 @@
 
 use anyhow::Result;
 use capitoltraders_lib::types::{IssuerDetail, PoliticianDetail, Trade};
-use capitoltraders_lib::{DbIssuerRow, DbPoliticianRow, DbTradeRow, PortfolioPosition};
+use capitoltraders_lib::{
+    ContributorAggRow, DbIssuerRow, DbPoliticianRow, DbTradeRow, DonationRow, EmployerAggRow,
+    PortfolioPosition, StateAggRow,
+};
 use serde::Serialize;
 use tabled::settings::Style;
 use tabled::{Table, Tabled};
@@ -666,6 +669,287 @@ pub fn print_portfolio_csv(positions: &[PortfolioPosition]) -> Result<()> {
 /// Prints portfolio positions as a well-formed XML document to stdout.
 pub fn print_portfolio_xml(positions: &[PortfolioPosition]) {
     println!("{}", xml_output::portfolio_to_xml(positions));
+}
+
+// -- Donations output --
+
+/// Flattened row representation of a donation for tabular output.
+#[derive(Tabled, Serialize, Clone)]
+struct DonationOutputRow {
+    #[tabled(rename = "Date")]
+    #[serde(rename = "Date")]
+    date: String,
+    #[tabled(rename = "Contributor")]
+    #[serde(rename = "Contributor")]
+    contributor: String,
+    #[tabled(rename = "Employer")]
+    #[serde(rename = "Employer")]
+    employer: String,
+    #[tabled(rename = "Amount")]
+    #[serde(rename = "Amount")]
+    amount: String,
+    #[tabled(rename = "State")]
+    #[serde(rename = "State")]
+    state: String,
+    #[tabled(rename = "Committee")]
+    #[serde(rename = "Committee")]
+    committee: String,
+    #[tabled(rename = "Cycle")]
+    #[serde(rename = "Cycle")]
+    cycle: String,
+}
+
+fn build_donation_rows(donations: &[DonationRow]) -> Vec<DonationOutputRow> {
+    donations
+        .iter()
+        .map(|d| DonationOutputRow {
+            date: d.date.clone(),
+            contributor: d.contributor_name.clone(),
+            employer: if d.contributor_employer.is_empty() {
+                "-".to_string()
+            } else {
+                d.contributor_employer.clone()
+            },
+            amount: format_currency_with_commas(d.amount),
+            state: if d.contributor_state.is_empty() {
+                "-".to_string()
+            } else {
+                d.contributor_state.clone()
+            },
+            committee: if d.committee_name.is_empty() {
+                "-".to_string()
+            } else {
+                d.committee_name.clone()
+            },
+            cycle: d.cycle.to_string(),
+        })
+        .collect()
+}
+
+/// Prints donations as an ASCII table to stdout.
+pub fn print_donations_table(donations: &[DonationRow]) {
+    println!("{}", Table::new(build_donation_rows(donations)));
+}
+
+/// Prints donations as a GitHub-flavored Markdown table to stdout.
+pub fn print_donations_markdown(donations: &[DonationRow]) {
+    let mut table = Table::new(build_donation_rows(donations));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints donations as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_donations_csv(donations: &[DonationRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_donation_rows(donations) {
+        row.contributor = sanitize_csv_field(&row.contributor);
+        row.employer = sanitize_csv_field(&row.employer);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints donations as a well-formed XML document to stdout.
+pub fn print_donations_xml(donations: &[DonationRow]) {
+    println!("{}", xml_output::donations_to_xml(donations));
+}
+
+// -- Contributor aggregation output --
+
+/// Flattened row representation of contributor aggregation for tabular output.
+#[derive(Tabled, Serialize, Clone)]
+struct ContributorAggOutputRow {
+    #[tabled(rename = "Contributor")]
+    #[serde(rename = "Contributor")]
+    name: String,
+    #[tabled(rename = "State")]
+    #[serde(rename = "State")]
+    state: String,
+    #[tabled(rename = "Total")]
+    #[serde(rename = "Total")]
+    total: String,
+    #[tabled(rename = "Count")]
+    #[serde(rename = "Count")]
+    count: i64,
+    #[tabled(rename = "Avg")]
+    #[serde(rename = "Avg")]
+    avg: String,
+    #[tabled(rename = "Max")]
+    #[serde(rename = "Max")]
+    max: String,
+    #[tabled(rename = "First")]
+    #[serde(rename = "First")]
+    first_date: String,
+    #[tabled(rename = "Last")]
+    #[serde(rename = "Last")]
+    last_date: String,
+}
+
+fn build_contributor_agg_rows(rows: &[ContributorAggRow]) -> Vec<ContributorAggOutputRow> {
+    rows.iter()
+        .map(|r| ContributorAggOutputRow {
+            name: r.contributor_name.clone(),
+            state: r.contributor_state.clone(),
+            total: format_currency_with_commas(r.total_amount),
+            count: r.donation_count,
+            avg: format_currency_with_commas(r.avg_amount),
+            max: format_currency_with_commas(r.max_donation),
+            first_date: r.first_donation.clone(),
+            last_date: r.last_donation.clone(),
+        })
+        .collect()
+}
+
+/// Prints contributor aggregations as an ASCII table to stdout.
+pub fn print_contributor_agg_table(rows: &[ContributorAggRow]) {
+    println!("{}", Table::new(build_contributor_agg_rows(rows)));
+}
+
+/// Prints contributor aggregations as a GitHub-flavored Markdown table to stdout.
+pub fn print_contributor_agg_markdown(rows: &[ContributorAggRow]) {
+    let mut table = Table::new(build_contributor_agg_rows(rows));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints contributor aggregations as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_contributor_agg_csv(rows: &[ContributorAggRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_contributor_agg_rows(rows) {
+        row.name = sanitize_csv_field(&row.name);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints contributor aggregations as a well-formed XML document to stdout.
+pub fn print_contributor_agg_xml(rows: &[ContributorAggRow]) {
+    println!("{}", xml_output::contributor_agg_to_xml(rows));
+}
+
+// -- Employer aggregation output --
+
+/// Flattened row representation of employer aggregation for tabular output.
+#[derive(Tabled, Serialize, Clone)]
+struct EmployerAggOutputRow {
+    #[tabled(rename = "Employer")]
+    #[serde(rename = "Employer")]
+    employer: String,
+    #[tabled(rename = "Total")]
+    #[serde(rename = "Total")]
+    total: String,
+    #[tabled(rename = "Count")]
+    #[serde(rename = "Count")]
+    count: i64,
+    #[tabled(rename = "Avg")]
+    #[serde(rename = "Avg")]
+    avg: String,
+    #[tabled(rename = "Contributors")]
+    #[serde(rename = "Contributors")]
+    contributors: i64,
+}
+
+fn build_employer_agg_rows(rows: &[EmployerAggRow]) -> Vec<EmployerAggOutputRow> {
+    rows.iter()
+        .map(|r| EmployerAggOutputRow {
+            employer: r.employer.clone(),
+            total: format_currency_with_commas(r.total_amount),
+            count: r.donation_count,
+            avg: format_currency_with_commas(r.avg_amount),
+            contributors: r.contributor_count,
+        })
+        .collect()
+}
+
+/// Prints employer aggregations as an ASCII table to stdout.
+pub fn print_employer_agg_table(rows: &[EmployerAggRow]) {
+    println!("{}", Table::new(build_employer_agg_rows(rows)));
+}
+
+/// Prints employer aggregations as a GitHub-flavored Markdown table to stdout.
+pub fn print_employer_agg_markdown(rows: &[EmployerAggRow]) {
+    let mut table = Table::new(build_employer_agg_rows(rows));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints employer aggregations as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_employer_agg_csv(rows: &[EmployerAggRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_employer_agg_rows(rows) {
+        row.employer = sanitize_csv_field(&row.employer);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints employer aggregations as a well-formed XML document to stdout.
+pub fn print_employer_agg_xml(rows: &[EmployerAggRow]) {
+    println!("{}", xml_output::employer_agg_to_xml(rows));
+}
+
+// -- State aggregation output --
+
+/// Flattened row representation of state aggregation for tabular output.
+#[derive(Tabled, Serialize, Clone)]
+struct StateAggOutputRow {
+    #[tabled(rename = "State")]
+    #[serde(rename = "State")]
+    state: String,
+    #[tabled(rename = "Total")]
+    #[serde(rename = "Total")]
+    total: String,
+    #[tabled(rename = "Count")]
+    #[serde(rename = "Count")]
+    count: i64,
+    #[tabled(rename = "Avg")]
+    #[serde(rename = "Avg")]
+    avg: String,
+    #[tabled(rename = "Contributors")]
+    #[serde(rename = "Contributors")]
+    contributors: i64,
+}
+
+fn build_state_agg_rows(rows: &[StateAggRow]) -> Vec<StateAggOutputRow> {
+    rows.iter()
+        .map(|r| StateAggOutputRow {
+            state: r.state.clone(),
+            total: format_currency_with_commas(r.total_amount),
+            count: r.donation_count,
+            avg: format_currency_with_commas(r.avg_amount),
+            contributors: r.contributor_count,
+        })
+        .collect()
+}
+
+/// Prints state aggregations as an ASCII table to stdout.
+pub fn print_state_agg_table(rows: &[StateAggRow]) {
+    println!("{}", Table::new(build_state_agg_rows(rows)));
+}
+
+/// Prints state aggregations as a GitHub-flavored Markdown table to stdout.
+pub fn print_state_agg_markdown(rows: &[StateAggRow]) {
+    let mut table = Table::new(build_state_agg_rows(rows));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints state aggregations as CSV to stdout.
+pub fn print_state_agg_csv(rows: &[StateAggRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for row in build_state_agg_rows(rows) {
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints state aggregations as a well-formed XML document to stdout.
+pub fn print_state_agg_xml(rows: &[StateAggRow]) {
+    println!("{}", xml_output::state_agg_to_xml(rows));
 }
 
 // -- JSON output --
