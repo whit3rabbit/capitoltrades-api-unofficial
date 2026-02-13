@@ -163,8 +163,46 @@ CREATE TABLE IF NOT EXISTS fec_mappings (
     bioguide_id TEXT NOT NULL,
     election_cycle INTEGER,
     last_synced TEXT NOT NULL,
+    committee_ids TEXT,
     PRIMARY KEY (politician_id, fec_candidate_id),
     FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fec_committees (
+    committee_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    committee_type TEXT,
+    designation TEXT,
+    party TEXT,
+    state TEXT,
+    cycles TEXT,
+    last_synced TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS donations (
+    sub_id TEXT PRIMARY KEY,
+    committee_id TEXT NOT NULL,
+    contributor_name TEXT,
+    contributor_employer TEXT,
+    contributor_occupation TEXT,
+    contributor_state TEXT,
+    contributor_city TEXT,
+    contributor_zip TEXT,
+    contribution_receipt_amount REAL,
+    contribution_receipt_date TEXT,
+    election_cycle INTEGER,
+    memo_text TEXT,
+    receipt_type TEXT
+);
+
+CREATE TABLE IF NOT EXISTS donation_sync_meta (
+    politician_id TEXT NOT NULL,
+    committee_id TEXT NOT NULL,
+    last_index INTEGER,
+    last_contribution_receipt_date TEXT,
+    last_synced_at TEXT NOT NULL,
+    total_synced INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (politician_id, committee_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_politician ON trades(politician_id);
@@ -187,3 +225,8 @@ CREATE INDEX IF NOT EXISTS idx_positions_ticker ON positions(issuer_ticker);
 CREATE INDEX IF NOT EXISTS idx_positions_updated ON positions(last_updated);
 CREATE INDEX IF NOT EXISTS idx_fec_mappings_fec_id ON fec_mappings(fec_candidate_id);
 CREATE INDEX IF NOT EXISTS idx_fec_mappings_bioguide ON fec_mappings(bioguide_id);
+CREATE INDEX IF NOT EXISTS idx_donations_committee ON donations(committee_id);
+CREATE INDEX IF NOT EXISTS idx_donations_date ON donations(contribution_receipt_date);
+CREATE INDEX IF NOT EXISTS idx_donations_cycle ON donations(election_cycle);
+CREATE INDEX IF NOT EXISTS idx_donation_sync_meta_politician ON donation_sync_meta(politician_id);
+CREATE INDEX IF NOT EXISTS idx_fec_committees_designation ON fec_committees(designation);

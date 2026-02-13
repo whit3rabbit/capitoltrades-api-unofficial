@@ -68,6 +68,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 3)?;
         }
 
+        if version < 4 {
+            self.migrate_v4()?;
+            self.conn.pragma_update(None, "user_version", 4)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -131,6 +136,92 @@ impl Db {
             "CREATE INDEX IF NOT EXISTS idx_fec_mappings_bioguide ON fec_mappings(bioguide_id)",
             [],
         )?;
+        Ok(())
+    }
+
+    fn migrate_v4(&self) -> Result<(), DbError> {
+        // Create fec_committees table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS fec_committees (
+                committee_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                committee_type TEXT,
+                designation TEXT,
+                party TEXT,
+                state TEXT,
+                cycles TEXT,
+                last_synced TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Create donations table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS donations (
+                sub_id TEXT PRIMARY KEY,
+                committee_id TEXT NOT NULL,
+                contributor_name TEXT,
+                contributor_employer TEXT,
+                contributor_occupation TEXT,
+                contributor_state TEXT,
+                contributor_city TEXT,
+                contributor_zip TEXT,
+                contribution_receipt_amount REAL,
+                contribution_receipt_date TEXT,
+                election_cycle INTEGER,
+                memo_text TEXT,
+                receipt_type TEXT
+            )",
+            [],
+        )?;
+
+        // Create donation_sync_meta table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS donation_sync_meta (
+                politician_id TEXT NOT NULL,
+                committee_id TEXT NOT NULL,
+                last_index INTEGER,
+                last_contribution_receipt_date TEXT,
+                last_synced_at TEXT NOT NULL,
+                total_synced INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (politician_id, committee_id)
+            )",
+            [],
+        )?;
+
+        // Add committee_ids column to fec_mappings
+        match self
+            .conn
+            .execute("ALTER TABLE fec_mappings ADD COLUMN committee_ids TEXT", [])
+        {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("duplicate column name") => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        // Create indexes
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_donations_committee ON donations(committee_id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_donations_date ON donations(contribution_receipt_date)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_donations_cycle ON donations(election_cycle)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_donation_sync_meta_politician ON donation_sync_meta(politician_id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fec_committees_designation ON fec_committees(designation)",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -2772,7 +2863,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 3);
+        assert_eq!(get_user_version(&db), 4);
     }
 
     #[test]
@@ -2805,7 +2896,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(has_column(&db, "issuers", "enriched_at"));
 
         // Verify user_version is now 3 (all migrations v1, v2, v3 applied)
-        assert_eq!(get_user_version(&db), 3);
+        assert_eq!(get_user_version(&db), 4);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -2873,7 +2964,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "positions table should exist");
 
         // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
-        assert_eq!(get_user_version(&db), 3);
+        assert_eq!(get_user_version(&db), 4);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -2889,7 +2980,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 3);
+        assert_eq!(get_user_version(&db), 4);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -2954,7 +3045,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "fec_mappings table should exist after migration");
 
         // Verify user_version is now 3
-        assert_eq!(get_user_version(&db), 3);
+        assert_eq!(get_user_version(&db), 4);
 
         // Verify pre-existing politician data is preserved
         let name: String = db.conn.query_row(
@@ -2970,7 +3061,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = Db::open_in_memory().unwrap();
         db.init().unwrap();
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -2979,7 +3070,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.init().unwrap();
         db.init().unwrap(); // Should not fail
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
