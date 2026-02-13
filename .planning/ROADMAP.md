@@ -85,8 +85,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 10-01-PLAN.md -- DB donation sync operations (insert, cursor management, politician lookup) and ScheduleAQuery date range extension
-- [ ] 10-02-PLAN.md -- sync-donations CLI command with concurrent pipeline, circuit breaker, and resume support
+- [x] 10-01-PLAN.md -- DB donation sync operations (insert, cursor management, politician lookup) and ScheduleAQuery date range extension
+- [x] 10-02-PLAN.md -- sync-donations CLI command with concurrent pipeline, circuit breaker, and resume support
 
 #### Phase 11: Donations CLI Command
 **Goal**: Users can query and analyze synced donation data through the CLI
@@ -130,6 +130,6 @@ Plans:
 | 7. Foundation & Environment Setup | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 8. OpenFEC API Client | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 9. Politician-to-Committee Mapping & Schema v4 | v1.2 | 2/2 | Complete | 2026-02-12 |
-| 10. Donation Sync Pipeline | v1.2 | 0/TBD | Not started | - |
+| 10. Donation Sync Pipeline | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 11. Donations CLI Command | v1.2 | 0/TBD | Not started | - |
 | 12. Employer Correlation & Analysis | v1.2 | 0/TBD | Not started | - |
