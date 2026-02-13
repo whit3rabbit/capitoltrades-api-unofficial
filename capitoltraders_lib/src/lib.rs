@@ -27,9 +27,10 @@ pub use capitoltrades_api::{
 pub use client::CachedClient;
 pub use committee::{CommitteeClass, CommitteeError, CommitteeResolver, ResolvedCommittee};
 pub use db::{
-    Db, DbError, DbIssuerFilter, DbIssuerRow, DbPoliticianFilter, DbPoliticianRow, DbTradeFilter,
-    DbTradeRow, IssuerStatsRow, PoliticianStatsRow, PortfolioFilter, PortfolioPosition,
-    PriceEnrichmentRow,
+    ContributorAggRow, Db, DbError, DbIssuerFilter, DbIssuerRow, DbPoliticianFilter,
+    DbPoliticianRow, DbTradeFilter, DbTradeRow, DonationFilter, DonationRow, EmployerAggRow,
+    IssuerStatsRow, PoliticianStatsRow, PortfolioFilter, PortfolioPosition, PriceEnrichmentRow,
+    StateAggRow,
 };
 pub use error::CapitolTradesError;
 pub use fec_mapping::{FecMapping, FecMappingError, Legislator, download_legislators, match_legislators_to_politicians};

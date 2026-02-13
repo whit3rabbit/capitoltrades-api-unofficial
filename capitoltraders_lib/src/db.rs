@@ -2484,6 +2484,333 @@ impl Db {
         )?;
         Ok(count)
     }
+
+    /// Query donations with filtering and dynamic WHERE clause construction.
+    ///
+    /// Returns individual donation records joined through donation_sync_meta
+    /// to link donations to politicians. Supports filtering by politician,
+    /// cycle, amount, employer, and contributor state.
+    pub fn query_donations(&self, filter: &DonationFilter) -> Result<Vec<DonationRow>, DbError> {
+        let (where_clause, params_vec) = build_donation_where_clause(filter);
+
+        let mut sql = format!(
+            "SELECT
+                d.sub_id,
+                COALESCE(d.contributor_name, 'Unknown') as contributor_name,
+                COALESCE(d.contributor_employer, '') as contributor_employer,
+                COALESCE(d.contributor_occupation, '') as contributor_occupation,
+                COALESCE(d.contributor_state, '') as contributor_state,
+                d.contribution_receipt_amount,
+                COALESCE(d.contribution_receipt_date, '') as contribution_receipt_date,
+                COALESCE(d.election_cycle, 0) as election_cycle,
+                COALESCE(fc.name, '') as committee_name,
+                COALESCE(fc.designation, '') as designation,
+                p.first_name || ' ' || p.last_name AS politician_name
+            FROM donations d
+            JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+            JOIN politicians p ON dsm.politician_id = p.politician_id
+            LEFT JOIN fec_committees fc ON d.committee_id = fc.committee_id
+            {}
+            ORDER BY d.contribution_receipt_amount DESC",
+            where_clause
+        );
+
+        if let Some(n) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(DonationRow {
+                sub_id: row.get(0)?,
+                contributor_name: row.get(1)?,
+                contributor_employer: row.get(2)?,
+                contributor_occupation: row.get(3)?,
+                contributor_state: row.get(4)?,
+                amount: row.get(5)?,
+                date: row.get(6)?,
+                cycle: row.get(7)?,
+                committee_name: row.get(8)?,
+                committee_designation: row.get(9)?,
+                politician_name: row.get(10)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Aggregate donations by contributor with total amount, count, and date range.
+    ///
+    /// Returns one row per unique contributor (name + state combination),
+    /// ordered by total contribution amount descending.
+    pub fn query_donations_by_contributor(
+        &self,
+        filter: &DonationFilter,
+    ) -> Result<Vec<ContributorAggRow>, DbError> {
+        let (where_clause, params_vec) = build_donation_where_clause(filter);
+
+        let mut sql = format!(
+            "SELECT
+                COALESCE(d.contributor_name, 'Unknown') as contributor_name,
+                COALESCE(d.contributor_state, '') as contributor_state,
+                SUM(d.contribution_receipt_amount) as total_amount,
+                COUNT(*) as donation_count,
+                AVG(d.contribution_receipt_amount) as avg_amount,
+                MAX(d.contribution_receipt_amount) as max_donation,
+                MIN(d.contribution_receipt_date) as first_donation,
+                MAX(d.contribution_receipt_date) as last_donation
+            FROM donations d
+            JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+            {}
+            GROUP BY COALESCE(d.contributor_name, 'Unknown'), COALESCE(d.contributor_state, '')
+            ORDER BY total_amount DESC",
+            where_clause
+        );
+
+        if let Some(n) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(ContributorAggRow {
+                contributor_name: row.get(0)?,
+                contributor_state: row.get(1)?,
+                total_amount: row.get(2)?,
+                donation_count: row.get(3)?,
+                avg_amount: row.get(4)?,
+                max_donation: row.get(5)?,
+                first_donation: row.get(6)?,
+                last_donation: row.get(7)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Aggregate donations by employer with total amount, count, and contributor count.
+    ///
+    /// Returns one row per unique employer, ordered by total contribution amount descending.
+    pub fn query_donations_by_employer(
+        &self,
+        filter: &DonationFilter,
+    ) -> Result<Vec<EmployerAggRow>, DbError> {
+        let (where_clause, params_vec) = build_donation_where_clause(filter);
+
+        let mut sql = format!(
+            "SELECT
+                COALESCE(d.contributor_employer, 'Unknown') as employer,
+                SUM(d.contribution_receipt_amount) as total_amount,
+                COUNT(*) as donation_count,
+                AVG(d.contribution_receipt_amount) as avg_amount,
+                COUNT(DISTINCT d.contributor_name) as contributor_count
+            FROM donations d
+            JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+            {}
+            GROUP BY COALESCE(d.contributor_employer, 'Unknown')
+            ORDER BY total_amount DESC",
+            where_clause
+        );
+
+        if let Some(n) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(EmployerAggRow {
+                employer: row.get(0)?,
+                total_amount: row.get(1)?,
+                donation_count: row.get(2)?,
+                avg_amount: row.get(3)?,
+                contributor_count: row.get(4)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Aggregate donations by contributor state with total amount, count, and contributor count.
+    ///
+    /// Returns one row per unique state, ordered by total contribution amount descending.
+    pub fn query_donations_by_state(
+        &self,
+        filter: &DonationFilter,
+    ) -> Result<Vec<StateAggRow>, DbError> {
+        let (where_clause, params_vec) = build_donation_where_clause(filter);
+
+        let mut sql = format!(
+            "SELECT
+                COALESCE(d.contributor_state, 'Unknown') as state,
+                SUM(d.contribution_receipt_amount) as total_amount,
+                COUNT(*) as donation_count,
+                AVG(d.contribution_receipt_amount) as avg_amount,
+                COUNT(DISTINCT d.contributor_name) as contributor_count
+            FROM donations d
+            JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+            {}
+            GROUP BY COALESCE(d.contributor_state, 'Unknown')
+            ORDER BY total_amount DESC",
+            where_clause
+        );
+
+        if let Some(n) = filter.limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(StateAggRow {
+                state: row.get(0)?,
+                total_amount: row.get(1)?,
+                donation_count: row.get(2)?,
+                avg_amount: row.get(3)?,
+                contributor_count: row.get(4)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+}
+
+/// Build dynamic WHERE clause for donation queries.
+///
+/// Shared helper for all four donation query methods to avoid code duplication.
+/// Returns the WHERE clause string and a vector of boxed parameters.
+fn build_donation_where_clause(
+    filter: &DonationFilter,
+) -> (String, Vec<Box<dyn rusqlite::types::ToSql>>) {
+    let mut clauses = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1;
+
+    if let Some(ref politician_id) = filter.politician_id {
+        clauses.push(format!("dsm.politician_id = ?{}", idx));
+        params.push(Box::new(politician_id.clone()));
+        idx += 1;
+    }
+
+    if let Some(cycle) = filter.cycle {
+        clauses.push(format!("d.election_cycle = ?{}", idx));
+        params.push(Box::new(cycle));
+        idx += 1;
+    }
+
+    if let Some(min_amount) = filter.min_amount {
+        clauses.push(format!("d.contribution_receipt_amount >= ?{}", idx));
+        params.push(Box::new(min_amount));
+        idx += 1;
+    }
+
+    if let Some(ref employer) = filter.employer {
+        clauses.push(format!("d.contributor_employer LIKE ?{}", idx));
+        params.push(Box::new(format!("%{}%", employer)));
+        idx += 1;
+    }
+
+    if let Some(ref contributor_state) = filter.contributor_state {
+        clauses.push(format!("d.contributor_state = ?{}", idx));
+        params.push(Box::new(contributor_state.clone()));
+        idx += 1;
+    }
+
+    let _ = idx; // suppress unused warning
+
+    let where_clause = if clauses.is_empty() {
+        "WHERE 1=1".to_string()
+    } else {
+        format!("WHERE {}", clauses.join(" AND "))
+    };
+
+    (where_clause, params)
+}
+
+/// Filter parameters for donation queries.
+#[derive(Debug, Default)]
+pub struct DonationFilter {
+    pub politician_id: Option<String>,
+    pub cycle: Option<i32>,
+    pub min_amount: Option<f64>,
+    pub employer: Option<String>,
+    pub contributor_state: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// Individual donation record returned by query_donations.
+#[derive(Debug, Clone, Serialize)]
+pub struct DonationRow {
+    pub sub_id: String,
+    pub contributor_name: String,
+    pub contributor_employer: String,
+    pub contributor_occupation: String,
+    pub contributor_state: String,
+    pub amount: f64,
+    pub date: String,
+    pub cycle: i64,
+    pub committee_name: String,
+    pub committee_designation: String,
+    pub politician_name: String,
+}
+
+/// Aggregated donation data by contributor.
+#[derive(Debug, Clone, Serialize)]
+pub struct ContributorAggRow {
+    pub contributor_name: String,
+    pub contributor_state: String,
+    pub total_amount: f64,
+    pub donation_count: i64,
+    pub avg_amount: f64,
+    pub max_donation: f64,
+    pub first_donation: String,
+    pub last_donation: String,
+}
+
+/// Aggregated donation data by employer.
+#[derive(Debug, Clone, Serialize)]
+pub struct EmployerAggRow {
+    pub employer: String,
+    pub total_amount: f64,
+    pub donation_count: i64,
+    pub avg_amount: f64,
+    pub contributor_count: i64,
+}
+
+/// Aggregated donation data by contributor state.
+#[derive(Debug, Clone, Serialize)]
+pub struct StateAggRow {
+    pub state: String,
+    pub total_amount: f64,
+    pub donation_count: i64,
+    pub avg_amount: f64,
+    pub contributor_count: i64,
 }
 
 pub struct PoliticianStatsRow {
