@@ -7323,4 +7323,219 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .expect("count_donations_for_politician");
         assert_eq!(count, 2, "Should count 2 donations");
     }
+
+    /// Setup helper for donation query tests.
+    /// Creates test politician, committees, sync_meta, and sample donations.
+    fn setup_donation_query_test_db() -> Db {
+        let db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'Nancy', 'Pelosi', '1940-03-26', 'female', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert test committee
+        db.conn
+            .execute(
+                "INSERT INTO fec_committees (committee_id, name, designation, committee_type, last_synced)
+                 VALUES ('C00001', 'Pelosi for Congress', 'P', 'H', '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .expect("insert committee");
+
+        // Insert sync_meta to link politician to committee
+        db.conn
+            .execute(
+                "INSERT INTO donation_sync_meta (politician_id, committee_id, last_synced_at, total_synced)
+                 VALUES ('P000001', 'C00001', '2024-01-01T00:00:00Z', 6)",
+                [],
+            )
+            .expect("insert sync_meta");
+
+        // Insert 6 test donations with varying attributes
+        let donations = [
+            ("SUB001", Some("Alice Smith"), Some("Tech Corp"), Some("CA"), 500.0, "2024-01-15", 2024),
+            ("SUB002", Some("Bob Jones"), Some("Finance LLC"), Some("NY"), 1000.0, "2024-02-10", 2024),
+            ("SUB003", None, Some("Unknown Employer"), Some("CA"), 250.0, "2024-03-05", 2024), // NULL name
+            ("SUB004", Some("Charlie Brown"), Some("Tech Corp"), Some("TX"), 750.0, "2024-01-20", 2022),
+            ("SUB005", Some("Alice Smith"), Some("Tech Corp"), Some("CA"), 300.0, "2024-04-01", 2024), // duplicate contributor
+            ("SUB006", Some("Diana Prince"), Some("Legal Services"), Some("NY"), 100.0, "2024-05-15", 2024),
+        ];
+
+        for (sub_id, name, employer, state, amount, date, cycle) in donations {
+            db.conn
+                .execute(
+                    "INSERT INTO donations (sub_id, committee_id, contributor_name, contributor_employer, contributor_state, contribution_receipt_amount, contribution_receipt_date, election_cycle)
+                     VALUES (?1, 'C00001', ?2, ?3, ?4, ?5, ?6, ?7)",
+                    rusqlite::params![sub_id, name, employer, state, amount, date, cycle],
+                )
+                .expect("insert donation");
+        }
+
+        db
+    }
+
+    #[test]
+    fn test_query_donations_no_filter() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter::default();
+
+        let rows = db.query_donations(&filter).expect("query_donations");
+
+        assert_eq!(rows.len(), 6, "Should return all 6 donations");
+        // First row should be highest amount (sorted DESC)
+        assert_eq!(rows[0].amount, 1000.0);
+        assert_eq!(rows[0].contributor_name, "Bob Jones");
+    }
+
+    #[test]
+    fn test_query_donations_with_politician_filter() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter {
+            politician_id: Some("P000001".to_string()),
+            ..Default::default()
+        };
+
+        let rows = db.query_donations(&filter).expect("query_donations");
+
+        assert_eq!(rows.len(), 6, "Should return all donations for P000001");
+        // Verify all rows have correct politician
+        assert!(rows.iter().all(|r| r.politician_name == "Nancy Pelosi"));
+    }
+
+    #[test]
+    fn test_query_donations_with_cycle_filter() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter {
+            cycle: Some(2024),
+            ..Default::default()
+        };
+
+        let rows = db.query_donations(&filter).expect("query_donations");
+
+        assert_eq!(rows.len(), 5, "Should return 5 donations for cycle 2024");
+        assert!(rows.iter().all(|r| r.cycle == 2024));
+    }
+
+    #[test]
+    fn test_query_donations_with_min_amount() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter {
+            min_amount: Some(500.0),
+            ..Default::default()
+        };
+
+        let rows = db.query_donations(&filter).expect("query_donations");
+
+        assert_eq!(rows.len(), 3, "Should return 3 donations >= $500");
+        assert!(rows.iter().all(|r| r.amount >= 500.0));
+    }
+
+    #[test]
+    fn test_query_donations_with_limit() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter {
+            limit: Some(2),
+            ..Default::default()
+        };
+
+        let rows = db.query_donations(&filter).expect("query_donations");
+
+        assert_eq!(rows.len(), 2, "Should respect LIMIT 2");
+        // Should be top 2 by amount
+        assert_eq!(rows[0].amount, 1000.0);
+        assert_eq!(rows[1].amount, 750.0);
+    }
+
+    #[test]
+    fn test_query_donations_null_handling() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter::default();
+
+        let rows = db.query_donations(&filter).expect("query_donations");
+
+        // Find the row with NULL contributor_name (SUB003)
+        let null_row = rows.iter().find(|r| r.sub_id == "SUB003").expect("find SUB003");
+        assert_eq!(null_row.contributor_name, "Unknown", "NULL name should become 'Unknown'");
+    }
+
+    #[test]
+    fn test_query_donations_by_contributor() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter::default();
+
+        let rows = db.query_donations_by_contributor(&filter).expect("query_donations_by_contributor");
+
+        // Should group by (name, state) - expect 5 unique contributors
+        // Alice Smith CA: $800 (2 donations)
+        // Bob Jones NY: $1000 (1 donation)
+        // Unknown (NULL): $250 (1 donation)
+        // Charlie Brown TX: $750 (1 donation)
+        // Diana Prince NY: $100 (1 donation)
+        assert_eq!(rows.len(), 5, "Should return 5 unique contributors");
+
+        // First row should be Bob Jones with highest total
+        assert_eq!(rows[0].contributor_name, "Bob Jones");
+        assert_eq!(rows[0].total_amount, 1000.0);
+        assert_eq!(rows[0].donation_count, 1);
+
+        // Find Alice Smith who has 2 donations
+        let alice = rows.iter().find(|r| r.contributor_name == "Alice Smith").expect("find Alice");
+        assert_eq!(alice.total_amount, 800.0, "Alice Smith should have $800 total (500 + 300)");
+        assert_eq!(alice.donation_count, 2, "Alice Smith should have 2 donations");
+        assert_eq!(alice.max_donation, 500.0);
+        assert_eq!(alice.avg_amount, 400.0);
+    }
+
+    #[test]
+    fn test_query_donations_by_employer() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter::default();
+
+        let rows = db.query_donations_by_employer(&filter).expect("query_donations_by_employer");
+
+        // Tech Corp: $1550 (3 donations from Alice x2 + Charlie)
+        // Finance LLC: $1000 (1 donation)
+        // Unknown Employer: $250 (1 donation)
+        // Legal Services: $100 (1 donation)
+        assert_eq!(rows.len(), 4, "Should return 4 unique employers");
+
+        // First row should be Tech Corp with highest total
+        let tech = &rows[0];
+        assert_eq!(tech.employer, "Tech Corp");
+        assert_eq!(tech.total_amount, 1550.0, "Tech Corp should have $1550 total");
+        assert_eq!(tech.donation_count, 3, "Tech Corp should have 3 donations");
+        assert_eq!(tech.contributor_count, 2, "Tech Corp should have 2 distinct contributors (Alice, Charlie)");
+    }
+
+    #[test]
+    fn test_query_donations_by_state() {
+        let db = setup_donation_query_test_db();
+        let filter = DonationFilter::default();
+
+        let rows = db.query_donations_by_state(&filter).expect("query_donations_by_state");
+
+        // CA: $1050 (3 donations: Alice $500 + NULL $250 + Alice $300)
+        // NY: $1100 (2 donations: Bob $1000 + Diana $100)
+        // TX: $750 (1 donation: Charlie $750)
+        assert_eq!(rows.len(), 3, "Should return 3 unique states");
+
+        // First row should be NY with highest total
+        let ny = &rows[0];
+        assert_eq!(ny.state, "NY");
+        assert_eq!(ny.total_amount, 1100.0);
+        assert_eq!(ny.donation_count, 2);
+        assert_eq!(ny.contributor_count, 2, "NY should have 2 distinct contributors (Bob, Diana)");
+
+        // CA should be second
+        let ca = &rows[1];
+        assert_eq!(ca.state, "CA");
+        assert_eq!(ca.total_amount, 1050.0);
+        assert_eq!(ca.donation_count, 3);
+        assert_eq!(ca.contributor_count, 1, "CA should have 1 distinct named contributor (Alice, NULL doesn't count)");
+    }
 }
