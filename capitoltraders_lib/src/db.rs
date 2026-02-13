@@ -35,7 +35,7 @@ impl Db {
         Ok(Self { conn })
     }
 
-    #[cfg(test)]
+    /// Open an in-memory database (for testing).
     pub fn open_in_memory() -> Result<Self, DbError> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(
@@ -46,8 +46,9 @@ impl Db {
         Ok(Self { conn })
     }
 
-    /// Get a reference to the underlying connection (for internal use by committee resolver).
-    pub(crate) fn conn(&self) -> &Connection {
+    /// Get a reference to the underlying connection (for internal use by committee resolver and tests).
+    #[doc(hidden)]
+    pub fn conn(&self) -> &Connection {
         &self.conn
     }
 
@@ -1216,6 +1217,7 @@ impl Db {
             "SELECT COUNT(*) FROM trades t
              JOIN issuers i ON t.issuer_id = i.issuer_id
              WHERE i.issuer_ticker IS NOT NULL
+               AND i.issuer_ticker <> ''
                AND t.tx_date IS NOT NULL
                AND t.price_enriched_at IS NULL",
             [],
@@ -1242,6 +1244,7 @@ impl Db {
                  FROM trades t
                  JOIN issuers i ON t.issuer_id = i.issuer_id
                  WHERE i.issuer_ticker IS NOT NULL
+                   AND i.issuer_ticker <> ''
                    AND t.tx_date IS NOT NULL
                    AND t.price_enriched_at IS NULL
                  ORDER BY t.tx_id
@@ -1252,6 +1255,7 @@ impl Db {
                      FROM trades t
                      JOIN issuers i ON t.issuer_id = i.issuer_id
                      WHERE i.issuer_ticker IS NOT NULL
+                       AND i.issuer_ticker <> ''
                        AND t.tx_date IS NOT NULL
                        AND t.price_enriched_at IS NULL
                      ORDER BY t.tx_id"
