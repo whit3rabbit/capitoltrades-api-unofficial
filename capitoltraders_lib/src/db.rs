@@ -2282,6 +2282,208 @@ impl Db {
             .optional()
             .map_err(DbError::from)
     }
+
+    /// Insert a single donation with deduplication.
+    ///
+    /// Returns Ok(true) if inserted, Ok(false) if duplicate or NULL sub_id.
+    /// Skips contributions with None sub_id per research recommendation.
+    pub fn insert_donation(
+        &self,
+        contribution: &crate::openfec::types::Contribution,
+        committee_id: &str,
+        cycle: Option<i32>,
+    ) -> Result<bool, DbError> {
+        // Skip NULL sub_id (per research: OpenFEC sometimes returns records without sub_id)
+        let Some(ref sub_id) = contribution.sub_id else {
+            return Ok(false);
+        };
+
+        let changes = self.conn.execute(
+            "INSERT OR IGNORE INTO donations (
+                sub_id, committee_id, contributor_name, contributor_employer,
+                contributor_occupation, contributor_state, contributor_city,
+                contributor_zip, contribution_receipt_amount,
+                contribution_receipt_date, election_cycle, memo_text, receipt_type
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, NULL)",
+            params![
+                sub_id,
+                committee_id,
+                contribution.contributor_name,
+                contribution.contributor_employer,
+                contribution.contributor_occupation,
+                contribution.contributor_state,
+                None::<String>, // contributor_city not in Contribution type
+                None::<String>, // contributor_zip not in Contribution type
+                contribution.contribution_receipt_amount,
+                contribution.contribution_receipt_date,
+                cycle,
+            ],
+        )?;
+
+        Ok(changes > 0)
+    }
+
+    /// Load sync cursor for a politician/committee pair.
+    ///
+    /// Returns Some((last_index, last_contribution_receipt_date)) if cursor exists,
+    /// None if this is the first sync for this politician/committee.
+    pub fn load_sync_cursor(
+        &self,
+        politician_id: &str,
+        committee_id: &str,
+    ) -> Result<Option<(i64, String)>, DbError> {
+        self.conn
+            .query_row(
+                "SELECT last_index, last_contribution_receipt_date
+                 FROM donation_sync_meta
+                 WHERE politician_id = ?1 AND committee_id = ?2
+                   AND last_index IS NOT NULL",
+                params![politician_id, committee_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(DbError::from)
+    }
+
+    /// Save sync cursor and donations atomically in a single transaction.
+    ///
+    /// This is CRITICAL for preventing cursor state desync (Pitfall 1 from research).
+    /// Returns the count of actually inserted donations (excludes NULL sub_id and duplicates).
+    pub fn save_sync_cursor_with_donations(
+        &self,
+        politician_id: &str,
+        committee_id: &str,
+        contributions: &[crate::openfec::types::Contribution],
+        cycle: Option<i32>,
+        last_index: i64,
+        last_date: &str,
+    ) -> Result<usize, DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        let mut inserted_count = 0;
+        for contribution in contributions {
+            // Skip NULL sub_id
+            let Some(ref sub_id) = contribution.sub_id else {
+                continue;
+            };
+
+            let changes = tx.execute(
+                "INSERT OR IGNORE INTO donations (
+                    sub_id, committee_id, contributor_name, contributor_employer,
+                    contributor_occupation, contributor_state, contributor_city,
+                    contributor_zip, contribution_receipt_amount,
+                    contribution_receipt_date, election_cycle, memo_text, receipt_type
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, NULL)",
+                params![
+                    sub_id,
+                    committee_id,
+                    contribution.contributor_name,
+                    contribution.contributor_employer,
+                    contribution.contributor_occupation,
+                    contribution.contributor_state,
+                    None::<String>,
+                    None::<String>,
+                    contribution.contribution_receipt_amount,
+                    contribution.contribution_receipt_date,
+                    cycle,
+                ],
+            )?;
+
+            if changes > 0 {
+                inserted_count += 1;
+            }
+        }
+
+        // Update cursor state with inserted count
+        tx.execute(
+            "INSERT OR REPLACE INTO donation_sync_meta (
+                politician_id, committee_id, last_index,
+                last_contribution_receipt_date, last_synced_at, total_synced
+            ) VALUES (
+                ?1, ?2, ?3, ?4, datetime('now'),
+                COALESCE(
+                    (SELECT total_synced FROM donation_sync_meta
+                     WHERE politician_id = ?1 AND committee_id = ?2),
+                    0
+                ) + ?5
+            )",
+            params![
+                politician_id,
+                committee_id,
+                last_index,
+                last_date,
+                inserted_count
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok(inserted_count)
+    }
+
+    /// Mark a politician/committee sync as completed.
+    ///
+    /// Sets last_index to NULL to signal "sync completed, no more pages".
+    /// Subsequent syncs can check is_sync_completed by testing last_index IS NULL.
+    pub fn mark_sync_completed(
+        &self,
+        politician_id: &str,
+        committee_id: &str,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO donation_sync_meta (
+                politician_id, committee_id, last_index,
+                last_contribution_receipt_date, last_synced_at, total_synced
+            ) VALUES (
+                ?1, ?2, NULL, NULL, datetime('now'),
+                COALESCE(
+                    (SELECT total_synced FROM donation_sync_meta
+                     WHERE politician_id = ?1 AND committee_id = ?2),
+                    0
+                )
+            )",
+            params![politician_id, committee_id],
+        )?;
+        Ok(())
+    }
+
+    /// Find politicians by partial name match.
+    ///
+    /// Returns Vec of (politician_id, full_name) tuples.
+    /// Caller handles disambiguation if multiple matches.
+    pub fn find_politician_by_name(&self, name: &str) -> Result<Vec<(String, String)>, DbError> {
+        let pattern = format!("%{}%", name);
+        let mut stmt = self.conn.prepare(
+            "SELECT politician_id, first_name || ' ' || last_name AS full_name
+             FROM politicians
+             WHERE (first_name || ' ' || last_name) LIKE ?1",
+        )?;
+
+        let rows = stmt.query_map(params![pattern], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Count donations for a politician across all their committees.
+    ///
+    /// Joins through donation_sync_meta to link donations (which only have committee_id)
+    /// to politicians.
+    pub fn count_donations_for_politician(&self, politician_id: &str) -> Result<i64, DbError> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*)
+             FROM donations d
+             JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+             WHERE dsm.politician_id = ?1",
+            params![politician_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -6350,5 +6552,448 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
         let info = db.get_politician_info("P999999").expect("get_politician_info");
         assert_eq!(info, None);
+    }
+
+    // ============================================================================
+    // Donation Sync DB Operation Tests
+    // ============================================================================
+
+    #[test]
+    fn test_insert_donation_new() {
+        let db = open_test_db();
+
+        let contribution = crate::openfec::types::Contribution {
+            sub_id: Some("SUB123456".to_string()),
+            committee: None,
+            contributor_name: Some("John Donor".to_string()),
+            contributor_state: Some("CA".to_string()),
+            contributor_employer: Some("TechCorp".to_string()),
+            contributor_occupation: Some("Engineer".to_string()),
+            contribution_receipt_date: Some("2024-01-15".to_string()),
+            contribution_receipt_amount: Some(2500.0),
+        };
+
+        let inserted = db
+            .insert_donation(&contribution, "C00000001", Some(2024))
+            .expect("insert_donation");
+        assert!(inserted, "Should return true for new donation");
+
+        // Verify donation was inserted
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM donations WHERE sub_id = 'SUB123456'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count");
+        assert_eq!(count, 1, "Donation should exist in database");
+    }
+
+    #[test]
+    fn test_insert_donation_duplicate() {
+        let db = open_test_db();
+
+        let contribution = crate::openfec::types::Contribution {
+            sub_id: Some("SUB123456".to_string()),
+            committee: None,
+            contributor_name: Some("John Donor".to_string()),
+            contributor_state: Some("CA".to_string()),
+            contributor_employer: Some("TechCorp".to_string()),
+            contributor_occupation: Some("Engineer".to_string()),
+            contribution_receipt_date: Some("2024-01-15".to_string()),
+            contribution_receipt_amount: Some(2500.0),
+        };
+
+        // First insert
+        let inserted1 = db
+            .insert_donation(&contribution, "C00000001", Some(2024))
+            .expect("first insert");
+        assert!(inserted1, "First insert should return true");
+
+        // Second insert (duplicate)
+        let inserted2 = db
+            .insert_donation(&contribution, "C00000001", Some(2024))
+            .expect("second insert");
+        assert!(!inserted2, "Duplicate insert should return false");
+
+        // Verify only one donation exists
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM donations WHERE sub_id = 'SUB123456'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count");
+        assert_eq!(count, 1, "Only one donation should exist");
+    }
+
+    #[test]
+    fn test_insert_donation_null_sub_id() {
+        let db = open_test_db();
+
+        let contribution = crate::openfec::types::Contribution {
+            sub_id: None, // NULL sub_id should be skipped
+            committee: None,
+            contributor_name: Some("John Donor".to_string()),
+            contributor_state: Some("CA".to_string()),
+            contributor_employer: Some("TechCorp".to_string()),
+            contributor_occupation: Some("Engineer".to_string()),
+            contribution_receipt_date: Some("2024-01-15".to_string()),
+            contribution_receipt_amount: Some(2500.0),
+        };
+
+        let inserted = db
+            .insert_donation(&contribution, "C00000001", Some(2024))
+            .expect("insert_donation with NULL sub_id");
+        assert!(!inserted, "Should return false for NULL sub_id");
+
+        // Verify no donation was inserted
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM donations", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(count, 0, "No donation should exist for NULL sub_id");
+    }
+
+    #[test]
+    fn test_load_sync_cursor_none() {
+        let db = open_test_db();
+
+        let cursor = db
+            .load_sync_cursor("P000001", "C00000001")
+            .expect("load_sync_cursor");
+        assert_eq!(cursor, None, "Should return None for non-existent cursor");
+    }
+
+    #[test]
+    fn test_save_and_load_cursor() {
+        let db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000010', 'NY', 'Democrat', 'Test', 'Politician', '1970-01-01', 'female', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        let contributions = vec![crate::openfec::types::Contribution {
+            sub_id: Some("SUB111".to_string()),
+            committee: None,
+            contributor_name: Some("Jane Donor".to_string()),
+            contributor_state: Some("NY".to_string()),
+            contributor_employer: None,
+            contributor_occupation: None,
+            contribution_receipt_date: Some("2024-02-01".to_string()),
+            contribution_receipt_amount: Some(1000.0),
+        }];
+
+        let inserted = db
+            .save_sync_cursor_with_donations(
+                "P000010",
+                "C00000002",
+                &contributions,
+                Some(2024),
+                230880619,
+                "2024-02-01",
+            )
+            .expect("save_sync_cursor_with_donations");
+        assert_eq!(inserted, 1, "Should insert 1 donation");
+
+        // Load cursor
+        let cursor = db
+            .load_sync_cursor("P000010", "C00000002")
+            .expect("load_sync_cursor")
+            .expect("cursor should exist");
+
+        assert_eq!(cursor.0, 230880619, "last_index should match");
+        assert_eq!(
+            cursor.1, "2024-02-01",
+            "last_contribution_receipt_date should match"
+        );
+    }
+
+    #[test]
+    fn test_save_cursor_increments_total() {
+        let db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000011', 'CA', 'Republican', 'Test', 'Two', '1975-05-05', 'male', 'senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        // First batch
+        let contributions1 = vec![crate::openfec::types::Contribution {
+            sub_id: Some("SUB222".to_string()),
+            committee: None,
+            contributor_name: Some("Alice".to_string()),
+            contributor_state: Some("CA".to_string()),
+            contributor_employer: None,
+            contributor_occupation: None,
+            contribution_receipt_date: Some("2024-03-01".to_string()),
+            contribution_receipt_amount: Some(500.0),
+        }];
+
+        let inserted1 = db
+            .save_sync_cursor_with_donations(
+                "P000011",
+                "C00000003",
+                &contributions1,
+                Some(2024),
+                100,
+                "2024-03-01",
+            )
+            .expect("first save");
+        assert_eq!(inserted1, 1);
+
+        // Second batch
+        let contributions2 = vec![crate::openfec::types::Contribution {
+            sub_id: Some("SUB333".to_string()),
+            committee: None,
+            contributor_name: Some("Bob".to_string()),
+            contributor_state: Some("TX".to_string()),
+            contributor_employer: None,
+            contributor_occupation: None,
+            contribution_receipt_date: Some("2024-03-02".to_string()),
+            contribution_receipt_amount: Some(750.0),
+        }];
+
+        let inserted2 = db
+            .save_sync_cursor_with_donations(
+                "P000011",
+                "C00000003",
+                &contributions2,
+                Some(2024),
+                200,
+                "2024-03-02",
+            )
+            .expect("second save");
+        assert_eq!(inserted2, 1);
+
+        // Verify total_synced accumulated
+        let total: i64 = db
+            .conn
+            .query_row(
+                "SELECT total_synced FROM donation_sync_meta WHERE politician_id = 'P000011' AND committee_id = 'C00000003'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("get total_synced");
+        assert_eq!(total, 2, "total_synced should accumulate");
+    }
+
+    #[test]
+    fn test_save_cursor_transaction_atomicity() {
+        let db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000012', 'FL', 'Democrat', 'Atomic', 'Test', '1980-01-01', 'female', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        let contributions = vec![crate::openfec::types::Contribution {
+            sub_id: Some("SUB444".to_string()),
+            committee: None,
+            contributor_name: Some("Charlie".to_string()),
+            contributor_state: Some("FL".to_string()),
+            contributor_employer: None,
+            contributor_occupation: None,
+            contribution_receipt_date: Some("2024-04-01".to_string()),
+            contribution_receipt_amount: Some(2000.0),
+        }];
+
+        db.save_sync_cursor_with_donations(
+            "P000012",
+            "C00000004",
+            &contributions,
+            Some(2024),
+            300,
+            "2024-04-01",
+        )
+        .expect("save");
+
+        // Verify both donation and cursor exist (atomic transaction)
+        let donation_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM donations WHERE sub_id = 'SUB444'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count donations");
+        assert_eq!(donation_count, 1, "Donation should exist");
+
+        let cursor = db
+            .load_sync_cursor("P000012", "C00000004")
+            .expect("load cursor")
+            .expect("cursor should exist");
+        assert_eq!(cursor.0, 300, "Cursor should exist with correct last_index");
+    }
+
+    #[test]
+    fn test_mark_sync_completed() {
+        let db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000013', 'TX', 'Republican', 'Complete', 'Sync', '1985-01-01', 'male', 'senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Set up initial cursor
+        let contributions = vec![crate::openfec::types::Contribution {
+            sub_id: Some("SUB555".to_string()),
+            committee: None,
+            contributor_name: Some("Dave".to_string()),
+            contributor_state: Some("TX".to_string()),
+            contributor_employer: None,
+            contributor_occupation: None,
+            contribution_receipt_date: Some("2024-05-01".to_string()),
+            contribution_receipt_amount: Some(1500.0),
+        }];
+
+        db.save_sync_cursor_with_donations(
+            "P000013",
+            "C00000005",
+            &contributions,
+            Some(2024),
+            400,
+            "2024-05-01",
+        )
+        .expect("save");
+
+        // Mark completed
+        db.mark_sync_completed("P000013", "C00000005")
+            .expect("mark_sync_completed");
+
+        // Verify last_index is NULL
+        let cursor = db.load_sync_cursor("P000013", "C00000005").expect("load");
+        assert_eq!(cursor, None, "Cursor should return None when completed (last_index NULL)");
+
+        // Verify total_synced is preserved
+        let total: i64 = db
+            .conn
+            .query_row(
+                "SELECT total_synced FROM donation_sync_meta WHERE politician_id = 'P000013' AND committee_id = 'C00000005'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("get total_synced");
+        assert_eq!(total, 1, "total_synced should be preserved");
+    }
+
+    #[test]
+    fn test_find_politician_by_name_found() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000014', 'CA', 'Democrat', 'Nancy', 'Pelosi', '1940-03-26', 'female', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        let matches = db
+            .find_politician_by_name("Pelosi")
+            .expect("find_politician_by_name");
+        assert_eq!(matches.len(), 1, "Should find 1 match");
+        assert_eq!(matches[0].0, "P000014");
+        assert_eq!(matches[0].1, "Nancy Pelosi");
+    }
+
+    #[test]
+    fn test_find_politician_by_name_multiple() {
+        let db = open_test_db();
+
+        db.conn
+            .execute_batch(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000015', 'CA', 'Democrat', 'Nancy', 'Pelosi', '1940-03-26', 'female', 'house');
+                 INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000016', 'NY', 'Republican', 'John', 'Pelosi', '1965-01-01', 'male', 'senate');",
+            )
+            .expect("insert politicians");
+
+        let matches = db
+            .find_politician_by_name("Pelosi")
+            .expect("find_politician_by_name");
+        assert_eq!(matches.len(), 2, "Should find 2 matches");
+    }
+
+    #[test]
+    fn test_find_politician_by_name_not_found() {
+        let db = open_test_db();
+
+        let matches = db
+            .find_politician_by_name("Nonexistent")
+            .expect("find_politician_by_name");
+        assert_eq!(matches.len(), 0, "Should return empty Vec for no matches");
+    }
+
+    #[test]
+    fn test_count_donations_for_politician() {
+        let db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000017', 'MA', 'Democrat', 'Count', 'Test', '1975-01-01', 'female', 'senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        let contributions = vec![
+            crate::openfec::types::Contribution {
+                sub_id: Some("SUB666".to_string()),
+                committee: None,
+                contributor_name: Some("Eve".to_string()),
+                contributor_state: Some("MA".to_string()),
+                contributor_employer: None,
+                contributor_occupation: None,
+                contribution_receipt_date: Some("2024-06-01".to_string()),
+                contribution_receipt_amount: Some(100.0),
+            },
+            crate::openfec::types::Contribution {
+                sub_id: Some("SUB777".to_string()),
+                committee: None,
+                contributor_name: Some("Frank".to_string()),
+                contributor_state: Some("MA".to_string()),
+                contributor_employer: None,
+                contributor_occupation: None,
+                contribution_receipt_date: Some("2024-06-02".to_string()),
+                contribution_receipt_amount: Some(200.0),
+            },
+        ];
+
+        db.save_sync_cursor_with_donations(
+            "P000017",
+            "C00000006",
+            &contributions,
+            Some(2024),
+            500,
+            "2024-06-02",
+        )
+        .expect("save");
+
+        let count = db
+            .count_donations_for_politician("P000017")
+            .expect("count_donations_for_politician");
+        assert_eq!(count, 2, "Should count 2 donations");
     }
 }
