@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 9 of 12 (Politician-to-Committee Mapping)
-Plan: 1 of 2 (completed)
-Status: In progress
-Last activity: 2026-02-13 -- Completed plan 09-01 (Schema v4 migration and committee storage)
+Plan: 2 of 2 (completed)
+Status: Complete
+Last activity: 2026-02-13 -- Completed plan 09-02 (CommitteeResolver service)
 
-Progress: [####......] 50% (3/6 v1.2 phases)
+Progress: [#####.....] 66% (4/6 v1.2 phases)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 12
-- Average duration: 9.1 min (v1.1: 4.4 min, v1.2: 14.4 min)
-- Total execution time: 1.67 hours
+- Total plans completed: 13
+- Average duration: 8.9 min (v1.1: 4.4 min, v1.2: 13.1 min)
+- Total execution time: 1.78 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -52,6 +52,12 @@ Progress: [####......] 50% (3/6 v1.2 phases)
 - Completed: 2026-02-13
 - Tasks: 2
 - Files: 2 (2 modified)
+
+**Phase 9 Plan 2:**
+- Duration: 7 min
+- Completed: 2026-02-13
+- Tasks: 2
+- Files: 4 (2 created, 2 modified)
 
 ## Accumulated Context
 
@@ -87,6 +93,13 @@ Progress: [####......] 50% (3/6 v1.2 phases)
 - Refactored upsert_committee to accept Committee struct to avoid clippy 8-parameter warning
 - JSON column merges across multiple FEC candidate IDs for same politician (deduplicates committee list)
 
+**Phase 9 Plan 2:**
+- Designation checked FIRST in classification (leadership PACs have designation D regardless of H/S/P type)
+- Arc<Mutex<Db>> for shared DB access (rusqlite::Connection is not Send+Sync)
+- Drop db lock before any async operations to prevent clippy warnings and potential deadlocks
+- Made Db::open_in_memory() and Db::conn() public for integration test usage
+- Empty committee results cached to prevent repeated API calls for not-found politicians
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -102,5 +115,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed Phase 9 Plan 1 (Schema v4 migration and committee storage)
-Next step: Execute Phase 9 Plan 2 (CommitteeResolver service)
+Stopped at: Completed Phase 9 Plan 2 (CommitteeResolver service)
+Next step: Phase 9 complete - Ready for Phase 10 (Donation Sync)
