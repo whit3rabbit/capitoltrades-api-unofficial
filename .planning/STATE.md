@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 8 of 12 (OpenFEC API Client)
-Plan: 2 of 2 (completed)
-Status: Phase 8 complete
-Last activity: 2026-02-12 -- Completed plan 08-02 (OpenFEC integration tests and fixtures)
+Phase: 9 of 12 (Politician-to-Committee Mapping)
+Plan: 1 of 2 (completed)
+Status: In progress
+Last activity: 2026-02-13 -- Completed plan 09-01 (Schema v4 migration and committee storage)
 
-Progress: [###.......] 33% (2/6 v1.2 phases)
+Progress: [####......] 50% (3/6 v1.2 phases)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 11
-- Average duration: 8.9 min (v1.1: 4.4 min, v1.2: 16.8 min)
-- Total execution time: 1.57 hours
+- Total plans completed: 12
+- Average duration: 9.1 min (v1.1: 4.4 min, v1.2: 14.4 min)
+- Total execution time: 1.67 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -46,6 +46,12 @@ Progress: [###.......] 33% (2/6 v1.2 phases)
 - Completed: 2026-02-12
 - Tasks: 2
 - Files: 6 (5 created, 1 modified)
+
+**Phase 9 Plan 1:**
+- Duration: 5 min
+- Completed: 2026-02-13
+- Tasks: 2
+- Files: 2 (2 modified)
 
 ## Accumulated Context
 
@@ -75,6 +81,12 @@ Progress: [###.......] 33% (2/6 v1.2 phases)
 - Include /v1 in base_url for with_base_url() to match production client behavior
 - Combined deserialization and integration tests in single file (both validate same fixtures)
 
+**Phase 9 Plan 1:**
+- No FOREIGN KEY from donations to fec_committees (donations may arrive before committee metadata)
+- No FOREIGN KEY from donation_sync_meta to politicians (reduces cascade overhead for metadata-only table)
+- Refactored upsert_committee to accept Committee struct to avoid clippy 8-parameter warning
+- JSON column merges across multiple FEC candidate IDs for same politician (deduplicates committee list)
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -89,6 +101,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-12
-Stopped at: Completed Phase 8 Plan 2 (OpenFEC integration tests and fixtures)
-Next step: Execute Phase 9 (Politician-Committee Mapping)
+Last session: 2026-02-13
+Stopped at: Completed Phase 9 Plan 1 (Schema v4 migration and committee storage)
+Next step: Execute Phase 9 Plan 2 (CommitteeResolver service)
