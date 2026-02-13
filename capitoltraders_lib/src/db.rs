@@ -46,6 +46,11 @@ impl Db {
         Ok(Self { conn })
     }
 
+    /// Get a reference to the underlying connection (for internal use by committee resolver).
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     pub fn init(&self) -> Result<(), DbError> {
         // Check schema version before applying DDL so migrations can add
         // columns that new indexes reference.

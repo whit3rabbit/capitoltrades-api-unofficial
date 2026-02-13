@@ -6,6 +6,7 @@
 pub mod analysis;
 pub mod cache;
 pub mod client;
+pub mod committee;
 pub mod db;
 pub mod error;
 pub mod fec_mapping;
@@ -24,6 +25,7 @@ pub use capitoltrades_api::{
 };
 
 pub use client::CachedClient;
+pub use committee::{CommitteeClass, CommitteeError, CommitteeResolver, ResolvedCommittee};
 pub use db::{
     Db, DbError, DbIssuerFilter, DbIssuerRow, DbPoliticianFilter, DbPoliticianRow, DbTradeFilter,
     DbTradeRow, IssuerStatsRow, PoliticianStatsRow, PortfolioFilter, PortfolioPosition,
