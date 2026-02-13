@@ -2168,6 +2168,111 @@ impl Db {
         )?;
         Ok(count)
     }
+
+    /// Upsert a committee record from OpenFEC Committee type.
+    pub fn upsert_committee(
+        &self,
+        committee: &crate::openfec::types::Committee,
+    ) -> Result<(), DbError> {
+        let cycles_json = serde_json::to_string(&committee.cycles)?;
+        self.conn.execute(
+            "INSERT INTO fec_committees (
+                committee_id, name, committee_type, designation, party, state, cycles, last_synced
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))
+            ON CONFLICT(committee_id) DO UPDATE SET
+                name = excluded.name,
+                committee_type = excluded.committee_type,
+                designation = excluded.designation,
+                party = excluded.party,
+                state = excluded.state,
+                cycles = excluded.cycles,
+                last_synced = datetime('now')",
+            params![
+                committee.committee_id,
+                committee.name,
+                committee.committee_type,
+                committee.designation,
+                committee.party,
+                committee.state,
+                cycles_json
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Batch upsert committees from OpenFEC API response.
+    pub fn upsert_committees(
+        &self,
+        committees: &[crate::openfec::types::Committee],
+    ) -> Result<usize, DbError> {
+        for committee in committees {
+            self.upsert_committee(committee)?;
+        }
+        Ok(committees.len())
+    }
+
+    /// Get committee IDs for a politician from the committee_ids JSON column.
+    /// Returns None if no committees stored. Merges across multiple FEC candidate IDs.
+    pub fn get_committees_for_politician(
+        &self,
+        politician_id: &str,
+    ) -> Result<Option<Vec<String>>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT committee_ids FROM fec_mappings WHERE politician_id = ?1 AND committee_ids IS NOT NULL"
+        )?;
+        let results: Vec<String> = stmt
+            .query_map(params![politician_id], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        if results.is_empty() {
+            return Ok(None);
+        }
+
+        let mut all_committees = std::collections::HashSet::new();
+        for json_str in results {
+            if json_str.trim().is_empty() {
+                continue;
+            }
+            let committees: Vec<String> = serde_json::from_str(&json_str)?;
+            all_committees.extend(committees);
+        }
+
+        if all_committees.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(all_committees.into_iter().collect()))
+        }
+    }
+
+    /// Update committee_ids for all fec_mappings rows for a politician.
+    pub fn update_politician_committees(
+        &self,
+        politician_id: &str,
+        committee_ids: &[String],
+    ) -> Result<(), DbError> {
+        let json = serde_json::to_string(committee_ids)?;
+        self.conn.execute(
+            "UPDATE fec_mappings SET committee_ids = ?1 WHERE politician_id = ?2",
+            params![json, politician_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get politician name and state for OpenFEC API fallback search.
+    pub fn get_politician_info(
+        &self,
+        politician_id: &str,
+    ) -> Result<Option<(String, String, String)>, DbError> {
+        self.conn
+            .query_row(
+                "SELECT first_name, last_name, state_id FROM politicians WHERE politician_id = ?1",
+                params![politician_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(DbError::from)
+    }
 }
 
 pub struct PoliticianStatsRow {
@@ -5962,5 +6067,279 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         // Verify count is still 1 (idempotent)
         let total = db.count_fec_mappings().expect("count");
         assert_eq!(total, 1, "Upsert should be idempotent");
+    }
+
+    #[test]
+    fn test_migrate_v4_fresh_db() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 4);
+
+        // Verify all three new tables exist
+        let tables: Vec<String> = db
+            .conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('fec_committees', 'donations', 'donation_sync_meta')")
+            .expect("prepare")
+            .query_map([], |row| row.get(0))
+            .expect("query")
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(tables.len(), 3);
+        assert!(tables.contains(&"fec_committees".to_string()));
+        assert!(tables.contains(&"donations".to_string()));
+        assert!(tables.contains(&"donation_sync_meta".to_string()));
+    }
+
+    #[test]
+    fn test_migrate_v4_idempotent() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("first init");
+        db.init().expect("second init should not fail");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 4);
+    }
+
+    #[test]
+    fn test_migrate_v4_from_v3() {
+        let db = Db::open_in_memory().expect("open");
+
+        // Manually set version to 3 and create fec_mappings without committee_ids
+        db.conn.pragma_update(None, "user_version", 3).expect("set version");
+        db.conn.execute(
+            "CREATE TABLE IF NOT EXISTS fec_mappings (
+                politician_id TEXT NOT NULL,
+                fec_candidate_id TEXT NOT NULL,
+                bioguide_id TEXT NOT NULL,
+                election_cycle INTEGER,
+                last_synced TEXT NOT NULL,
+                PRIMARY KEY (politician_id, fec_candidate_id)
+            )",
+            [],
+        ).expect("create fec_mappings v3");
+
+        // Now run init which should migrate to v4
+        db.init().expect("init");
+
+        // Verify committee_ids column exists
+        let has_column: bool = db
+            .conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('fec_mappings') WHERE name='committee_ids'")
+            .expect("prepare")
+            .query_row([], |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            })
+            .expect("query");
+        assert!(has_column, "committee_ids column should exist after v4 migration");
+    }
+
+    #[test]
+    fn test_upsert_committee() {
+        let db = open_test_db();
+
+        let committee = crate::openfec::types::Committee {
+            committee_id: "C00123456".to_string(),
+            name: "Example Committee".to_string(),
+            committee_type: Some("H".to_string()),
+            designation: Some("P".to_string()),
+            party: Some("DEM".to_string()),
+            state: Some("CA".to_string()),
+            cycles: vec![2020, 2022],
+        };
+
+        db.upsert_committee(&committee).expect("upsert");
+
+        let row: (String, String, String, Vec<i32>) = db
+            .conn
+            .query_row(
+                "SELECT committee_id, name, designation, cycles FROM fec_committees WHERE committee_id = ?1",
+                params!["C00123456"],
+                |row| {
+                    let cycles_json: String = row.get(3)?;
+                    let cycles: Vec<i32> = serde_json::from_str(&cycles_json).unwrap();
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, cycles))
+                },
+            )
+            .expect("query");
+
+        assert_eq!(row.0, "C00123456");
+        assert_eq!(row.1, "Example Committee");
+        assert_eq!(row.2, "P");
+        assert_eq!(row.3, vec![2020, 2022]);
+    }
+
+    #[test]
+    fn test_upsert_committee_update() {
+        let db = open_test_db();
+
+        let committee1 = crate::openfec::types::Committee {
+            committee_id: "C00111111".to_string(),
+            name: "Original Name".to_string(),
+            committee_type: None,
+            designation: None,
+            party: None,
+            state: None,
+            cycles: vec![2020],
+        };
+
+        let committee2 = crate::openfec::types::Committee {
+            committee_id: "C00111111".to_string(),
+            name: "Updated Name".to_string(),
+            committee_type: Some("H".to_string()),
+            designation: Some("P".to_string()),
+            party: Some("REP".to_string()),
+            state: Some("TX".to_string()),
+            cycles: vec![2020, 2022],
+        };
+
+        db.upsert_committee(&committee1).expect("first upsert");
+        db.upsert_committee(&committee2).expect("second upsert");
+
+        let name: String = db
+            .conn
+            .query_row(
+                "SELECT name FROM fec_committees WHERE committee_id = ?1",
+                params!["C00111111"],
+                |row| row.get(0),
+            )
+            .expect("query");
+
+        assert_eq!(name, "Updated Name");
+    }
+
+    #[test]
+    fn test_upsert_committees_from_api() {
+        let db = open_test_db();
+
+        let committees = vec![
+            crate::openfec::types::Committee {
+                committee_id: "C00100001".to_string(),
+                name: "Committee One".to_string(),
+                committee_type: Some("H".to_string()),
+                designation: Some("P".to_string()),
+                party: Some("DEM".to_string()),
+                state: Some("CA".to_string()),
+                cycles: vec![2020, 2022],
+            },
+            crate::openfec::types::Committee {
+                committee_id: "C00100002".to_string(),
+                name: "Committee Two".to_string(),
+                committee_type: Some("S".to_string()),
+                designation: Some("A".to_string()),
+                party: Some("REP".to_string()),
+                state: Some("TX".to_string()),
+                cycles: vec![2022],
+            },
+        ];
+
+        let count = db.upsert_committees(&committees).expect("upsert");
+        assert_eq!(count, 2);
+
+        let db_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM fec_committees", [], |row| row.get(0))
+            .expect("count");
+        assert_eq!(db_count, 2);
+    }
+
+    #[test]
+    fn test_update_and_get_politician_committees() {
+        let mut db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000005', 'NY', 'Democrat', 'Test', 'Person', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert fec_mapping
+        db.upsert_fec_mappings(&[crate::fec_mapping::FecMapping {
+            politician_id: "P000005".to_string(),
+            fec_candidate_id: "H0NY05080".to_string(),
+            bioguide_id: "P000005".to_string(),
+        }])
+        .expect("upsert mapping");
+
+        // Update committee_ids
+        let committee_ids = vec!["C00123456".to_string(), "C00789012".to_string()];
+        db.update_politician_committees("P000005", &committee_ids)
+            .expect("update");
+
+        // Get them back
+        let retrieved = db
+            .get_committees_for_politician("P000005")
+            .expect("get")
+            .expect("should have committees");
+
+        assert_eq!(retrieved.len(), 2);
+        assert!(retrieved.contains(&"C00123456".to_string()));
+        assert!(retrieved.contains(&"C00789012".to_string()));
+    }
+
+    #[test]
+    fn test_get_committees_null_returns_none() {
+        let mut db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000006', 'CA', 'Republican', 'No', 'Committees', '1965-01-01', 'female', 'senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert fec_mapping with no committee_ids
+        db.upsert_fec_mappings(&[crate::fec_mapping::FecMapping {
+            politician_id: "P000006".to_string(),
+            fec_candidate_id: "S4CA00001".to_string(),
+            bioguide_id: "C000006".to_string(),
+        }])
+        .expect("upsert mapping");
+
+        let result = db.get_committees_for_politician("P000006").expect("get");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_get_politician_info() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000007', 'TX', 'Democrat', 'First', 'Last', '1975-05-15', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        let info = db
+            .get_politician_info("P000007")
+            .expect("get_politician_info")
+            .expect("should exist");
+
+        assert_eq!(info.0, "First");
+        assert_eq!(info.1, "Last");
+        assert_eq!(info.2, "TX");
+    }
+
+    #[test]
+    fn test_get_politician_info_not_found() {
+        let db = open_test_db();
+
+        let info = db.get_politician_info("P999999").expect("get_politician_info");
+        assert_eq!(info, None);
     }
 }
