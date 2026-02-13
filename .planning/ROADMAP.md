@@ -113,10 +113,14 @@ Plans:
   2. `--show-donor-context` on trades command displays donation context for the politician's traded sectors
   3. Portfolio output includes optional donation summary (total received, top employer sectors) when donation data exists
   4. Unmatched employers can be exported for manual review and re-imported as confirmed mappings
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 12-01: TBD
+- [ ] 12-01-PLAN.md -- Employer mapping module: normalization, fuzzy matching (strsim), seed data TOML, unit tests
+- [ ] 12-02-PLAN.md -- Schema v5 migration (employer_mappings + employer_lookup tables), donor context DB queries
+- [ ] 12-03-PLAN.md -- map-employers CLI command with export, import, and load-seed subcommands
+- [ ] 12-04-PLAN.md -- --show-donor-context on trades command, --show-donations on portfolio command
+- [ ] 12-05-PLAN.md -- Final verification and user checkpoint
 
 ## Progress
 
@@ -133,4 +137,4 @@ Plans:
 | 9. Politician-to-Committee Mapping & Schema v4 | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 10. Donation Sync Pipeline | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 11. Donations CLI Command | v1.2 | 2/2 | Complete | 2026-02-13 |
-| 12. Employer Correlation & Analysis | v1.2 | 0/TBD | Not started | - |
+| 12. Employer Correlation & Analysis | v1.2 | 0/5 | Not started | - |
