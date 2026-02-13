@@ -69,8 +69,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 09-01-PLAN.md -- Schema v4 migration (donations, donation_sync_meta, fec_committees tables) and committee DB operations
-- [ ] 09-02-PLAN.md -- CommitteeResolver with three-tier cache, CommitteeClass enum, and wiremock integration tests
+- [x] 09-01-PLAN.md -- Schema v4 migration (donations, donation_sync_meta, fec_committees tables) and committee DB operations
+- [x] 09-02-PLAN.md -- CommitteeResolver with three-tier cache, CommitteeClass enum, and wiremock integration tests
 
 #### Phase 10: Donation Sync Pipeline
 **Goal**: Users can sync FEC donation data into their local database for any politician
@@ -128,7 +128,7 @@ Plans:
 | 6. CLI Commands & Output | v1.1 | 1/1 | Complete | 2026-02-11 |
 | 7. Foundation & Environment Setup | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 8. OpenFEC API Client | v1.2 | 2/2 | Complete | 2026-02-12 |
-| 9. Politician-to-Committee Mapping & Schema v4 | v1.2 | 0/2 | Planned | - |
+| 9. Politician-to-Committee Mapping & Schema v4 | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 10. Donation Sync Pipeline | v1.2 | 0/TBD | Not started | - |
 | 11. Donations CLI Command | v1.2 | 0/TBD | Not started | - |
 | 12. Employer Correlation & Analysis | v1.2 | 0/TBD | Not started | - |
