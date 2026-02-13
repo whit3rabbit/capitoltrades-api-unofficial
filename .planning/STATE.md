@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 11 of 12 (Donations CLI Command)
-Plan: 1 of 2 (completed)
-Status: In Progress
-Last activity: 2026-02-13 -- Completed plan 11-01 (Donation Query Foundation)
+Plan: 2 of 2 (completed)
+Status: Complete
+Last activity: 2026-02-13 -- Completed plan 11-02 (Donations CLI Command)
 
-Progress: [########..] 88% (5/6 v1.2 phases complete, 1/2 plans in Phase 11)
+Progress: [#########.] 92% (6/6 v1.2 phases complete, Phase 11 complete)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 15
-- Average duration: 8.3 min (v1.1: 4.4 min, v1.2: 11.4 min)
-- Total execution time: 2.00 hours
+- Total plans completed: 16
+- Average duration: 7.8 min (v1.1: 4.4 min, v1.2: 10.0 min)
+- Total execution time: 2.08 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -76,6 +76,12 @@ Progress: [########..] 88% (5/6 v1.2 phases complete, 1/2 plans in Phase 11)
 - Completed: 2026-02-13
 - Tasks: 2
 - Files: 2 (modified)
+
+**Phase 11 Plan 2:**
+- Duration: 5 min
+- Completed: 2026-02-13
+- Tasks: 2
+- Files: 5 (1 created, 4 modified)
 
 ## Accumulated Context
 
@@ -137,6 +143,12 @@ Progress: [########..] 88% (5/6 v1.2 phases complete, 1/2 plans in Phase 11)
 - build_donation_where_clause shared helper avoids duplicating filter logic across 4 query methods
 - Aggregations use COUNT(DISTINCT contributor_name) for accurate contributor counts despite NULL values
 
+**Phase 11 Plan 2:**
+- Politician filter uses name resolution (not ID) for better UX, with disambiguation on multiple matches
+- Cycle validation requires even year >= 1976 (FEC data availability constraint)
+- Separate output row structs for each aggregation type rather than generic approach
+- CSV sanitization applies to contributor and employer fields (user-generated content risk)
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -152,5 +164,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-13
-Stopped at: Completed Phase 11 Plan 1 (Donation Query Foundation)
-Next step: Phase 11 Plan 2 (donations CLI Command Implementation) ready to execute.
+Stopped at: Completed Phase 11 Plan 2 (Donations CLI Command)
+Next step: Phase 11 complete. Ready for Phase 12 (Donation Trend Analysis) or v1.2 UAT testing.
