@@ -3,9 +3,9 @@
 //! Fetches contributions for politicians' committees and stores them in SQLite.
 //! Uses Semaphore + JoinSet + mpsc pattern for concurrent fetching with rate limiting.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use capitoltraders_lib::{
-    committee::{CommitteeResolver, ResolvedCommittee},
+    committee::CommitteeResolver,
     openfec::{
         types::{Contribution, ScheduleAQuery},
         OpenFecClient, OpenFecError,
@@ -153,7 +153,8 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
     );
 
     // Step 3: For each politician, resolve committees and prepare sync tasks
-    let mut committee_tasks: Vec<(String, String, String, Option<(i64, String)>)> = Vec::new();
+    type CommitteeTask = (String, String, String, Option<(i64, String)>);
+    let mut committee_tasks: Vec<CommitteeTask> = Vec::new();
 
     for (politician_id, politician_name) in &politicians {
         // Resolve committees
@@ -190,7 +191,7 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
                               AND last_index IS NULL
                               AND datetime(last_synced_at) > datetime('now', '-24 hours')
                         )",
-                        params![politician_id, &committee.committee_id],
+                        [politician_id, &committee.committee_id],
                         |row| row.get(0),
                     )?;
 
@@ -235,7 +236,7 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
     let mut join_set = JoinSet::new();
 
     // Spawn tasks for each committee
-    for (politician_id, committee_id, committee_name, cursor) in committee_tasks {
+    for (politician_id, committee_id, _committee_name, cursor) in committee_tasks {
         let sem = Arc::clone(&semaphore);
         let sender = tx.clone();
         let client_clone = Arc::clone(&client);
@@ -364,9 +365,9 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
 
                 total_synced += count;
                 pb.set_message(format!(
-                    "{} donations synced ({})",
+                    "{} donations synced ({:.1}s)",
                     total_synced,
-                    humantime::format_duration(start_time.elapsed())
+                    start_time.elapsed().as_secs_f64()
                 ));
                 breaker.record_success();
             }
@@ -383,9 +384,9 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
             DonationMessage::Error { committee_id, error } => {
                 match error {
                     OpenFecError::InvalidApiKey => {
-                        pb.println(format!(
+                        pb.println(
                             "Fatal: Invalid OpenFEC API key. Please check your OPENFEC_API_KEY environment variable."
-                        ));
+                        );
                         join_set.abort_all();
                         bail!("Invalid API key");
                     }
@@ -427,8 +428,8 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
         total_synced, committees_processed
     );
     eprintln!(
-        "  Elapsed time: {}",
-        humantime::format_duration(elapsed)
+        "  Elapsed time: {:.1}s",
+        elapsed.as_secs_f64()
     );
 
     if breaker.is_tripped() {
