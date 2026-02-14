@@ -309,6 +309,8 @@ fn sample_db_trade_row() -> DbTradeRow {
         asset_type: "stock".to_string(),
         committees: vec!["Finance".to_string(), "Agriculture".to_string()],
         labels: vec!["faang".to_string()],
+        politician_id: "P000001".to_string(),
+        issuer_sector: Some("Technology".to_string()),
     }
 }
 

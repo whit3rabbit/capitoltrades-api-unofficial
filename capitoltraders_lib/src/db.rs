@@ -1598,7 +1598,9 @@ impl Db {
                     i.issuer_name, i.issuer_ticker,
                     a.asset_type,
                     COALESCE(GROUP_CONCAT(DISTINCT tc.committee), '') AS committees,
-                    COALESCE(GROUP_CONCAT(DISTINCT tl.label), '') AS labels
+                    COALESCE(GROUP_CONCAT(DISTINCT tl.label), '') AS labels,
+                    t.politician_id,
+                    i.sector AS issuer_sector
              FROM trades t
              JOIN politicians p ON t.politician_id = p.politician_id
              JOIN issuers i ON t.issuer_id = i.issuer_id
@@ -1702,6 +1704,8 @@ impl Db {
                 } else {
                     labels_str.split(',').map(|s| s.to_string()).collect()
                 },
+                politician_id: row.get(24)?,
+                issuer_sector: row.get(25)?,
             })
         })?;
 
@@ -3149,6 +3153,8 @@ pub struct DbTradeRow {
     pub asset_type: String,
     pub committees: Vec<String>,
     pub labels: Vec<String>,
+    pub politician_id: String,
+    pub issuer_sector: Option<String>,
 }
 
 /// Filter parameters for [`Db::query_trades`].

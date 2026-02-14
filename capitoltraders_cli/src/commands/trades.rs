@@ -6,6 +6,7 @@ use capitoltraders_lib::validation;
 use capitoltraders_lib::{Db, DbTradeFilter, ScrapeClient, ScrapedTrade};
 use chrono::{NaiveDate, Utc};
 use clap::Args;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -142,6 +143,10 @@ pub struct TradesArgs {
     /// Read trades from local SQLite database (requires prior sync)
     #[arg(long)]
     pub db: Option<PathBuf>,
+
+    /// Show donation context for traded securities (requires synced donations and employer mappings)
+    #[arg(long)]
+    pub show_donor_context: bool,
 }
 
 /// Executes the trades subcommand: validates inputs, scrapes results,
@@ -151,6 +156,10 @@ pub async fn run(args: &TradesArgs, scraper: &ScrapeClient, format: &OutputForma
     let page_size = validation::validate_page_size(args.page_size)?;
     if page_size != 12 {
         eprintln!("Note: --page-size is ignored in scrape mode (fixed at 12).");
+    }
+
+    if args.show_donor_context {
+        eprintln!("Note: --show-donor-context requires --db mode.");
     }
 
     if args.committee.is_some() {
@@ -578,6 +587,49 @@ pub async fn run_db(
         OutputFormat::Csv => print_db_trades_csv(&rows)?,
         OutputFormat::Markdown => print_db_trades_markdown(&rows),
         OutputFormat::Xml => print_db_trades_xml(&rows),
+    }
+
+    // Donor context display (opt-in via --show-donor-context)
+    if args.show_donor_context {
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        let mut any_context = false;
+
+        for trade in &rows {
+            if let Some(ref sector) = trade.issuer_sector {
+                let key = (trade.politician_id.clone(), sector.clone());
+                if seen.contains(&key) {
+                    continue;
+                }
+                seen.insert(key);
+
+                let context = db.get_donor_context_for_sector(
+                    &trade.politician_id,
+                    sector,
+                    5,  // top 5 employers
+                )?;
+
+                if !context.is_empty() {
+                    if !any_context {
+                        eprintln!("\n--- Donor Context ---");
+                        any_context = true;
+                    }
+                    eprintln!(
+                        "\n{} - {} sector:",
+                        trade.politician_name, sector
+                    );
+                    for dc in &context {
+                        eprintln!(
+                            "  {:40} ${:>12.0} ({} donations)",
+                            dc.employer, dc.total_amount, dc.donation_count
+                        );
+                    }
+                }
+            }
+        }
+
+        if !any_context && !rows.is_empty() {
+            eprintln!("\nNo donor context available. Run 'map-employers load-seed' or 'map-employers export/import' to build employer mappings.");
+        }
     }
 
     Ok(())
