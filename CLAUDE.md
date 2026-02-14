@@ -7,7 +7,7 @@ This guide provides concrete patterns and conventions for agentic coding in this
 ```bash
 # Primary workspace commands
 cargo check --workspace          # Fast compilation check
-cargo test --workspace           # Run all 366 tests
+cargo test --workspace           # Run all 503 tests
 cargo clippy --workspace         # Lint with all clippy rules
 cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
@@ -159,7 +159,7 @@ async fn get_trades_with_filters_sends_query_params() {
 
 ### Validation Testing
 ```rust
-// Test all validation edge cases (see validation.rs for 83 examples)
+// Test all validation edge cases (see validation.rs for many examples)
 #[test]
 fn state_invalid() {
     assert!(matches!(
@@ -235,8 +235,12 @@ pub enum Commands {
     Politicians(PoliticiansArgs),
     Issuers(IssuersArgs),
     Sync(SyncArgs),
+    SyncFec(SyncFecArgs),
     EnrichPrices(EnrichPricesArgs),   // DB-only: Yahoo Finance price enrichment
     Portfolio(PortfolioArgs),          // DB-only: per-politician positions with P&L
+    SyncDonations(SyncDonationsArgs),
+    Donations(DonationsArgs),
+    MapEmployers(MapEmployersArgs),
 }
 ```
 

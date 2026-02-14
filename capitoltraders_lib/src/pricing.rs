@@ -90,6 +90,51 @@ pub fn estimate_shares(range: &TradeRange, trade_date_price: f64) -> Option<Shar
     })
 }
 
+/// Normalize a CapitolTrades ticker to Yahoo Finance format.
+///
+/// CapitolTrades uses Bloomberg-style exchange suffixes (e.g., `MSFT:US`).
+/// Yahoo Finance uses its own suffix conventions.
+///
+/// Returns `None` for empty or whitespace-only input.
+pub fn normalize_ticker_for_yahoo(ticker: &str) -> Option<String> {
+    let trimmed = ticker.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Handle crypto: $$BTC -> BTC-USD
+    if let Some(symbol) = trimmed.strip_prefix("$$") {
+        if symbol.is_empty() {
+            return None;
+        }
+        return Some(format!("{}-USD", symbol));
+    }
+
+    // Handle exchange suffixes (Bloomberg -> Yahoo)
+    if let Some((base, suffix)) = trimmed.rsplit_once(':') {
+        let base = base.trim();
+        if base.is_empty() {
+            return None;
+        }
+        // Replace slash with dash for share classes (BRK/B -> BRK-B)
+        let base = base.replace('/', "-");
+        match suffix.trim().to_uppercase().as_str() {
+            "US" => Some(base),
+            "LN" => Some(format!("{}.L", base)),
+            "HK" => Some(format!("{}.HK", base)),
+            "SS" => Some(format!("{}.ST", base)),
+            "SP" => Some(format!("{}.SI", base)),
+            "NZ" => Some(format!("{}.NZ", base)),
+            "CN" => Some(format!("{}.SS", base)),
+            "UD" => Some(base),
+            _ => Some(base),
+        }
+    } else {
+        // No suffix -- replace slash and use as-is
+        Some(trimmed.replace('/', "-"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +246,95 @@ mod tests {
         let midpoint = range.midpoint();
         // Use 0.01 tolerance for dollar amounts (1 cent precision)
         assert!((result.estimated_value - midpoint).abs() < 0.01);
+    }
+
+    // --- normalize_ticker_for_yahoo tests ---
+
+    #[test]
+    fn normalize_us_ticker() {
+        assert_eq!(normalize_ticker_for_yahoo("MSFT:US"), Some("MSFT".into()));
+    }
+
+    #[test]
+    fn normalize_us_ticker_trailing_space() {
+        assert_eq!(normalize_ticker_for_yahoo("HURA:US "), Some("HURA".into()));
+    }
+
+    #[test]
+    fn normalize_us_lowercase() {
+        assert_eq!(normalize_ticker_for_yahoo("AAPL:us"), Some("AAPL".into()));
+    }
+
+    #[test]
+    fn normalize_london() {
+        assert_eq!(normalize_ticker_for_yahoo("III:LN"), Some("III.L".into()));
+    }
+
+    #[test]
+    fn normalize_hong_kong() {
+        assert_eq!(normalize_ticker_for_yahoo("1093:HK"), Some("1093.HK".into()));
+    }
+
+    #[test]
+    fn normalize_stockholm() {
+        assert_eq!(normalize_ticker_for_yahoo("ELUXB:SS"), Some("ELUXB.ST".into()));
+    }
+
+    #[test]
+    fn normalize_singapore() {
+        assert_eq!(normalize_ticker_for_yahoo("EUN:SP"), Some("EUN.SI".into()));
+    }
+
+    #[test]
+    fn normalize_new_zealand() {
+        assert_eq!(normalize_ticker_for_yahoo("ARB:NZ"), Some("ARB.NZ".into()));
+    }
+
+    #[test]
+    fn normalize_china() {
+        assert_eq!(normalize_ticker_for_yahoo("559242Z:CN"), Some("559242Z.SS".into()));
+    }
+
+    #[test]
+    fn normalize_unknown_exchange() {
+        assert_eq!(normalize_ticker_for_yahoo("NEWFX:UD"), Some("NEWFX".into()));
+    }
+
+    #[test]
+    fn normalize_crypto() {
+        assert_eq!(normalize_ticker_for_yahoo("$$BTC"), Some("BTC-USD".into()));
+        assert_eq!(normalize_ticker_for_yahoo("$$ETH"), Some("ETH-USD".into()));
+    }
+
+    #[test]
+    fn normalize_share_class_slash() {
+        assert_eq!(normalize_ticker_for_yahoo("BRK/B:US"), Some("BRK-B".into()));
+        assert_eq!(normalize_ticker_for_yahoo("BF/A:US"), Some("BF-A".into()));
+        assert_eq!(normalize_ticker_for_yahoo("LGF/A:US"), Some("LGF-A".into()));
+    }
+
+    #[test]
+    fn normalize_plain_ticker() {
+        assert_eq!(normalize_ticker_for_yahoo("DALCX"), Some("DALCX".into()));
+    }
+
+    #[test]
+    fn normalize_empty() {
+        assert_eq!(normalize_ticker_for_yahoo(""), None);
+    }
+
+    #[test]
+    fn normalize_whitespace_only() {
+        assert_eq!(normalize_ticker_for_yahoo("   "), None);
+    }
+
+    #[test]
+    fn normalize_bare_dollar_signs() {
+        assert_eq!(normalize_ticker_for_yahoo("$$"), None);
+    }
+
+    #[test]
+    fn normalize_colon_no_base() {
+        assert_eq!(normalize_ticker_for_yahoo(":US"), None);
     }
 }

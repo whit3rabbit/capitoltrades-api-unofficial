@@ -101,15 +101,27 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
         total_trades
     );
 
-    // Step 2: Deduplicate by (ticker, date)
+    // Step 2: Deduplicate by (normalized_ticker, date)
     let mut ticker_date_map: HashMap<(String, NaiveDate), Vec<usize>> = HashMap::new();
+    let mut normalized_tickers: HashMap<String, String> = HashMap::new();
     let mut skipped_parse_errors = 0usize;
+    let mut skipped_no_ticker = 0usize;
 
     for (idx, trade) in trades.iter().enumerate() {
+        let yahoo_ticker = match pricing::normalize_ticker_for_yahoo(&trade.issuer_ticker) {
+            Some(t) => t,
+            None => {
+                skipped_no_ticker += 1;
+                continue;
+            }
+        };
+        normalized_tickers
+            .entry(trade.issuer_ticker.clone())
+            .or_insert_with(|| yahoo_ticker.clone());
         match NaiveDate::parse_from_str(&trade.tx_date, "%Y-%m-%d") {
             Ok(date) => {
                 ticker_date_map
-                    .entry((trade.issuer_ticker.clone(), date))
+                    .entry((yahoo_ticker, date))
                     .or_default()
                     .push(idx);
             }
@@ -121,6 +133,13 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
                 skipped_parse_errors += 1;
             }
         }
+    }
+
+    if skipped_no_ticker > 0 {
+        eprintln!(
+            "Skipped {} trades with empty or unparseable tickers",
+            skipped_no_ticker
+        );
     }
 
     let unique_pairs = ticker_date_map.len();
@@ -249,10 +268,12 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
     // Step 4: Current price enrichment (Phase 2)
     let mut ticker_map: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, trade) in trades.iter().enumerate() {
-        ticker_map
-            .entry(trade.issuer_ticker.clone())
-            .or_default()
-            .push(idx);
+        if let Some(yahoo_ticker) = normalized_tickers.get(&trade.issuer_ticker) {
+            ticker_map
+                .entry(yahoo_ticker.clone())
+                .or_default()
+                .push(idx);
+        }
     }
 
     let unique_tickers = ticker_map.len();

@@ -200,7 +200,7 @@ pub fn print_issuers_markdown(issuers: &[IssuerDetail]) {
 /// Neutralize CSV formula injection by prefixing dangerous leading characters with a tab.
 /// Spreadsheet applications (Excel, Google Sheets) interpret cells starting with =, +, -, or @
 /// as formulas. A leading tab prevents formula evaluation while remaining visually unobtrusive.
-fn sanitize_csv_field(s: &str) -> String {
+pub(crate) fn sanitize_csv_field(s: &str) -> String {
     if s.starts_with('=') || s.starts_with('+') || s.starts_with('-') || s.starts_with('@') {
         format!("\t{}", s)
     } else {

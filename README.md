@@ -109,6 +109,24 @@ capitoltraders portfolio --db capitoltraders.db --output json
 
 # Include closed positions (shares near zero)
 capitoltraders portfolio --db capitoltraders.db --include-closed
+
+# Sync FEC candidate mappings
+capitoltraders sync-fec --db capitoltraders.db
+
+# Sync donations for a politician
+capitoltraders sync-donations --db capitoltraders.db --politician pelosi --cycle 2024
+
+# Query donations aggregated by employer
+capitoltraders donations --db capitoltraders.db --politician pelosi --group-by employer --top 10
+
+# Load curated employer-to-issuer mappings
+capitoltraders map-employers --db capitoltraders.db load-seed
+
+# Export unmatched employers for review
+capitoltraders map-employers --db capitoltraders.db export -o unmatched.csv
+
+# View trades with donor context
+capitoltraders trades --db capitoltraders.db --show-donor-context
 ```
 
 ### Subcommands
@@ -147,6 +165,7 @@ capitoltraders portfolio --db capitoltraders.db --include-closed
 | `--asc` | Sort ascending | descending |
 | `--details-delay-ms` | Delay between trade detail requests (ms) | 250 |
 | `--db` | Read from local SQLite database instead of scraping | -- |
+| `--show-donor-context` | Show donation context for traded securities (DB mode only) | off |
 
 Most filter flags accept comma-separated values for multi-select, e.g. `--asset-type stock,etf` or `--trade-size 7,8,9`.
 Date filters are mutually exclusive: use `--days`/`--tx-days` for relative days, or `--since`/`--until` and
@@ -253,11 +272,55 @@ counts and success/fail/skip summary.
 | `--state` | US state code, e.g. `CA`, `TX` | all |
 | `--ticker` | Filter by ticker symbol, e.g. `AAPL` | all |
 | `--include-closed` | Include positions with near-zero shares | off |
+| `--show-donations` | Show donation summary for the politician | off |
 
-Requires a synced and price-enriched database (`sync` then `enrich-prices`). Positions are calculated
+Requires a synced and price-enriched database (`sync` then `enrich-prices`).
+ Positions are calculated
 using FIFO (First-In-First-Out) accounting from estimated share counts. Output columns: Politician,
 Ticker, Shares, Avg Cost, Current Price, Current Value, Unrealized P&L, P&L %. Option trades are
 excluded from position calculations and noted separately in table/markdown output.
+
+**sync-fec** -- Populates FEC candidate ID mappings.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+
+Downloads the `congress-legislators` dataset and matches politicians by name and state to resolve their FEC candidate IDs.
+
+**sync-donations** -- Fetches FEC Schedule A contributions.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+| `--politician` | Filter by politician name (partial match) | all |
+| `--cycle` | Election cycle year (e.g. 2024) | all |
+| `--batch-size` | Donations per API page | 100 |
+
+Requires an `OPENFEC_API_KEY` in your `.env` file. Fetches contributions for all authorized committees associated with the politician's FEC ID. Supports resumable sync via persistent cursors.
+
+**donations** -- Query and aggregate synced donation data.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+| `--politician` | Filter by politician name | all |
+| `--cycle` | Filter by election cycle year | all |
+| `--min-amount` | Minimum contribution amount | all |
+| `--employer` | Filter by employer name (partial match) | all |
+| `--state` | Filter by contributor state | all |
+| `--top` | Show top N results | all |
+| `--group-by` | Group results by: `contributor`, `employer`, `state` | -- |
+
+**map-employers** -- Build employer-to-issuer mapping database.
+
+| Subcommand | Description |
+|---|---|
+| `load-seed` | Load curated employer mappings into database |
+| `export` | Export unmatched employers with suggestions to CSV |
+| `import` | Import confirmed mappings from CSV |
+
+Used to correlate FEC donation employers with stock issuers. `export` uses fuzzy matching to suggest tickers for donor employers.
 
 ### Global Flags
 
@@ -296,9 +359,9 @@ These schemas describe the CLI output (arrays of items), not the PaginatedRespon
 capitoltraders/
   Cargo.toml                    # workspace root
   capitoltrades_api/            # vendored upstream API client
-  capitoltraders_lib/           # library: cache, analysis, validation, scraping, db, yahoo, pricing, portfolio
-  capitoltraders_cli/           # CLI binary (6 subcommands)
-  schema/sqlite.sql             # SQLite schema (v2) with price columns and positions table
+  capitoltraders_lib/           # library: cache, scraping, db, yahoo, pricing, openfec, mapping
+  capitoltraders_cli/           # CLI binary (10 subcommands)
+  schema/sqlite.sql             # SQLite schema (v5) with FEC and donation tables
 ```
 
 ## Development
@@ -324,13 +387,15 @@ filing details, committee memberships, performance data). Senate filings often u
 
 ## SQLite
 
-The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql` (currently at v2). Tables map
+The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql` (currently at v5). Tables map
 directly to the CLI JSON output schemas (`schema/*.schema.json`), including nested data:
 
 - `trades`, `assets`, `issuers`, `politicians`
 - `trade_committees`, `trade_labels`, `politician_committees`
 - `issuer_stats`, `politician_stats`, `issuer_performance`, `issuer_eod_prices`
 - `positions` (materialized FIFO portfolio positions per politician per ticker)
+- `fec_mappings`, `fec_committees`, `donations`, `donation_sync_meta`
+- `employer_mappings`, `employer_lookup`
 - `ingest_meta` (tracks `last_trade_pub_date` for incremental sync)
 
 The trades table includes price enrichment columns: `trade_date_price`, `current_price`,

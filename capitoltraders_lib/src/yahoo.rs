@@ -45,6 +45,13 @@ pub fn offset_datetime_to_date(dt: OffsetDateTime) -> NaiveDate {
         .date_naive()
 }
 
+/// Check if a Yahoo API error indicates rate limiting by inspecting Debug output.
+/// YErrorMessage is not publicly exported, so we match on the formatted string.
+fn is_rate_limit_api_error(err: &yahoo_finance_api::YahooError) -> bool {
+    let msg = format!("{:?}", err).to_lowercase();
+    msg.contains("too many requests") || msg.contains("rate limit")
+}
+
 /// Yahoo Finance client with caching and fallback logic.
 pub struct YahooClient {
     connector: yahoo_finance_api::YahooConnector,
@@ -114,6 +121,10 @@ impl YahooClient {
                         e
                     ))),
                 }
+            }
+            Err(ref e) if is_rate_limit_api_error(e) => {
+                // Rate limited -- do NOT cache, let caller retry later
+                Err(YahooError::RateLimited)
             }
             Err(yahoo_finance_api::YahooError::NoQuotes)
             | Err(yahoo_finance_api::YahooError::NoResult)
@@ -196,6 +207,9 @@ impl YahooClient {
                         e
                     ))),
                 }
+            }
+            Err(ref e) if is_rate_limit_api_error(e) => {
+                Err(YahooError::RateLimited)
             }
             Err(yahoo_finance_api::YahooError::NoQuotes)
             | Err(yahoo_finance_api::YahooError::NoResult)

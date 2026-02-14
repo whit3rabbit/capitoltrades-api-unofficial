@@ -21,3 +21,25 @@
 - Git range: `c9746b1`..`f5d0a50`
 
 **Archive:** `.planning/milestones/v1.1-ROADMAP.md`, `.planning/milestones/v1.1-REQUIREMENTS.md`
+
+## v1.2 FEC Donation Integration -- 2026-02-14
+
+**Phases:** 7-12 | **Plans:** 15 | **Tests:** 503 (all passing)
+
+**Accomplishments:**
+1. .env API key management, schema v3 migration, and congress-legislators FEC ID crosswalk
+2. OpenFEC API client with candidate search, committee lookup, and Schedule A keyset pagination
+3. Schema v4 with FEC committee storage and three-tier CommitteeResolver (DashMap/SQLite/API)
+4. Concurrent donation sync pipeline with circuit breaker, cursor persistence, and resume support
+5. Donations CLI with 4 display modes, 8 filters, and 5 output formats
+6. Employer-to-issuer fuzzy matching, schema v5, map-employers CLI, and donor context in trades/portfolio
+
+**Stats:**
+- 56 commits, 75 files changed, +21,346 / -2,748 lines
+- 23,537 total Rust LOC
+- 503 workspace tests (all passing)
+- Execution time: 2.18 hours across 15 plans
+- Timeline: 2026-02-04 to 2026-02-14 (10 days)
+- Git range: `598dbdd`..`f3b11a0`
+
+**Archive:** `.planning/milestones/v1.2-ROADMAP.md`, `.planning/milestones/v1.2-REQUIREMENTS.md`

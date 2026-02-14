@@ -2,11 +2,11 @@
 
 ## What This Is
 
-A Rust CLI tool that tracks US congressional stock trades from CapitolTrades.com. It scrapes trade data, stores it in SQLite, enriches trades with Yahoo Finance market prices, and provides filtered querying with multiple output formats. Includes per-politician portfolio tracking with FIFO cost basis and unrealized/realized P&L.
+A Rust CLI tool that tracks US congressional stock trades from CapitolTrades.com. It scrapes trade data, stores it in SQLite, enriches trades with Yahoo Finance market prices, and provides filtered querying with multiple output formats. Includes per-politician portfolio tracking with FIFO cost basis and unrealized/realized P&L. Now integrated with OpenFEC for tracking political contributions and donor-to-issuer correlation.
 
 ## Core Value
 
-Users can see what politicians are trading, what those positions are currently worth, and whether politicians are making or losing money on their trades.
+Users can see what politicians are trading, what those positions are currently worth, whether they are making or losing money, and who is funding their campaigns.
 
 ## Requirements
 
@@ -34,76 +34,52 @@ Users can see what politicians are trading, what those positions are currently w
 - [x] Option trade classification (excluded from FIFO, noted in output) -- v1.1
 - [x] Portfolio query output showing current holdings with values -- v1.1
 - [x] Dollar range parsing and share estimation from trade value ranges -- v1.1
+- [x] OpenFEC API client with .env API key management -- v1.2
+- [x] FEC candidate ID mapping (CapitolTrades politician to FEC candidate) -- v1.2
+- [x] Schedule A contribution data ingestion (all available cycles) -- v1.2
+- [x] Donation storage in SQLite (new tables, schema v3/v4 migrations) -- v1.2
+- [x] Donation analysis: top donors, sector breakdown, employer-to-issuer correlation -- v1.2
+- [x] `donations` subcommand with filtering and all 5 output formats -- v1.2
+- [x] Donation summary integrated into portfolio/trades output -- v1.2
+- [x] Employer mapping CLI (`map-employers`) for manual correlation -- v1.2
+- [x] Schema migration v5 (employer mappings + lookup tables) -- v1.2
 
 ### Active
 
-- [ ] OpenFEC API client with .env API key management
-- [ ] FEC candidate ID mapping (CapitolTrades politician to FEC candidate)
-- [ ] Schedule A contribution data ingestion (all available cycles)
-- [ ] Donation storage in SQLite (new tables, schema v3 migration)
-- [ ] Donation analysis: top donors, sector breakdown, employer-to-issuer correlation
-- [ ] `donations` subcommand with filtering and all 5 output formats
-- [ ] Donation summary integrated into portfolio/trades output
+(None -- define next milestone with `/gsd:new-milestone`)
 
 ### Out of Scope
 
-- Option valuation (strike price, expiry, Greeks) -- deferred until data quality improves; Capitol Trades disclosures often lack contract details
-- Real-time price streaming -- this is a batch enrichment tool, not a trading terminal
-- Brokerage integration -- no buying/selling, just tracking
-- Price alerts or notifications -- out of scope for CLI tool
-- Historical price charts -- data stored but visualization not in scope
-- Price cache TTL expiration -- YahooClient DashMap cache grows unbounded; acceptable for batch enrichment sessions
-- Staleness threshold for prices -- prices display as-is without configurable freshness warning
+- Option valuation (strike price, expiry, Greeks)
+- Real-time price streaming
+- Brokerage integration
+- Price alerts or notifications
+- Historical price charts
 
 ## Context
 
-- Shipped v1.1 with 16,776 LOC Rust across 3 workspace crates
-- Tech stack: Rust, SQLite (rusqlite), reqwest, tokio, clap, yahoo_finance_api
-- 366 tests across workspace (all passing, no clippy warnings)
-- 6 subcommands: trades, politicians, issuers, sync, enrich-prices, portfolio
-- SQLite schema at v2 with 5 price columns on trades and positions table
+- Shipped v1.2 with 503 tests across workspace (all passing)
+- Tech stack: Rust, SQLite, reqwest, tokio, clap, yahoo_finance_api, OpenFEC API
+- 10 subcommands: trades, politicians, issuers, sync, sync-fec, enrich-prices, portfolio, sync-donations, donations, map-employers
+- SQLite schema at v5 with 13 tables
 - Enrichment pipeline uses Semaphore + JoinSet + mpsc pattern for concurrent fetching
-- Price enrichment is two-phase: historical by (ticker, date), then current by ticker
-- FIFO portfolio calculator uses VecDeque lot-based accounting
-- Yahoo Finance is unofficial API with no auth; rate limited at 200-500ms jittered delay, max 5 concurrent
+- Employer mapping uses Jaro-Winkler fuzzy matching (strsim)
 
 ## Constraints
 
-- **Tech stack**: Rust workspace, must integrate with existing capitoltraders_lib and capitoltraders_cli crates
-- **Database**: SQLite only, schema changes via versioned migrations (PRAGMA user_version)
-- **API dependency (Yahoo)**: Yahoo Finance is unofficial/undocumented; may break or rate-limit aggressively
-- **API dependency (FEC)**: OpenFEC API requires API key; rate limited to 1,000 calls/hour, 100 results/page
-- **Data quality**: Trade value ranges are imprecise; share counts not always disclosed; some tickers may not match Yahoo symbols
-- **Enrichment pattern**: Must follow existing sentinel CASE upsert pattern to avoid overwriting good data
+- **Database**: SQLite only, schema changes via versioned migrations
+- **API dependency (FEC)**: OpenFEC API requires API key; rate limited to 1,000 calls/hour
+- **Enrichment pattern**: Must follow existing sentinel CASE upsert pattern
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Vendored capitoltrades_api crate | Upstream Telegram bot project had different goals; needed control over types | Stable foundation, 15+ modifications documented |
-| New subcommand vs extending sync --enrich | Separate concern: market data enrichment is conceptually different from scrape enrichment | New `enrich-prices` subcommand |
-| yahoo_finance_api 4.1.0 crate | Mature (v4.x), compatible (reqwest 0.12, tokio 1.x), minimal deps, no auth needed | Working Yahoo Finance integration |
-| Materialized positions table | Avoids recalculating FIFO on every query, enables indexed filtering | Stored table with `enrich-prices` update |
-| Midpoint of dollar range / historical price | Best estimate given imprecise range data from Capitol Trades disclosures | Validated: estimated_value falls within original range |
-| REAL for estimated_shares | Midpoint / price division rarely produces whole shares; REAL preserves precision | Fractional shares stored correctly |
-| Arc<YahooClient> for task sharing | YahooConnector does not implement Clone | Shared across spawned tasks |
-| Two-phase enrichment | Historical prices needed for share estimation; current prices for mark-to-market | Sequential: historical first, then current |
-| VecDeque for FIFO lot queue | Efficient front/back operations for buy/sell matching | Correct FIFO behavior verified with 14 tests |
-| Unrealized P&L at query time | Computed via current_price subquery; avoids storing stale P&L values | Fresh calculation on each portfolio query |
-| Option trades note in table/markdown only | Data formats (JSON/CSV/XML) should be clean; notes are for human consumption | Clean data exports, informative CLI output |
-
-## Current Milestone: v1.2 FEC Donation Integration
-
-**Goal:** Integrate OpenFEC donation data to show who funds each politician, correlated against their trading activity.
-
-**Target features:**
-- OpenFEC API client with .env API key
-- FEC candidate ID mapping
-- Schedule A contribution data (all cycles)
-- Donation storage (schema v3)
-- Donation analysis (top donors, sector breakdown, employer-to-issuer correlation)
-- `donations` subcommand
-- Donation context in portfolio/trades output
+| Keyset Pagination for OpenFEC | OpenFEC Schedule A does not support page-based offset; requires last_index + date | Resumable sync cursor support |
+| Employer Normalization | FEC employer data is messy; normalization (uppercase, suffix removal) improves match rate | Higher correlation accuracy |
+| Multi-tier Committee Cache | OpenFEC candidate-to-committee mapping is expensive; cache avoids API calls | Reduced API budget consumption |
+| Jaro-Winkler Fuzzy Match | Handles common corporate naming variations better than Levenshtein | Accurate donor-to-issuer correlation |
+| Separate `sync-donations` | Donation data is large and requires API key; keep separate from core sync | Targeted data ingestion |
 
 ---
-*Last updated: 2026-02-11 after v1.2 milestone start*
+*Last updated: 2026-02-14 after v1.2 milestone shipped*
