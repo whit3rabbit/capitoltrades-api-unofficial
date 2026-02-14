@@ -3,6 +3,7 @@
 pub mod donations;
 pub mod enrich_prices;
 pub mod issuers;
+pub mod map_employers;
 pub mod politicians;
 pub mod portfolio;
 pub mod sync;

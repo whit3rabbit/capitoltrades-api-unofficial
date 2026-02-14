@@ -51,6 +51,8 @@ enum Commands {
     SyncDonations(commands::sync_donations::SyncDonationsArgs),
     /// Query synced FEC donation data
     Donations(commands::donations::DonationsArgs),
+    /// Build employer-to-issuer mapping database
+    MapEmployers(commands::map_employers::MapEmployersArgs),
 }
 
 #[tokio::main]
@@ -116,6 +118,7 @@ async fn main() -> Result<()> {
             commands::sync_donations::run(args, api_key).await?
         }
         Commands::Donations(args) => commands::donations::run(args, &format)?,
+        Commands::MapEmployers(args) => commands::map_employers::run(args)?,
     }
 
     Ok(())
