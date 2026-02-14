@@ -2749,6 +2749,222 @@ impl Db {
         }
         Ok(result)
     }
+
+    /// Upsert employer mappings in batch.
+    ///
+    /// Each tuple: (normalized_employer, issuer_ticker, confidence, match_type)
+    /// Returns the count of rows inserted/updated.
+    pub fn upsert_employer_mappings(
+        &self,
+        mappings: &[(String, String, f64, &str)],
+    ) -> Result<usize, DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut count = 0;
+
+        for (normalized_employer, issuer_ticker, confidence, match_type) in mappings {
+            let changes = tx.execute(
+                "INSERT OR REPLACE INTO employer_mappings
+                 (normalized_employer, issuer_ticker, confidence, match_type, created_at, last_updated, notes)
+                 VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'), NULL)",
+                params![normalized_employer, issuer_ticker, confidence, match_type],
+            )?;
+            count += changes;
+        }
+
+        tx.commit()?;
+        Ok(count)
+    }
+
+    /// Get unmatched employer names from donations.
+    ///
+    /// Returns raw employer names (lowercased) that don't have entries in employer_lookup.
+    /// The caller normalizes before matching.
+    pub fn get_unmatched_employers(&self, limit: Option<i64>) -> Result<Vec<String>, DbError> {
+        let mut sql = "
+            SELECT DISTINCT LOWER(d.contributor_employer) as employer
+            FROM donations d
+            JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+            WHERE d.contributor_employer IS NOT NULL
+              AND d.contributor_employer != ''
+              AND NOT EXISTS (
+                  SELECT 1 FROM employer_lookup el
+                  WHERE el.raw_employer_lower = LOWER(d.contributor_employer)
+              )
+            ORDER BY employer"
+            .to_string();
+
+        if let Some(n) = limit {
+            sql.push_str(&format!(" LIMIT {}", n));
+        }
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Get all issuers for employer matching.
+    ///
+    /// Returns (issuer_id, issuer_name, issuer_ticker) tuples.
+    pub fn get_all_issuers_for_matching(&self) -> Result<Vec<(i64, String, String)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT issuer_id, issuer_name, COALESCE(issuer_ticker, '') as issuer_ticker
+             FROM issuers
+             WHERE issuer_name IS NOT NULL AND issuer_name != ''",
+        )?;
+
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Check if an issuer exists by ticker.
+    pub fn issuer_exists_by_ticker(&self, ticker: &str) -> Result<bool, DbError> {
+        let exists: Option<i32> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM issuers WHERE issuer_ticker = ?1 LIMIT 1",
+                params![ticker],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(exists.is_some())
+    }
+
+    /// Get count of employer mappings.
+    pub fn get_employer_mapping_count(&self) -> Result<i64, DbError> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM employer_mappings", [], |row| {
+                row.get(0)
+            })?;
+        Ok(count)
+    }
+
+    /// Insert employer lookup entries in batch.
+    ///
+    /// Each tuple: (raw_employer_lower, normalized_employer)
+    pub fn insert_employer_lookups(
+        &self,
+        lookups: &[(String, String)],
+    ) -> Result<(), DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+
+        for (raw_employer_lower, normalized_employer) in lookups {
+            tx.execute(
+                "INSERT OR REPLACE INTO employer_lookup (raw_employer_lower, normalized_employer)
+                 VALUES (?1, ?2)",
+                params![raw_employer_lower, normalized_employer],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Get donor context for a politician and sector.
+    ///
+    /// Returns top employers (by donation amount) in the given sector for the politician.
+    pub fn get_donor_context_for_sector(
+        &self,
+        politician_id: &str,
+        sector: &str,
+        limit: i64,
+    ) -> Result<Vec<DonorContext>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT d.contributor_employer as employer,
+                    SUM(d.contribution_receipt_amount) as total_amount,
+                    COUNT(*) as donation_count
+             FROM donations d
+             JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+             JOIN employer_lookup el ON LOWER(TRIM(d.contributor_employer)) = el.raw_employer_lower
+             JOIN employer_mappings em ON el.normalized_employer = em.normalized_employer
+             JOIN issuers i ON em.issuer_ticker = i.issuer_ticker
+             WHERE dsm.politician_id = ?1
+               AND i.sector = ?2
+               AND d.contributor_employer IS NOT NULL
+             GROUP BY d.contributor_employer
+             ORDER BY total_amount DESC
+             LIMIT ?3",
+        )?;
+
+        let rows = stmt.query_map(params![politician_id, sector, limit], |row| {
+            Ok(DonorContext {
+                employer: row.get(0)?,
+                total_amount: row.get(1)?,
+                donation_count: row.get(2)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Get donation summary for a politician.
+    ///
+    /// Returns total donations (all sources) and top 5 sectors from matched employers.
+    pub fn get_donation_summary(&self, politician_id: &str) -> Result<Option<DonationSummary>, DbError> {
+        // First get total donations
+        let (total_amount, donation_count): (Option<f64>, i64) = self.conn.query_row(
+            "SELECT SUM(d.contribution_receipt_amount), COUNT(*)
+             FROM donations d
+             JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+             WHERE dsm.politician_id = ?1",
+            params![politician_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        // If no donations or NULL sum, return None
+        let Some(total) = total_amount else {
+            return Ok(None);
+        };
+
+        // Get top sectors from matched employers
+        let mut stmt = self.conn.prepare(
+            "SELECT i.sector,
+                    SUM(d.contribution_receipt_amount) as total,
+                    COUNT(DISTINCT el.normalized_employer) as employer_count
+             FROM donations d
+             JOIN donation_sync_meta dsm ON d.committee_id = dsm.committee_id
+             JOIN employer_lookup el ON LOWER(TRIM(d.contributor_employer)) = el.raw_employer_lower
+             JOIN employer_mappings em ON el.normalized_employer = em.normalized_employer
+             JOIN issuers i ON em.issuer_ticker = i.issuer_ticker
+             WHERE dsm.politician_id = ?1 AND i.sector IS NOT NULL
+             GROUP BY i.sector
+             ORDER BY total DESC
+             LIMIT 5",
+        )?;
+
+        let rows = stmt.query_map(params![politician_id], |row| {
+            Ok(SectorTotal {
+                sector: row.get(0)?,
+                total_amount: row.get(1)?,
+                employer_count: row.get(2)?,
+            })
+        })?;
+
+        let mut top_sectors = Vec::new();
+        for row in rows {
+            top_sectors.push(row?);
+        }
+
+        Ok(Some(DonationSummary {
+            total_amount: total,
+            donation_count,
+            top_sectors,
+        }))
+    }
 }
 
 /// Build dynamic WHERE clause for donation queries.
@@ -2861,6 +3077,30 @@ pub struct StateAggRow {
     pub donation_count: i64,
     pub avg_amount: f64,
     pub contributor_count: i64,
+}
+
+/// Donor context for a politician and sector (employer-level aggregation).
+#[derive(Debug, Clone, Serialize)]
+pub struct DonorContext {
+    pub employer: String,
+    pub total_amount: f64,
+    pub donation_count: i64,
+}
+
+/// Sector-level donation totals.
+#[derive(Debug, Clone, Serialize)]
+pub struct SectorTotal {
+    pub sector: String,
+    pub total_amount: f64,
+    pub employer_count: i64,
+}
+
+/// Donation summary for a politician (total from all sources + top sectors from matched employers).
+#[derive(Debug, Clone, Serialize)]
+pub struct DonationSummary {
+    pub total_amount: f64,
+    pub donation_count: i64,
+    pub top_sectors: Vec<SectorTotal>,
 }
 
 pub struct PoliticianStatsRow {
@@ -3556,7 +3796,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 4);
+        assert_eq!(get_user_version(&db), 5);
     }
 
     #[test]
@@ -3589,7 +3829,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(has_column(&db, "issuers", "enriched_at"));
 
         // Verify user_version is now 3 (all migrations v1, v2, v3 applied)
-        assert_eq!(get_user_version(&db), 4);
+        assert_eq!(get_user_version(&db), 5);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -3657,7 +3897,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "positions table should exist");
 
         // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
-        assert_eq!(get_user_version(&db), 4);
+        assert_eq!(get_user_version(&db), 5);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -3673,7 +3913,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 4);
+        assert_eq!(get_user_version(&db), 5);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -3738,7 +3978,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "fec_mappings table should exist after migration");
 
         // Verify user_version is now 3
-        assert_eq!(get_user_version(&db), 4);
+        assert_eq!(get_user_version(&db), 5);
 
         // Verify pre-existing politician data is preserved
         let name: String = db.conn.query_row(
@@ -3754,7 +3994,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = Db::open_in_memory().unwrap();
         db.init().unwrap();
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -3763,7 +4003,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.init().unwrap();
         db.init().unwrap(); // Should not fail
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -7673,5 +7913,227 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(ca.total_amount, 1050.0);
         assert_eq!(ca.donation_count, 3);
         assert_eq!(ca.contributor_count, 1, "CA should have 1 distinct named contributor (Alice, NULL doesn't count)");
+    }
+
+    #[test]
+    fn test_upsert_employer_mappings() {
+        let db = open_test_db();
+
+        let mappings = vec![
+            ("alphabet inc".to_string(), "GOOGL".to_string(), 1.0, "exact"),
+            ("apple inc".to_string(), "AAPL".to_string(), 1.0, "exact"),
+            ("microsoft corp".to_string(), "MSFT".to_string(), 0.9, "fuzzy"),
+        ];
+
+        let count = db
+            .upsert_employer_mappings(&mappings)
+            .expect("upsert_employer_mappings");
+        assert_eq!(count, 3, "Should insert 3 mappings");
+
+        let total_count = db
+            .get_employer_mapping_count()
+            .expect("get_employer_mapping_count");
+        assert_eq!(total_count, 3, "Should have 3 mappings in DB");
+    }
+
+    #[test]
+    fn test_upsert_employer_mappings_update() {
+        let db = open_test_db();
+
+        // Insert initial mapping
+        let mappings = vec![("alphabet inc".to_string(), "GOOGL".to_string(), 1.0, "exact")];
+        db.upsert_employer_mappings(&mappings)
+            .expect("first upsert");
+
+        // Update same normalized_employer with different ticker
+        let updated = vec![("alphabet inc".to_string(), "GOOG".to_string(), 1.0, "exact")];
+        db.upsert_employer_mappings(&updated)
+            .expect("second upsert");
+
+        // Verify only 1 mapping exists
+        let count = db
+            .get_employer_mapping_count()
+            .expect("get_employer_mapping_count");
+        assert_eq!(count, 1, "Should still have 1 mapping (updated, not duplicated)");
+
+        // Verify ticker was updated
+        let ticker: String = db
+            .conn
+            .query_row(
+                "SELECT issuer_ticker FROM employer_mappings WHERE normalized_employer = ?1",
+                params!["alphabet inc"],
+                |row| row.get(0),
+            )
+            .expect("query ticker");
+        assert_eq!(ticker, "GOOG", "Ticker should be updated to GOOG");
+    }
+
+    #[test]
+    fn test_get_unmatched_employers() {
+        let db = open_test_db();
+
+        // Insert test politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert donation sync meta
+        db.conn
+            .execute(
+                "INSERT INTO donation_sync_meta (politician_id, committee_id, last_synced_at, total_synced)
+                 VALUES ('P000001', 'C00123456', datetime('now'), 3)",
+                [],
+            )
+            .expect("insert sync meta");
+
+        // Insert donations with 3 different employers
+        for (employer, amount) in &[
+            ("Google Inc", 500.0),
+            ("Apple Inc", 1000.0),
+            ("Microsoft Corp", 750.0),
+        ] {
+            db.conn
+                .execute(
+                    "INSERT INTO donations (sub_id, committee_id, contributor_employer, contribution_receipt_amount, election_cycle)
+                     VALUES (?, 'C00123456', ?, ?, 2024)",
+                    params![format!("SUB-{}", employer), employer, amount],
+                )
+                .expect("insert donation");
+        }
+
+        // Add employer_lookup entry for one employer
+        db.insert_employer_lookups(&[("google inc".to_string(), "alphabet inc".to_string())])
+            .expect("insert lookup");
+
+        // Get unmatched employers (should return 2: apple, microsoft)
+        let unmatched = db.get_unmatched_employers(None).expect("get_unmatched_employers");
+        assert_eq!(unmatched.len(), 2, "Should have 2 unmatched employers");
+        assert!(unmatched.contains(&"apple inc".to_string()));
+        assert!(unmatched.contains(&"microsoft corp".to_string()));
+    }
+
+    #[test]
+    fn test_get_all_issuers_for_matching() {
+        let db = open_test_db();
+
+        // Insert 3 issuers
+        for (id, name, ticker) in &[
+            (1, "Apple Inc.", "AAPL"),
+            (2, "Microsoft Corporation", "MSFT"),
+            (3, "Alphabet Inc.", "GOOGL"),
+        ] {
+            db.conn
+                .execute(
+                    "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                     VALUES (?1, ?2, ?3)",
+                    params![id, name, ticker],
+                )
+                .expect("insert issuer");
+        }
+
+        let issuers = db
+            .get_all_issuers_for_matching()
+            .expect("get_all_issuers_for_matching");
+        assert_eq!(issuers.len(), 3, "Should return 3 issuers");
+
+        let (id, name, ticker) = &issuers[0];
+        assert_eq!(*id, 1);
+        assert_eq!(name, "Apple Inc.");
+        assert_eq!(ticker, "AAPL");
+    }
+
+    #[test]
+    fn test_issuer_exists_by_ticker() {
+        let db = open_test_db();
+
+        // Insert issuer with ticker AAPL
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        assert!(
+            db.issuer_exists_by_ticker("AAPL").expect("exists check"),
+            "AAPL should exist"
+        );
+        assert!(
+            !db.issuer_exists_by_ticker("ZZZZ").expect("exists check"),
+            "ZZZZ should not exist"
+        );
+    }
+
+    #[test]
+    fn test_get_employer_mapping_count() {
+        let db = open_test_db();
+
+        let count = db
+            .get_employer_mapping_count()
+            .expect("get_employer_mapping_count");
+        assert_eq!(count, 0, "Should be 0 initially");
+
+        let mappings = vec![
+            ("alphabet inc".to_string(), "GOOGL".to_string(), 1.0, "exact"),
+            ("apple inc".to_string(), "AAPL".to_string(), 1.0, "exact"),
+        ];
+        db.upsert_employer_mappings(&mappings)
+            .expect("upsert_employer_mappings");
+
+        let count = db
+            .get_employer_mapping_count()
+            .expect("get_employer_mapping_count");
+        assert_eq!(count, 2, "Should be 2 after insert");
+    }
+
+    #[test]
+    fn test_donor_context_empty() {
+        let db = open_test_db();
+
+        // No mappings, should return empty
+        let context = db
+            .get_donor_context_for_sector("P000001", "Technology", 10)
+            .expect("get_donor_context_for_sector");
+        assert_eq!(context.len(), 0, "Should return empty vec with no mappings");
+    }
+
+    #[test]
+    fn test_donation_summary_no_donations() {
+        let db = open_test_db();
+
+        // No donations, should return None
+        let summary = db
+            .get_donation_summary("P000001")
+            .expect("get_donation_summary");
+        assert!(summary.is_none(), "Should return None with no donations");
+    }
+
+    #[test]
+    fn test_employer_lookup_insert() {
+        let db = open_test_db();
+
+        let lookups = vec![
+            ("google inc".to_string(), "alphabet inc".to_string()),
+            ("apple inc".to_string(), "apple inc".to_string()),
+        ];
+
+        db.insert_employer_lookups(&lookups)
+            .expect("insert_employer_lookups");
+
+        // Verify round-trip
+        let normalized: String = db
+            .conn
+            .query_row(
+                "SELECT normalized_employer FROM employer_lookup WHERE raw_employer_lower = ?1",
+                params!["google inc"],
+                |row| row.get(0),
+            )
+            .expect("query lookup");
+        assert_eq!(normalized, "alphabet inc");
     }
 }

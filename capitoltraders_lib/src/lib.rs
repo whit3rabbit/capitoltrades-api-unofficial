@@ -29,9 +29,9 @@ pub use client::CachedClient;
 pub use committee::{CommitteeClass, CommitteeError, CommitteeResolver, ResolvedCommittee};
 pub use db::{
     ContributorAggRow, Db, DbError, DbIssuerFilter, DbIssuerRow, DbPoliticianFilter,
-    DbPoliticianRow, DbTradeFilter, DbTradeRow, DonationFilter, DonationRow, EmployerAggRow,
-    IssuerStatsRow, PoliticianStatsRow, PortfolioFilter, PortfolioPosition, PriceEnrichmentRow,
-    StateAggRow,
+    DbPoliticianRow, DbTradeFilter, DbTradeRow, DonationFilter, DonationRow, DonationSummary,
+    DonorContext, EmployerAggRow, IssuerStatsRow, PoliticianStatsRow, PortfolioFilter,
+    PortfolioPosition, PriceEnrichmentRow, SectorTotal, StateAggRow,
 };
 pub use employer_mapping::{
     is_blacklisted, load_seed_data, match_employer, normalize_employer, EmployerMappingError,
