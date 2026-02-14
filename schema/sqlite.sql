@@ -205,6 +205,21 @@ CREATE TABLE IF NOT EXISTS donation_sync_meta (
     PRIMARY KEY (politician_id, committee_id)
 );
 
+CREATE TABLE IF NOT EXISTS employer_mappings (
+    normalized_employer TEXT PRIMARY KEY,
+    issuer_ticker TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    match_type TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_updated TEXT NOT NULL,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS employer_lookup (
+    raw_employer_lower TEXT PRIMARY KEY,
+    normalized_employer TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_trades_politician ON trades(politician_id);
 CREATE INDEX IF NOT EXISTS idx_trades_issuer ON trades(issuer_id);
 CREATE INDEX IF NOT EXISTS idx_trades_pub_date ON trades(pub_date);
@@ -230,3 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_donations_date ON donations(contribution_receipt_
 CREATE INDEX IF NOT EXISTS idx_donations_cycle ON donations(election_cycle);
 CREATE INDEX IF NOT EXISTS idx_donation_sync_meta_politician ON donation_sync_meta(politician_id);
 CREATE INDEX IF NOT EXISTS idx_fec_committees_designation ON fec_committees(designation);
+CREATE INDEX IF NOT EXISTS idx_employer_mappings_ticker ON employer_mappings(issuer_ticker);
+CREATE INDEX IF NOT EXISTS idx_employer_mappings_confidence ON employer_mappings(confidence);
+CREATE INDEX IF NOT EXISTS idx_employer_mappings_type ON employer_mappings(match_type);
+CREATE INDEX IF NOT EXISTS idx_employer_lookup_normalized ON employer_lookup(normalized_employer);

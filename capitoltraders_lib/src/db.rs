@@ -79,6 +79,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 4)?;
         }
 
+        if version < 5 {
+            self.migrate_v5()?;
+            self.conn.pragma_update(None, "user_version", 5)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -225,6 +230,51 @@ impl Db {
         )?;
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_fec_committees_designation ON fec_committees(designation)",
+            [],
+        )?;
+
+        Ok(())
+    }
+
+    fn migrate_v5(&self) -> Result<(), DbError> {
+        // Create employer_mappings table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS employer_mappings (
+                normalized_employer TEXT PRIMARY KEY,
+                issuer_ticker TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                match_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_updated TEXT NOT NULL,
+                notes TEXT
+            )",
+            [],
+        )?;
+
+        // Create employer_lookup table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS employer_lookup (
+                raw_employer_lower TEXT PRIMARY KEY,
+                normalized_employer TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Create indexes
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_employer_mappings_ticker ON employer_mappings(issuer_ticker)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_employer_mappings_confidence ON employer_mappings(confidence)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_employer_mappings_type ON employer_mappings(match_type)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_employer_lookup_normalized ON employer_lookup(normalized_employer)",
             [],
         )?;
 
@@ -6616,7 +6666,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
 
         // Verify all three new tables exist
         let tables: Vec<String> = db
@@ -6643,7 +6693,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -6678,6 +6728,92 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             })
             .expect("query");
         assert!(has_column, "committee_ids column should exist after v4 migration");
+    }
+
+    #[test]
+    fn test_migrate_v5_from_v4() {
+        let db = Db::open_in_memory().expect("open");
+
+        // Manually set version to 4
+        db.conn.pragma_update(None, "user_version", 4).expect("set version");
+
+        // Now run init which should migrate to v5
+        db.init().expect("init");
+
+        // Verify user_version is 5
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 5);
+
+        // Verify employer_mappings table exists
+        let has_employer_mappings: bool = db
+            .conn
+            .prepare("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='employer_mappings'")
+            .expect("prepare")
+            .query_row([], |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            })
+            .expect("query");
+        assert!(has_employer_mappings, "employer_mappings table should exist after v5 migration");
+
+        // Verify employer_lookup table exists
+        let has_employer_lookup: bool = db
+            .conn
+            .prepare("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='employer_lookup'")
+            .expect("prepare")
+            .query_row([], |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            })
+            .expect("query");
+        assert!(has_employer_lookup, "employer_lookup table should exist after v5 migration");
+    }
+
+    #[test]
+    fn test_fresh_db_has_employer_tables() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        // Verify both employer_mappings and employer_lookup tables exist
+        let tables: Vec<String> = db
+            .conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('employer_mappings', 'employer_lookup')")
+            .expect("prepare")
+            .query_map([], |row| row.get(0))
+            .expect("query")
+            .filter_map(|r| r.ok())
+            .collect();
+        assert_eq!(tables.len(), 2);
+        assert!(tables.contains(&"employer_mappings".to_string()));
+        assert!(tables.contains(&"employer_lookup".to_string()));
+    }
+
+    #[test]
+    fn test_migrate_v5_idempotent() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("first init");
+        db.init().expect("second init should not fail");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 5);
+    }
+
+    #[test]
+    fn test_v5_version_check() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 5, "fresh database should have version 5");
     }
 
     #[test]
