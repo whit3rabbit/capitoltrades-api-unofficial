@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 11 of 12 (Donations CLI Command)
-Plan: 2 of 2 (completed)
-Status: Complete
-Last activity: 2026-02-13 -- Completed plan 11-02 (Donations CLI Command)
+Phase: 12 of 12 (Employer Correlation Analysis)
+Plan: 1 of 5 (completed)
+Status: In Progress
+Last activity: 2026-02-14 -- Completed plan 12-01 (Employer Mapping Module)
 
-Progress: [#########.] 92% (6/6 v1.2 phases complete, Phase 11 complete)
+Progress: [#########.] 94% (Phase 12 in progress: 1/5 plans complete)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 16
-- Average duration: 7.8 min (v1.1: 4.4 min, v1.2: 10.0 min)
-- Total execution time: 2.08 hours
+- Total plans completed: 17
+- Average duration: 7.6 min (v1.1: 4.4 min, v1.2: 9.6 min)
+- Total execution time: 2.14 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -82,6 +82,12 @@ Progress: [#########.] 92% (6/6 v1.2 phases complete, Phase 11 complete)
 - Completed: 2026-02-13
 - Tasks: 2
 - Files: 5 (1 created, 4 modified)
+
+**Phase 12 Plan 1:**
+- Duration: 4 min
+- Completed: 2026-02-14
+- Tasks: 2
+- Files: 5 (2 created, 3 modified)
 
 ## Accumulated Context
 
@@ -149,6 +155,12 @@ Progress: [#########.] 92% (6/6 v1.2 phases complete, Phase 11 complete)
 - Separate output row structs for each aggregation type rather than generic approach
 - CSV sanitization applies to contributor and employer fields (user-generated content risk)
 
+**Phase 12 Plan 1:**
+- Scoped MutexGuard pattern fixes await_holding_lock clippy warning (auto-fixed pre-existing bug from Phase 9)
+- Start with 52 seed mappings instead of aspirational 200 (quality over quantity, incremental growth via Plan 03)
+- Corporate suffix list sorted by length descending (prevents incorrect partial matches like 'corp' before 'corporation')
+- Short employer names (< 5 chars) require exact match only (prevents false positives from fuzzy matching abbreviations)
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -163,6 +175,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-13
-Stopped at: Completed Phase 11 Plan 2 (Donations CLI Command)
-Next step: Phase 11 complete. Ready for Phase 12 (Donation Trend Analysis) or v1.2 UAT testing.
+Last session: 2026-02-14
+Stopped at: Completed Phase 12 Plan 1 (Employer Mapping Module)
+Next step: Continue Phase 12 with Plan 02 (Employer Mapping DB layer).
