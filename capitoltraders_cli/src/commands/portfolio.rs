@@ -39,6 +39,10 @@ pub struct PortfolioArgs {
     /// Include closed positions (shares near zero)
     #[arg(long)]
     pub include_closed: bool,
+
+    /// Show donation summary for the politician (requires synced donations)
+    #[arg(long)]
+    pub show_donations: bool,
 }
 
 pub fn run(args: &PortfolioArgs, format: &OutputFormat) -> Result<()> {
@@ -103,6 +107,40 @@ pub fn run(args: &PortfolioArgs, format: &OutputFormat) -> Result<()> {
             }
         }
         OutputFormat::Xml => print_portfolio_xml(&positions),
+    }
+
+    // Donation summary (opt-in via --show-donations)
+    if args.show_donations {
+        if let Some(ref pid) = filter.politician_id {
+            match db.get_donation_summary(pid) {
+                Ok(Some(summary)) => {
+                    eprintln!("\n--- Donation Summary ---");
+                    eprintln!(
+                        "Total received: ${:.0} ({} contributions)",
+                        summary.total_amount, summary.donation_count
+                    );
+                    if !summary.top_sectors.is_empty() {
+                        eprintln!("Top employer sectors (matched):");
+                        for st in &summary.top_sectors {
+                            eprintln!(
+                                "  {:30} ${:>12.0} ({} employers)",
+                                st.sector, st.total_amount, st.employer_count
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {
+                    eprintln!("\nNo donation data available for this politician.");
+                    eprintln!("Hint: Run 'capitoltraders sync-donations --db {} --politician ...' first.", args.db.display());
+                }
+                Err(e) => {
+                    // Non-fatal: log warning but don't fail the portfolio command
+                    eprintln!("\nWarning: Could not load donation summary: {}", e);
+                }
+            }
+        } else {
+            eprintln!("\nNote: --show-donations requires --politician filter to display donation summary.");
+        }
     }
 
     Ok(())
