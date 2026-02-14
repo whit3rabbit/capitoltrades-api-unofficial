@@ -36,8 +36,8 @@ pub enum MapEmployersAction {
 #[derive(Args)]
 pub struct ExportArgs {
     /// Output CSV file path
-    #[arg(long, short = 'o')]
-    pub output: PathBuf,
+    #[arg(long = "file", short = 'o')]
+    pub file: PathBuf,
 
     /// Jaro-Winkler fuzzy match threshold (0.0-1.0)
     #[arg(long, default_value = "0.85")]
@@ -146,7 +146,7 @@ fn run_export(db: &Db, args: &ExportArgs) -> Result<()> {
     }
 
     // Write CSV
-    let mut wtr = Writer::from_path(&args.output)?;
+    let mut wtr = Writer::from_path(&args.file)?;
     for row in &rows {
         wtr.serialize(row)?;
     }
@@ -155,7 +155,7 @@ fn run_export(db: &Db, args: &ExportArgs) -> Result<()> {
     eprintln!(
         "Exported {} unmatched employers to {}. {} had suggestions above threshold {:.2}.",
         rows.len(),
-        args.output.display(),
+        args.file.display(),
         suggestion_count,
         args.threshold
     );
@@ -180,15 +180,18 @@ fn run_import(db: &Db, args: &ImportArgs) -> Result<()> {
             continue;
         }
 
-        // Validate issuer exists
-        if !db.issuer_exists_by_ticker(confirmed_ticker)? {
-            eprintln!(
-                "Warning: Ticker '{}' not found in database. Skipping.",
-                confirmed_ticker
-            );
-            skipped += 1;
-            continue;
-        }
+        // Resolve ticker to actual DB format (handles AAPL -> AAPL:US)
+        let db_ticker = match db.find_issuer_ticker(confirmed_ticker)? {
+            Some(t) => t,
+            None => {
+                eprintln!(
+                    "Warning: Ticker '{}' not found in database. Skipping.",
+                    confirmed_ticker
+                );
+                skipped += 1;
+                continue;
+            }
+        };
 
         // Read columns: employer (0), normalized (1)
         let employer = record.get(0).unwrap_or("").trim();
@@ -199,10 +202,10 @@ fn run_import(db: &Db, args: &ImportArgs) -> Result<()> {
             continue;
         }
 
-        // Collect mapping: (normalized_employer, confirmed_ticker, confidence, match_type)
+        // Collect mapping: (normalized_employer, db_ticker, confidence, match_type)
         mappings.push((
             normalized.to_string(),
-            confirmed_ticker.to_string(),
+            db_ticker,
             1.0,
             "manual",
         ));
@@ -233,26 +236,29 @@ fn run_load_seed(db: &Db, args: &LoadSeedArgs) -> Result<()> {
     let mut issuer_count = 0;
 
     for seed in &seed_data {
-        // Check if ticker exists in database
-        if !db.issuer_exists_by_ticker(&seed.issuer_ticker)? {
-            eprintln!(
-                "Warning: Ticker '{}' not found in database. Skipping {} employer variant(s). (User may not have synced this issuer yet.)",
-                seed.issuer_ticker,
-                seed.employer_names.len()
-            );
-            skipped += seed.employer_names.len();
-            continue;
-        }
+        // Resolve seed ticker to actual DB ticker (handles AAPL -> AAPL:US)
+        let db_ticker = match db.find_issuer_ticker(&seed.issuer_ticker)? {
+            Some(t) => t,
+            None => {
+                eprintln!(
+                    "Warning: Ticker '{}' not found in database. Skipping {} employer variant(s). (User may not have synced this issuer yet.)",
+                    seed.issuer_ticker,
+                    seed.employer_names.len()
+                );
+                skipped += seed.employer_names.len();
+                continue;
+            }
+        };
 
         issuer_count += 1;
 
         for employer_name in &seed.employer_names {
             let normalized = normalize_employer(employer_name);
 
-            // Collect mapping
+            // Store the actual DB ticker (e.g., AAPL:US) so JOINs work
             mappings.push((
                 normalized.clone(),
-                seed.issuer_ticker.clone(),
+                db_ticker.clone(),
                 seed.confidence,
                 "exact",
             ));

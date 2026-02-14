@@ -2832,15 +2832,37 @@ impl Db {
 
     /// Check if an issuer exists by ticker.
     pub fn issuer_exists_by_ticker(&self, ticker: &str) -> Result<bool, DbError> {
-        let exists: Option<i32> = self
+        Ok(self.find_issuer_ticker(ticker)?.is_some())
+    }
+
+    /// Find the actual DB ticker for a given ticker string.
+    /// Handles exchange-qualified tickers (e.g., "AAPL" matches "AAPL:US" in DB).
+    /// Returns the exact ticker as stored in the DB, or None if not found.
+    pub fn find_issuer_ticker(&self, ticker: &str) -> Result<Option<String>, DbError> {
+        // Try exact match first
+        let exact: Option<String> = self
             .conn
             .query_row(
-                "SELECT 1 FROM issuers WHERE issuer_ticker = ?1 LIMIT 1",
+                "SELECT issuer_ticker FROM issuers WHERE issuer_ticker = ?1 LIMIT 1",
                 params![ticker],
                 |row| row.get(0),
             )
             .optional()?;
-        Ok(exists.is_some())
+        if exact.is_some() {
+            return Ok(exact);
+        }
+
+        // Try prefix match (e.g., "AAPL" matches "AAPL:US")
+        let pattern = format!("{}:%", ticker);
+        let prefix: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT issuer_ticker FROM issuers WHERE issuer_ticker LIKE ?1 LIMIT 1",
+                params![pattern],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(prefix)
     }
 
     /// Get count of employer mappings.
