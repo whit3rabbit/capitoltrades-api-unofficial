@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 12 of 12 (Employer Correlation Analysis)
-Plan: 2 of 5 (completed)
+Plan: 4 of 5 (completed)
 Status: In Progress
-Last activity: 2026-02-14 -- Completed plan 12-02 (Employer Mapping DB Layer)
+Last activity: 2026-02-14 -- Completed plan 12-04 (Donor Context UI)
 
-Progress: [#########.] 95% (Phase 12 in progress: 2/5 plans complete)
+Progress: [#########.] 97% (Phase 12 in progress: 4/5 plans complete)
 
 ## Performance Metrics
 
@@ -95,6 +95,12 @@ Progress: [#########.] 95% (Phase 12 in progress: 2/5 plans complete)
 - Tasks: 2
 - Files: 3 (3 modified)
 
+**Phase 12 Plan 4:**
+- Duration: 3 min
+- Completed: 2026-02-14
+- Tasks: 2
+- Files: 4 (4 modified)
+
 ## Accumulated Context
 
 ### Decisions
@@ -173,6 +179,14 @@ Progress: [#########.] 95% (Phase 12 in progress: 2/5 plans complete)
 - Donation summary includes ALL donations in total (even without employer matches) + top 5 sectors from matched employers only
 - Schema version test expectations updated from 4 to 5 (7 migration tests affected)
 
+**Phase 12 Plan 4:**
+- DbTradeRow extended with politician_id and issuer_sector for donor context lookup (no additional JOINs needed)
+- Donor context groups by (politician, sector) to avoid duplicate output for same sector
+- --show-donor-context requires --db mode, shows helpful note in scrape mode
+- --show-donations requires --politician filter for targeted donation summary
+- All donor/donation output on stderr to preserve stdout for piped data formats
+- Non-fatal error handling: donation summary errors print warnings, don't fail portfolio command
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -188,5 +202,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed Phase 12 Plan 2 (Employer Mapping DB Layer)
-Next step: Continue Phase 12 with Plan 03 (map-employers CLI command).
+Stopped at: Completed Phase 12 Plan 4 (Donor Context UI)
+Next step: Continue Phase 12 with Plan 5 (UAT - Employer Correlation Analysis).
