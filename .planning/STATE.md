@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 12 of 12 (Employer Correlation Analysis)
-Plan: 1 of 5 (completed)
+Plan: 2 of 5 (completed)
 Status: In Progress
-Last activity: 2026-02-14 -- Completed plan 12-01 (Employer Mapping Module)
+Last activity: 2026-02-14 -- Completed plan 12-02 (Employer Mapping DB Layer)
 
-Progress: [#########.] 94% (Phase 12 in progress: 1/5 plans complete)
+Progress: [#########.] 95% (Phase 12 in progress: 2/5 plans complete)
 
 ## Performance Metrics
 
@@ -89,6 +89,12 @@ Progress: [#########.] 94% (Phase 12 in progress: 1/5 plans complete)
 - Tasks: 2
 - Files: 5 (2 created, 3 modified)
 
+**Phase 12 Plan 2:**
+- Duration: 9 min
+- Completed: 2026-02-14
+- Tasks: 2
+- Files: 3 (3 modified)
+
 ## Accumulated Context
 
 ### Decisions
@@ -161,6 +167,12 @@ Progress: [#########.] 94% (Phase 12 in progress: 1/5 plans complete)
 - Corporate suffix list sorted by length descending (prevents incorrect partial matches like 'corp' before 'corporation')
 - Short employer names (< 5 chars) require exact match only (prevents false positives from fuzzy matching abbreviations)
 
+**Phase 12 Plan 2:**
+- issuer_ticker used as FK instead of issuer_id for cross-database portability (issuer_id values are auto-increment specific)
+- employer_lookup table enables SQL JOINs without calling Rust normalization functions for raw donation employer strings
+- Donation summary includes ALL donations in total (even without employer matches) + top 5 sectors from matched employers only
+- Schema version test expectations updated from 4 to 5 (7 migration tests affected)
+
 All decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
@@ -176,5 +188,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed Phase 12 Plan 1 (Employer Mapping Module)
-Next step: Continue Phase 12 with Plan 02 (Employer Mapping DB layer).
+Stopped at: Completed Phase 12 Plan 2 (Employer Mapping DB Layer)
+Next step: Continue Phase 12 with Plan 03 (map-employers CLI command).
