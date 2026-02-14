@@ -125,58 +125,62 @@ impl CommitteeResolver {
         }
 
         // Tier 2: Check SQLite
-        let db = self.db.lock().expect("db mutex poisoned");
-        if let Some(committee_ids) = db.get_committees_for_politician(politician_id)? {
-            if !committee_ids.is_empty() {
-                // Build ResolvedCommittee entries from committee metadata
-                let mut resolved = Vec::new();
-                for committee_id in &committee_ids {
-                    // Query fec_committees table for metadata
-                    let metadata: Option<(String, Option<String>, Option<String>)> = db
-                        .conn()
-                        .query_row(
-                            "SELECT name, committee_type, designation FROM fec_committees WHERE committee_id = ?1",
-                            [committee_id],
-                            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                        )
-                        .optional()?;
+        // Use a scope to ensure MutexGuard is dropped before any async operations
+        let (fec_ids, politician_info) = {
+            let db = self.db.lock().expect("db mutex poisoned");
+            if let Some(committee_ids) = db.get_committees_for_politician(politician_id)? {
+                if !committee_ids.is_empty() {
+                    // Build ResolvedCommittee entries from committee metadata
+                    let mut resolved = Vec::new();
+                    for committee_id in &committee_ids {
+                        // Query fec_committees table for metadata
+                        let metadata: Option<(String, Option<String>, Option<String>)> = db
+                            .conn()
+                            .query_row(
+                                "SELECT name, committee_type, designation FROM fec_committees WHERE committee_id = ?1",
+                                [committee_id],
+                                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                            )
+                            .optional()?;
 
-                    let (name, committee_type, designation) = match metadata {
-                        Some((n, t, d)) => (n, t, d),
-                        None => {
-                            // Committee metadata missing, classify as Other
-                            (committee_id.clone(), None, None)
-                        }
-                    };
+                        let (name, committee_type, designation) = match metadata {
+                            Some((n, t, d)) => (n, t, d),
+                            None => {
+                                // Committee metadata missing, classify as Other
+                                (committee_id.clone(), None, None)
+                            }
+                        };
 
-                    let classification = CommitteeClass::classify(
-                        committee_type.as_deref(),
-                        designation.as_deref(),
-                    );
+                        let classification = CommitteeClass::classify(
+                            committee_type.as_deref(),
+                            designation.as_deref(),
+                        );
 
-                    resolved.push(ResolvedCommittee {
-                        committee_id: committee_id.clone(),
-                        name,
-                        classification,
-                    });
+                        resolved.push(ResolvedCommittee {
+                            committee_id: committee_id.clone(),
+                            name,
+                            classification,
+                        });
+                    }
+
+                    // Insert into cache
+                    self.cache.insert(politician_id.to_string(), resolved.clone());
+                    // Lock is dropped when scope exits
+                    return Ok(resolved);
                 }
-
-                // Insert into cache
-                self.cache.insert(politician_id.to_string(), resolved.clone());
-                drop(db); // Release lock before returning
-                return Ok(resolved);
             }
-        }
 
-        // Tier 3: Fetch from OpenFEC API
-        // Extract data from DB before any async operations
-        let fec_ids = db.get_fec_ids_for_politician(politician_id)?;
-        let politician_info = if fec_ids.is_empty() {
-            db.get_politician_info(politician_id)?
-        } else {
-            None
+            // Tier 3: Fetch from OpenFEC API
+            // Extract data from DB before any async operations
+            let fec_ids = db.get_fec_ids_for_politician(politician_id)?;
+            let politician_info = if fec_ids.is_empty() {
+                db.get_politician_info(politician_id)?
+            } else {
+                None
+            };
+            (fec_ids, politician_info)
+            // Lock is automatically dropped when scope exits
         };
-        drop(db); // Release lock before async operations
 
         let committees = if !fec_ids.is_empty() {
             // We have FEC IDs, fetch committees for each

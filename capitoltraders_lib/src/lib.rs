@@ -8,6 +8,7 @@ pub mod cache;
 pub mod client;
 pub mod committee;
 pub mod db;
+pub mod employer_mapping;
 pub mod error;
 pub mod fec_mapping;
 pub mod openfec;
@@ -31,6 +32,10 @@ pub use db::{
     DbPoliticianRow, DbTradeFilter, DbTradeRow, DonationFilter, DonationRow, EmployerAggRow,
     IssuerStatsRow, PoliticianStatsRow, PortfolioFilter, PortfolioPosition, PriceEnrichmentRow,
     StateAggRow,
+};
+pub use employer_mapping::{
+    is_blacklisted, load_seed_data, match_employer, normalize_employer, EmployerMappingError,
+    MatchResult, MatchType, SeedMapping,
 };
 pub use error::CapitolTradesError;
 pub use fec_mapping::{FecMapping, FecMappingError, Legislator, download_legislators, match_legislators_to_politicians};

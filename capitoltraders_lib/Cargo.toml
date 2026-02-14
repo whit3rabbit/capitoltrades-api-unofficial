@@ -19,6 +19,8 @@ regex = "1"
 yahoo_finance_api = "4.1.0"
 time = { version = "0.3", features = ["macros"] }
 serde_yml = { workspace = true }
+strsim = "0.11"
+toml = "0.8"
 
 [dev-dependencies]
 wiremock = "0.6"
