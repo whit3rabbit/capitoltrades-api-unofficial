@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 12 of 12 (Employer Correlation Analysis)
-Plan: 4 of 5 (completed)
+Plan: 5 of 5 (completed)
 Status: In Progress
-Last activity: 2026-02-14 -- Completed plan 12-04 (Donor Context UI)
+Last activity: 2026-02-14 -- Completed plan 12-03 (Map Employers CLI)
 
-Progress: [#########.] 97% (Phase 12 in progress: 4/5 plans complete)
+Progress: [##########] 100% (Phase 12 in progress: 5/5 plans complete)
 
 ## Performance Metrics
 
 **Velocity (v1.1 + v1.2):**
-- Total plans completed: 17
-- Average duration: 7.6 min (v1.1: 4.4 min, v1.2: 9.6 min)
-- Total execution time: 2.14 hours
+- Total plans completed: 18
+- Average duration: 7.3 min (v1.1: 4.4 min, v1.2: 8.9 min)
+- Total execution time: 2.18 hours
 
 **Phase 7 Plan 1:**
 - Duration: 20 min
@@ -94,6 +94,12 @@ Progress: [#########.] 97% (Phase 12 in progress: 4/5 plans complete)
 - Completed: 2026-02-14
 - Tasks: 2
 - Files: 3 (3 modified)
+
+**Phase 12 Plan 3:**
+- Duration: 2 min
+- Completed: 2026-02-14
+- Tasks: 1
+- Files: 3 (1 created, 2 modified)
 
 **Phase 12 Plan 4:**
 - Duration: 3 min
@@ -179,6 +185,12 @@ Progress: [#########.] 97% (Phase 12 in progress: 4/5 plans complete)
 - Donation summary includes ALL donations in total (even without employer matches) + top 5 sectors from matched employers only
 - Schema version test expectations updated from 4 to 5 (7 migration tests affected)
 
+**Phase 12 Plan 3:**
+- Export uses configurable threshold parameter instead of hardcoded 0.85
+- Import validates ticker existence before persisting to prevent invalid mappings
+- Load-seed skips tickers not in database with warning instead of failing (allows partial seed loading)
+- CSV sanitization applied only to employer field (user-generated content from FEC), not controlled columns
+
 **Phase 12 Plan 4:**
 - DbTradeRow extended with politician_id and issuer_sector for donor context lookup (no additional JOINs needed)
 - Donor context groups by (politician, sector) to avoid duplicate output for same sector
@@ -202,5 +214,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-14
-Stopped at: Completed Phase 12 Plan 4 (Donor Context UI)
+Stopped at: Completed Phase 12 Plan 3 (Map Employers CLI)
 Next step: Continue Phase 12 with Plan 5 (UAT - Employer Correlation Analysis).
