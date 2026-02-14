@@ -1,0 +1,332 @@
+# Employer-to-Issuer Seed Mappings
+# These are manually curated, high-confidence mappings for common FEC employers.
+# Format: employer_names (variants) -> issuer_ticker + sector
+# Confidence is always 1.0 for seed data (manually verified).
+# Last updated: 2026-02-13
+#
+# Note on scope: This initial seed file contains ~50 high-confidence mappings
+# across key sectors. Plan 03's export-review-import workflow is designed to
+# grow the mapping database incrementally from real FEC data.
+
+# Big Tech
+[[mapping]]
+employer_names = ["Apple Inc", "Apple Computer Inc", "Apple"]
+issuer_ticker = "AAPL"
+sector = "Information Technology"
+confidence = 1.0
+notes = "Multiple historical names"
+
+[[mapping]]
+employer_names = ["Alphabet Inc", "Google Inc", "Google", "Google LLC"]
+issuer_ticker = "GOOGL"
+sector = "Communication Services"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Microsoft Corporation", "Microsoft Corp", "Microsoft"]
+issuer_ticker = "MSFT"
+sector = "Information Technology"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Amazon.com Inc", "Amazon Inc", "Amazon", "Amazon.com"]
+issuer_ticker = "AMZN"
+sector = "Consumer Discretionary"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Meta Platforms Inc", "Facebook Inc", "Meta", "Facebook"]
+issuer_ticker = "META"
+sector = "Communication Services"
+confidence = 1.0
+notes = "Rebranded from Facebook to Meta in 2021"
+
+[[mapping]]
+employer_names = ["Netflix Inc", "Netflix"]
+issuer_ticker = "NFLX"
+sector = "Communication Services"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["NVIDIA Corporation", "Nvidia Corp", "Nvidia"]
+issuer_ticker = "NVDA"
+sector = "Information Technology"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Intel Corporation", "Intel Corp", "Intel"]
+issuer_ticker = "INTC"
+sector = "Information Technology"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Advanced Micro Devices Inc", "AMD Inc", "AMD"]
+issuer_ticker = "AMD"
+sector = "Information Technology"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Salesforce Inc", "Salesforce.com Inc", "Salesforce"]
+issuer_ticker = "CRM"
+sector = "Information Technology"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Oracle Corporation", "Oracle Corp", "Oracle"]
+issuer_ticker = "ORCL"
+sector = "Information Technology"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Adobe Inc", "Adobe Systems Inc", "Adobe"]
+issuer_ticker = "ADBE"
+sector = "Information Technology"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Cisco Systems Inc", "Cisco Systems", "Cisco"]
+issuer_ticker = "CSCO"
+sector = "Information Technology"
+confidence = 1.0
+
+# Finance
+[[mapping]]
+employer_names = ["Goldman Sachs Group Inc", "Goldman Sachs", "Goldman Sachs & Co"]
+issuer_ticker = "GS"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["JPMorgan Chase & Co", "JP Morgan Chase", "JPMorgan", "Chase"]
+issuer_ticker = "JPM"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Morgan Stanley", "Morgan Stanley & Co"]
+issuer_ticker = "MS"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Bank of America Corporation", "Bank of America Corp", "BofA", "Bank of America"]
+issuer_ticker = "BAC"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Citigroup Inc", "Citi", "Citibank"]
+issuer_ticker = "C"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Wells Fargo & Company", "Wells Fargo & Co", "Wells Fargo"]
+issuer_ticker = "WFC"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["BlackRock Inc", "BlackRock"]
+issuer_ticker = "BLK"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Charles Schwab Corporation", "Charles Schwab Corp", "Schwab", "Charles Schwab"]
+issuer_ticker = "SCHW"
+sector = "Financials"
+confidence = 1.0
+
+# Healthcare
+[[mapping]]
+employer_names = ["Johnson & Johnson", "J&J"]
+issuer_ticker = "JNJ"
+sector = "Health Care"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Pfizer Inc", "Pfizer"]
+issuer_ticker = "PFE"
+sector = "Health Care"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["UnitedHealth Group Inc", "UnitedHealth Group", "United Health", "UnitedHealth"]
+issuer_ticker = "UNH"
+sector = "Health Care"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Merck & Co Inc", "Merck & Co", "Merck"]
+issuer_ticker = "MRK"
+sector = "Health Care"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Abbott Laboratories", "Abbott Labs", "Abbott"]
+issuer_ticker = "ABT"
+sector = "Health Care"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Eli Lilly and Company", "Eli Lilly & Co", "Eli Lilly"]
+issuer_ticker = "LLY"
+sector = "Health Care"
+confidence = 1.0
+
+# Energy
+[[mapping]]
+employer_names = ["Exxon Mobil Corporation", "ExxonMobil Corp", "Exxon Mobil", "ExxonMobil"]
+issuer_ticker = "XOM"
+sector = "Energy"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Chevron Corporation", "Chevron Corp", "Chevron"]
+issuer_ticker = "CVX"
+sector = "Energy"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["ConocoPhillips", "Conoco Phillips"]
+issuer_ticker = "COP"
+sector = "Energy"
+confidence = 1.0
+
+# Defense & Aerospace
+[[mapping]]
+employer_names = ["Lockheed Martin Corporation", "Lockheed Martin Corp", "Lockheed Martin"]
+issuer_ticker = "LMT"
+sector = "Industrials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Raytheon Technologies Corp", "RTX Corporation", "Raytheon", "RTX"]
+issuer_ticker = "RTX"
+sector = "Industrials"
+confidence = 1.0
+notes = "Merged Raytheon and United Technologies"
+
+[[mapping]]
+employer_names = ["Boeing Company", "Boeing Co", "Boeing"]
+issuer_ticker = "BA"
+sector = "Industrials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Northrop Grumman Corporation", "Northrop Grumman Corp", "Northrop Grumman"]
+issuer_ticker = "NOC"
+sector = "Industrials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["General Dynamics Corporation", "General Dynamics Corp", "General Dynamics"]
+issuer_ticker = "GD"
+sector = "Industrials"
+confidence = 1.0
+
+# Consumer
+[[mapping]]
+employer_names = ["Walmart Inc", "Wal-Mart Stores Inc", "Walmart"]
+issuer_ticker = "WMT"
+sector = "Consumer Staples"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Procter & Gamble Company", "Procter & Gamble Co", "P&G", "Procter & Gamble"]
+issuer_ticker = "PG"
+sector = "Consumer Staples"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Coca-Cola Company", "Coca-Cola Co", "Coca Cola", "Coke"]
+issuer_ticker = "KO"
+sector = "Consumer Staples"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["PepsiCo Inc", "PepsiCo", "Pepsi"]
+issuer_ticker = "PEP"
+sector = "Consumer Staples"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["McDonald's Corporation", "McDonald's Corp", "McDonalds", "McDonald's"]
+issuer_ticker = "MCD"
+sector = "Consumer Discretionary"
+confidence = 1.0
+
+# Telecom
+[[mapping]]
+employer_names = ["AT&T Inc", "AT&T"]
+issuer_ticker = "T"
+sector = "Communication Services"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Verizon Communications Inc", "Verizon Communications", "Verizon"]
+issuer_ticker = "VZ"
+sector = "Communication Services"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Comcast Corporation", "Comcast Corp", "Comcast"]
+issuer_ticker = "CMCSA"
+sector = "Communication Services"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["T-Mobile US Inc", "T-Mobile USA Inc", "T-Mobile"]
+issuer_ticker = "TMUS"
+sector = "Communication Services"
+confidence = 1.0
+
+# Additional Major Employers
+[[mapping]]
+employer_names = ["Tesla Inc", "Tesla Motors Inc", "Tesla"]
+issuer_ticker = "TSLA"
+sector = "Consumer Discretionary"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Berkshire Hathaway Inc", "Berkshire Hathaway"]
+issuer_ticker = "BRK.B"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Visa Inc", "Visa"]
+issuer_ticker = "V"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Mastercard Inc", "Mastercard"]
+issuer_ticker = "MA"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["PayPal Holdings Inc", "PayPal"]
+issuer_ticker = "PYPL"
+sector = "Financials"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Walt Disney Company", "Walt Disney Co", "Disney"]
+issuer_ticker = "DIS"
+sector = "Communication Services"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Home Depot Inc", "Home Depot"]
+issuer_ticker = "HD"
+sector = "Consumer Discretionary"
+confidence = 1.0
+
+[[mapping]]
+employer_names = ["Costco Wholesale Corporation", "Costco Wholesale Corp", "Costco"]
+issuer_ticker = "COST"
+sector = "Consumer Staples"
+confidence = 1.0
