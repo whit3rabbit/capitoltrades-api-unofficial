@@ -4095,7 +4095,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 6);
+        assert_eq!(get_user_version(&db), 7);
     }
 
     #[test]
@@ -4128,7 +4128,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(has_column(&db, "issuers", "enriched_at"));
 
         // Verify user_version is now 3 (all migrations v1, v2, v3 applied)
-        assert_eq!(get_user_version(&db), 6);
+        assert_eq!(get_user_version(&db), 7);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -4196,7 +4196,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "positions table should exist");
 
         // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
-        assert_eq!(get_user_version(&db), 6);
+        assert_eq!(get_user_version(&db), 7);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -4212,7 +4212,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 6);
+        assert_eq!(get_user_version(&db), 7);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -4277,7 +4277,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "fec_mappings table should exist after migration");
 
         // Verify user_version is now 3
-        assert_eq!(get_user_version(&db), 6);
+        assert_eq!(get_user_version(&db), 7);
 
         // Verify pre-existing politician data is preserved
         let name: String = db.conn.query_row(
@@ -4293,7 +4293,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = Db::open_in_memory().unwrap();
         db.init().unwrap();
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -4302,7 +4302,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.init().unwrap();
         db.init().unwrap(); // Should not fail
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -7205,7 +7205,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
 
         // Verify all three new tables exist
         let tables: Vec<String> = db
@@ -7232,7 +7232,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -7284,7 +7284,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
 
         // Verify employer_mappings table exists
         let has_employer_mappings: bool = db
@@ -7340,7 +7340,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -7352,7 +7352,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6, "fresh database should have version 6");
+        assert_eq!(version, 7, "fresh database should have version 7");
     }
 
     #[test]
@@ -8451,7 +8451,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
 
         // Verify gics_sector column exists on issuers
         assert!(has_column(&db, "issuers", "gics_sector"), "gics_sector column should exist after v6 migration");
@@ -8495,7 +8495,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -8507,7 +8507,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 6, "fresh database should have version 6");
+        assert_eq!(version, 7, "fresh database should have version 7");
     }
 
     #[test]
@@ -8646,6 +8646,251 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(all_tickers.len(), 3);
         assert_eq!(all_tickers[2].0, "GOOG");
         assert_eq!(all_tickers[2].1, 1);
+    }
+
+    #[test]
+    fn test_migrate_v7_from_v6() {
+        let db = Db::open_in_memory().expect("open");
+
+        // Manually set version to 6
+        db.conn.pragma_update(None, "user_version", 6).expect("set version");
+
+        // Now run init which should migrate to v7
+        db.init().expect("init");
+
+        // Verify user_version is 7
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 7);
+
+        // Verify benchmark_price column exists on trades
+        assert!(has_column(&db, "trades", "benchmark_price"), "benchmark_price column should exist after v7 migration");
+
+        // Insert minimal test data to verify column works
+        db.conn.execute("INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')", []).expect("insert asset");
+        db.conn.execute("INSERT INTO issuers (issuer_id, issuer_name) VALUES (1, 'TestCorp')", []).expect("insert issuer");
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'Democrat', 'Jane', 'Doe', '1970-01-01', 'female', 'senate')",
+            [],
+        ).expect("insert politician");
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (1, 'P000001', 1, 1, '2025-01-01', '2025-01-01', '2025-01-01', 'buy', 0, 'self', 'senate', 50000, 100, 'https://example.com', 5)",
+            [],
+        ).expect("insert trade");
+
+        // Verify benchmark_price is NULL by default
+        let benchmark_price: Option<f64> = db
+            .conn
+            .query_row(
+                "SELECT benchmark_price FROM trades WHERE tx_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query benchmark_price");
+        assert_eq!(benchmark_price, None);
+
+        // Update benchmark_price and verify
+        db.conn.execute(
+            "UPDATE trades SET benchmark_price = 450.0 WHERE tx_id = 1",
+            [],
+        ).expect("update benchmark_price");
+
+        let benchmark_price: f64 = db
+            .conn
+            .query_row(
+                "SELECT benchmark_price FROM trades WHERE tx_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query benchmark_price after update");
+        assert_eq!(benchmark_price, 450.0);
+    }
+
+    #[test]
+    fn test_migrate_v7_idempotent() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("first init");
+        db.init().expect("second init should not fail");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 7);
+    }
+
+    #[test]
+    fn test_v7_version_check() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 7, "fresh database should have version 7");
+    }
+
+    #[test]
+    fn test_get_benchmark_unenriched_trades() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        // Insert 1 politician
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'democrat', 'Jane', 'Doe', '1970-01-01', 'F', 'house')",
+            [],
+        ).expect("insert politician");
+
+        // Insert 1 asset
+        db.conn.execute(
+            "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+            [],
+        ).expect("insert asset");
+
+        // Insert 2 issuers: one with gics_sector, one without
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker, gics_sector) VALUES (1, 'Apple Inc', 'AAPL', 'Information Technology')",
+            [],
+        ).expect("insert AAPL with sector");
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (2, 'UnknownCorp', 'UNKN')",
+            [],
+        ).expect("insert UNKN without sector");
+
+        // Insert 3 trades: 2 for first issuer, 1 for second
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+            [],
+        ).expect("insert trade 1");
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (2, 'P000001', 1, 1, '2024-01-02', '2024-01-02', '2024-01-02', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+            [],
+        ).expect("insert trade 2");
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (3, 'P000001', 1, 2, '2024-01-03', '2024-01-03', '2024-01-03', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+            [],
+        ).expect("insert trade 3");
+
+        // Call get_benchmark_unenriched_trades - should return all 3 trades
+        let unenriched = db.get_benchmark_unenriched_trades(None).expect("get unenriched");
+        assert_eq!(unenriched.len(), 3);
+
+        // Verify first trade has gics_sector
+        assert_eq!(unenriched[0].tx_id, 1);
+        assert_eq!(unenriched[0].issuer_ticker, "AAPL");
+        assert_eq!(unenriched[0].gics_sector, Some("Information Technology".to_string()));
+
+        // Verify third trade has NULL gics_sector
+        assert_eq!(unenriched[2].tx_id, 3);
+        assert_eq!(unenriched[2].issuer_ticker, "UNKN");
+        assert_eq!(unenriched[2].gics_sector, None);
+
+        // Update benchmark_price on first trade
+        db.update_benchmark_price(1, Some(450.0)).expect("update benchmark price");
+
+        // Call get_benchmark_unenriched_trades again - should return 2 trades (first excluded)
+        let unenriched = db.get_benchmark_unenriched_trades(None).expect("get unenriched after update");
+        assert_eq!(unenriched.len(), 2);
+        assert_eq!(unenriched[0].tx_id, 2);
+        assert_eq!(unenriched[1].tx_id, 3);
+    }
+
+    #[test]
+    fn test_get_benchmark_unenriched_trades_with_limit() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        // Insert minimal test data
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'democrat', 'Jane', 'Doe', '1970-01-01', 'F', 'house')",
+            [],
+        ).expect("insert politician");
+        db.conn.execute(
+            "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+            [],
+        ).expect("insert asset");
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple Inc', 'AAPL')",
+            [],
+        ).expect("insert AAPL");
+
+        // Insert 3 trades
+        for i in 1..=3 {
+            db.conn.execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (?1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+                params![i],
+            ).expect("insert trade");
+        }
+
+        // Call with limit Some(1) - should return exactly 1 trade
+        let unenriched = db.get_benchmark_unenriched_trades(Some(1)).expect("get unenriched with limit");
+        assert_eq!(unenriched.len(), 1);
+        assert_eq!(unenriched[0].tx_id, 1);
+    }
+
+    #[test]
+    fn test_update_benchmark_price() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        // Insert minimal test data
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'democrat', 'Jane', 'Doe', '1970-01-01', 'F', 'house')",
+            [],
+        ).expect("insert politician");
+        db.conn.execute(
+            "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+            [],
+        ).expect("insert asset");
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple Inc', 'AAPL')",
+            [],
+        ).expect("insert AAPL");
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+            [],
+        ).expect("insert trade");
+
+        // Update benchmark_price to Some(455.23)
+        db.update_benchmark_price(1, Some(455.23)).expect("update benchmark price");
+
+        // Verify value was set
+        let benchmark_price: f64 = db
+            .conn
+            .query_row(
+                "SELECT benchmark_price FROM trades WHERE tx_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query benchmark_price");
+        assert_eq!(benchmark_price, 455.23);
+
+        // Update to None
+        db.update_benchmark_price(1, None).expect("update benchmark price to NULL");
+
+        // Verify value is now NULL
+        let benchmark_price: Option<f64> = db
+            .conn
+            .query_row(
+                "SELECT benchmark_price FROM trades WHERE tx_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query benchmark_price after NULL update");
+        assert_eq!(benchmark_price, None);
     }
 
     #[test]
