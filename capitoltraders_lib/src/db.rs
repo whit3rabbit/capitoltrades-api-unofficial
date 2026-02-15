@@ -89,6 +89,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 6)?;
         }
 
+        if version < 7 {
+            self.migrate_v7()?;
+            self.conn.pragma_update(None, "user_version", 7)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -315,6 +320,33 @@ impl Db {
         match self
             .conn
             .execute("CREATE INDEX IF NOT EXISTS idx_issuers_gics_sector ON issuers(gics_sector)", [])
+        {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("no such table") => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        Ok(())
+    }
+
+    fn migrate_v7(&self) -> Result<(), DbError> {
+        // Add benchmark_price column to trades table
+        match self
+            .conn
+            .execute("ALTER TABLE trades ADD COLUMN benchmark_price REAL", [])
+        {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("duplicate column name")
+                    || msg.contains("no such table") => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        // Create index on benchmark_price column
+        match self
+            .conn
+            .execute("CREATE INDEX IF NOT EXISTS idx_trades_benchmark_price ON trades(benchmark_price)", [])
         {
             Ok(_) => {}
             Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
@@ -1495,6 +1527,69 @@ impl Db {
         tx.commit()?;
 
         Ok(total_updated)
+    }
+
+    /// Get trades that need benchmark price enrichment.
+    ///
+    /// Returns trades where benchmark_price IS NULL, with GICS sector data from issuers JOIN.
+    /// Only returns trades with valid ticker and tx_date.
+    pub fn get_benchmark_unenriched_trades(
+        &self,
+        limit: Option<i64>,
+    ) -> Result<Vec<BenchmarkEnrichmentRow>, DbError> {
+        let sql = match limit {
+            Some(n) => format!(
+                "SELECT t.tx_id, i.issuer_ticker, t.tx_date, i.gics_sector
+                 FROM trades t
+                 JOIN issuers i ON t.issuer_id = i.issuer_id
+                 WHERE i.issuer_ticker IS NOT NULL
+                   AND i.issuer_ticker <> ''
+                   AND t.tx_date IS NOT NULL
+                   AND t.benchmark_price IS NULL
+                 ORDER BY t.tx_id
+                 LIMIT {}",
+                n
+            ),
+            None => "SELECT t.tx_id, i.issuer_ticker, t.tx_date, i.gics_sector
+                     FROM trades t
+                     JOIN issuers i ON t.issuer_id = i.issuer_id
+                     WHERE i.issuer_ticker IS NOT NULL
+                       AND i.issuer_ticker <> ''
+                       AND t.tx_date IS NOT NULL
+                       AND t.benchmark_price IS NULL
+                     ORDER BY t.tx_id"
+                .to_string(),
+        };
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(BenchmarkEnrichmentRow {
+                    tx_id: row.get(0)?,
+                    issuer_ticker: row.get(1)?,
+                    tx_date: row.get(2)?,
+                    gics_sector: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
+    /// Update benchmark price for a single trade.
+    ///
+    /// Sets benchmark_price for the given tx_id. Does NOT set price_enriched_at,
+    /// as benchmark enrichment is independent of trade price enrichment.
+    pub fn update_benchmark_price(
+        &self,
+        tx_id: i64,
+        benchmark_price: Option<f64>,
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE trades SET benchmark_price = ?1 WHERE tx_id = ?2",
+            params![benchmark_price, tx_id],
+        )?;
+        Ok(())
     }
 
     /// Persist scraped issuer detail data to the database.
@@ -3469,6 +3564,13 @@ pub struct PriceEnrichmentRow {
     pub size_range_low: Option<i64>,
     pub size_range_high: Option<i64>,
     pub value: i64,
+}
+
+pub struct BenchmarkEnrichmentRow {
+    pub tx_id: i64,
+    pub issuer_ticker: String,
+    pub tx_date: String,
+    pub gics_sector: Option<String>,
 }
 
 fn normalize_empty(value: Option<&str>) -> Option<String> {

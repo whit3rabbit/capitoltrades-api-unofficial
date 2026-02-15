@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS trades (
     price_enriched_at TEXT,
     estimated_shares REAL,
     estimated_value REAL,
+    benchmark_price REAL,
     FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE,
     FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
     FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
@@ -242,6 +243,7 @@ CREATE INDEX IF NOT EXISTS idx_trades_enriched ON trades(enriched_at);
 CREATE INDEX IF NOT EXISTS idx_politicians_enriched ON politicians(enriched_at);
 CREATE INDEX IF NOT EXISTS idx_issuers_enriched ON issuers(enriched_at);
 CREATE INDEX IF NOT EXISTS idx_trades_price_enriched ON trades(price_enriched_at);
+CREATE INDEX IF NOT EXISTS idx_trades_benchmark_price ON trades(benchmark_price);
 CREATE INDEX IF NOT EXISTS idx_positions_politician ON positions(politician_id);
 CREATE INDEX IF NOT EXISTS idx_positions_ticker ON positions(issuer_ticker);
 CREATE INDEX IF NOT EXISTS idx_positions_updated ON positions(last_updated);
