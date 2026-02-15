@@ -1680,6 +1680,224 @@ pub fn print_donation_correlation_xml(rows: &[crate::commands::conflicts::Donati
     println!("{}", xml_output::donation_correlations_to_xml(rows));
 }
 
+// --- Anomaly output functions ---
+
+/// Prints anomaly rows as ASCII table to stdout.
+pub fn print_anomaly_table(rows: &[crate::commands::anomalies::AnomalyRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct AnomalyTableRow {
+        #[tabled(rename = "#")]
+        rank: usize,
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Pre-Move")]
+        pre_move_count: usize,
+        #[tabled(rename = "Vol Ratio")]
+        volume_ratio: String,
+        #[tabled(rename = "HHI")]
+        hhi_score: String,
+        #[tabled(rename = "Score")]
+        composite_score: String,
+        #[tabled(rename = "Confidence")]
+        confidence: String,
+    }
+
+    let table_rows: Vec<AnomalyTableRow> = rows
+        .iter()
+        .map(|r| AnomalyTableRow {
+            rank: r.rank,
+            politician_name: r.politician_name.clone(),
+            pre_move_count: r.pre_move_count,
+            volume_ratio: format!("{:.1}x", r.volume_ratio),
+            hhi_score: format!("{:.3}", r.hhi_score),
+            composite_score: format!("{:.3}", r.composite_score),
+            confidence: format!("{:.0}%", r.confidence * 100.0),
+        })
+        .collect();
+
+    let mut table = Table::new(table_rows);
+    table.with(Style::modern());
+    println!("{}", table);
+}
+
+/// Prints anomaly rows as Markdown table to stdout.
+pub fn print_anomaly_markdown(rows: &[crate::commands::anomalies::AnomalyRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct AnomalyTableRow {
+        #[tabled(rename = "#")]
+        rank: usize,
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Pre-Move")]
+        pre_move_count: usize,
+        #[tabled(rename = "Vol Ratio")]
+        volume_ratio: String,
+        #[tabled(rename = "HHI")]
+        hhi_score: String,
+        #[tabled(rename = "Score")]
+        composite_score: String,
+        #[tabled(rename = "Confidence")]
+        confidence: String,
+    }
+
+    let table_rows: Vec<AnomalyTableRow> = rows
+        .iter()
+        .map(|r| AnomalyTableRow {
+            rank: r.rank,
+            politician_name: r.politician_name.clone(),
+            pre_move_count: r.pre_move_count,
+            volume_ratio: format!("{:.1}x", r.volume_ratio),
+            hhi_score: format!("{:.3}", r.hhi_score),
+            composite_score: format!("{:.3}", r.composite_score),
+            confidence: format!("{:.0}%", r.confidence * 100.0),
+        })
+        .collect();
+
+    let mut table = Table::new(table_rows);
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints anomaly rows as CSV to stdout.
+pub fn print_anomaly_csv(rows: &[crate::commands::anomalies::AnomalyRow]) -> Result<()> {
+    let mut writer = csv::Writer::from_writer(std::io::stdout());
+    writer.write_record(["#", "Politician", "Pre-Move", "Vol Ratio", "HHI", "Score", "Confidence"])?;
+    for row in rows {
+        writer.write_record(&[
+            row.rank.to_string(),
+            sanitize_csv_field(&row.politician_name),
+            row.pre_move_count.to_string(),
+            format!("{:.1}", row.volume_ratio),
+            format!("{:.3}", row.hhi_score),
+            format!("{:.3}", row.composite_score),
+            format!("{:.2}", row.confidence),
+        ])?;
+    }
+    writer.flush()?;
+    Ok(())
+}
+
+/// Prints anomaly rows as XML to stdout.
+pub fn print_anomaly_xml(rows: &[crate::commands::anomalies::AnomalyRow]) {
+    println!("{}", xml_output::anomalies_to_xml(rows));
+}
+
+/// Prints pre-move signal rows as ASCII table to stdout.
+pub fn print_pre_move_table(rows: &[crate::commands::anomalies::PreMoveRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct PreMoveTableRow {
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Ticker")]
+        ticker: String,
+        #[tabled(rename = "Date")]
+        tx_date: String,
+        #[tabled(rename = "Type")]
+        tx_type: String,
+        #[tabled(rename = "Price")]
+        trade_price: String,
+        #[tabled(rename = "30d Price")]
+        price_30d_later: String,
+        #[tabled(rename = "Change%")]
+        price_change_pct: String,
+    }
+
+    let table_rows: Vec<PreMoveTableRow> = rows
+        .iter()
+        .map(|r| PreMoveTableRow {
+            politician_name: r.politician_name.clone(),
+            ticker: r.ticker.clone(),
+            tx_date: r.tx_date.clone(),
+            tx_type: r.tx_type.clone(),
+            trade_price: format!("${:.2}", r.trade_price),
+            price_30d_later: format!("${:.2}", r.price_30d_later),
+            price_change_pct: if r.price_change_pct >= 0.0 {
+                format!("+{:.1}%", r.price_change_pct)
+            } else {
+                format!("{:.1}%", r.price_change_pct)
+            },
+        })
+        .collect();
+
+    let mut table = Table::new(table_rows);
+    table.with(Style::modern());
+    println!("{}", table);
+}
+
+/// Prints pre-move signal rows as Markdown table to stdout.
+pub fn print_pre_move_markdown(rows: &[crate::commands::anomalies::PreMoveRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct PreMoveTableRow {
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Ticker")]
+        ticker: String,
+        #[tabled(rename = "Date")]
+        tx_date: String,
+        #[tabled(rename = "Type")]
+        tx_type: String,
+        #[tabled(rename = "Price")]
+        trade_price: String,
+        #[tabled(rename = "30d Price")]
+        price_30d_later: String,
+        #[tabled(rename = "Change%")]
+        price_change_pct: String,
+    }
+
+    let table_rows: Vec<PreMoveTableRow> = rows
+        .iter()
+        .map(|r| PreMoveTableRow {
+            politician_name: r.politician_name.clone(),
+            ticker: r.ticker.clone(),
+            tx_date: r.tx_date.clone(),
+            tx_type: r.tx_type.clone(),
+            trade_price: format!("${:.2}", r.trade_price),
+            price_30d_later: format!("${:.2}", r.price_30d_later),
+            price_change_pct: if r.price_change_pct >= 0.0 {
+                format!("+{:.1}%", r.price_change_pct)
+            } else {
+                format!("{:.1}%", r.price_change_pct)
+            },
+        })
+        .collect();
+
+    let mut table = Table::new(table_rows);
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints pre-move signal rows as CSV to stdout.
+pub fn print_pre_move_csv(rows: &[crate::commands::anomalies::PreMoveRow]) -> Result<()> {
+    let mut writer = csv::Writer::from_writer(std::io::stdout());
+    writer.write_record(["Politician", "Ticker", "Date", "Type", "Price", "30d Price", "Change%"])?;
+    for row in rows {
+        writer.write_record(&[
+            sanitize_csv_field(&row.politician_name),
+            row.ticker.clone(),
+            row.tx_date.clone(),
+            row.tx_type.clone(),
+            format!("{:.2}", row.trade_price),
+            format!("{:.2}", row.price_30d_later),
+            format!("{:.2}", row.price_change_pct),
+        ])?;
+    }
+    writer.flush()?;
+    Ok(())
+}
+
+/// Prints pre-move signal rows as XML to stdout.
+pub fn print_pre_move_xml(rows: &[crate::commands::anomalies::PreMoveRow]) {
+    println!("{}", xml_output::pre_move_signals_to_xml(rows));
+}
+
 #[cfg(test)]
 #[path = "output_tests.rs"]
 mod tests;

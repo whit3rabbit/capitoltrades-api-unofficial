@@ -200,6 +200,16 @@ pub fn donation_correlations_to_xml(rows: &[DonationCorrelationRow]) -> String {
     items_to_xml("donation_correlations", "correlation", rows)
 }
 
+/// Serializes anomaly rows into XML with `<anomalies>` root element.
+pub fn anomalies_to_xml(rows: &[crate::commands::anomalies::AnomalyRow]) -> String {
+    items_to_xml("anomalies", "anomaly", rows)
+}
+
+/// Serializes pre-move signals into XML with `<pre_move_signals>` root element.
+pub fn pre_move_signals_to_xml(rows: &[crate::commands::anomalies::PreMoveRow]) -> String {
+    items_to_xml("pre_move_signals", "signal", rows)
+}
+
 #[cfg(test)]
 #[path = "xml_output_tests.rs"]
 mod tests;

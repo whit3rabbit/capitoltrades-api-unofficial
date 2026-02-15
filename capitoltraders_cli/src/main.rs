@@ -57,6 +57,8 @@ enum Commands {
     Analytics(commands::analytics::AnalyticsArgs),
     /// View committee trading scores and donation-trade correlations
     Conflicts(commands::conflicts::ConflictsArgs),
+    /// Detect unusual trading patterns (pre-move trades, volume spikes, sector concentration)
+    Anomalies(Box<commands::anomalies::AnomaliesArgs>),
 }
 
 #[tokio::main]
@@ -125,6 +127,7 @@ async fn main() -> Result<()> {
         Commands::MapEmployers(args) => commands::map_employers::run(args)?,
         Commands::Analytics(args) => commands::analytics::run(args, &format)?,
         Commands::Conflicts(args) => commands::conflicts::run(args, &format)?,
+        Commands::Anomalies(args) => commands::anomalies::run(args, &format)?,
     }
 
     Ok(())
