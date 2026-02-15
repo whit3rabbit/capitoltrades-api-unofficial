@@ -1090,6 +1090,208 @@ fn format_value(value: i64) -> String {
     }
 }
 
+// -- Conflict output (committee trading scores) --
+
+/// Prints conflict rows (committee trading scores) as ASCII table to stdout.
+pub fn print_conflict_table(rows: &[crate::commands::conflicts::ConflictRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct ConflictTableRow {
+        #[tabled(rename = "Rank")]
+        rank: usize,
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Committees")]
+        committees: String,
+        #[tabled(rename = "Scored Trades")]
+        total_scored_trades: usize,
+        #[tabled(rename = "Committee Trades")]
+        committee_related_trades: usize,
+        #[tabled(rename = "Committee %")]
+        committee_trading_pct: String,
+    }
+
+    let table_rows: Vec<ConflictTableRow> = rows
+        .iter()
+        .map(|r| ConflictTableRow {
+            rank: r.rank,
+            politician_name: r.politician_name.clone(),
+            committees: r.committees.clone(),
+            total_scored_trades: r.total_scored_trades,
+            committee_related_trades: r.committee_related_trades,
+            committee_trading_pct: format!("{:.1}%", r.committee_trading_pct),
+        })
+        .collect();
+
+    println!("{}", Table::new(table_rows));
+}
+
+/// Prints conflict rows as Markdown table to stdout.
+pub fn print_conflict_markdown(rows: &[crate::commands::conflicts::ConflictRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct ConflictTableRow {
+        #[tabled(rename = "Rank")]
+        rank: usize,
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Committees")]
+        committees: String,
+        #[tabled(rename = "Scored Trades")]
+        total_scored_trades: usize,
+        #[tabled(rename = "Committee Trades")]
+        committee_related_trades: usize,
+        #[tabled(rename = "Committee %")]
+        committee_trading_pct: String,
+    }
+
+    let table_rows: Vec<ConflictTableRow> = rows
+        .iter()
+        .map(|r| ConflictTableRow {
+            rank: r.rank,
+            politician_name: r.politician_name.clone(),
+            committees: r.committees.clone(),
+            total_scored_trades: r.total_scored_trades,
+            committee_related_trades: r.committee_related_trades,
+            committee_trading_pct: format!("{:.1}%", r.committee_trading_pct),
+        })
+        .collect();
+
+    let mut table = Table::new(table_rows);
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints conflict rows as CSV to stdout.
+pub fn print_conflict_csv(rows: &[crate::commands::conflicts::ConflictRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    wtr.write_record([
+        "rank",
+        "politician",
+        "committees",
+        "total_scored_trades",
+        "committee_related_trades",
+        "committee_trading_pct",
+    ])?;
+
+    for row in rows {
+        wtr.write_record(&[
+            row.rank.to_string(),
+            sanitize_csv_field(&row.politician_name),
+            sanitize_csv_field(&row.committees),
+            row.total_scored_trades.to_string(),
+            row.committee_related_trades.to_string(),
+            format!("{:.1}", row.committee_trading_pct),
+        ])?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints conflict rows as XML to stdout.
+pub fn print_conflict_xml(rows: &[crate::commands::conflicts::ConflictRow]) {
+    println!("{}", xml_output::conflicts_to_xml(rows));
+}
+
+// -- Donation correlation output --
+
+/// Prints donation correlation rows as ASCII table to stdout.
+pub fn print_donation_correlation_table(rows: &[crate::commands::conflicts::DonationCorrelationRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct DonationTableRow {
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Ticker")]
+        ticker: String,
+        #[tabled(rename = "Donors")]
+        matching_donors: i64,
+        #[tabled(rename = "Total Donations")]
+        total_donations: String,
+        #[tabled(rename = "Donor Employers")]
+        donor_employers: String,
+    }
+
+    let table_rows: Vec<DonationTableRow> = rows
+        .iter()
+        .map(|r| DonationTableRow {
+            politician_name: r.politician_name.clone(),
+            ticker: r.ticker.clone(),
+            matching_donors: r.matching_donors,
+            total_donations: format!("${:.2}", r.total_donations),
+            donor_employers: r.donor_employers.clone(),
+        })
+        .collect();
+
+    println!("{}", Table::new(table_rows));
+}
+
+/// Prints donation correlation rows as Markdown table to stdout.
+pub fn print_donation_correlation_markdown(rows: &[crate::commands::conflicts::DonationCorrelationRow]) {
+    use tabled::Tabled;
+
+    #[derive(Tabled)]
+    struct DonationTableRow {
+        #[tabled(rename = "Politician")]
+        politician_name: String,
+        #[tabled(rename = "Ticker")]
+        ticker: String,
+        #[tabled(rename = "Donors")]
+        matching_donors: i64,
+        #[tabled(rename = "Total Donations")]
+        total_donations: String,
+        #[tabled(rename = "Donor Employers")]
+        donor_employers: String,
+    }
+
+    let table_rows: Vec<DonationTableRow> = rows
+        .iter()
+        .map(|r| DonationTableRow {
+            politician_name: r.politician_name.clone(),
+            ticker: r.ticker.clone(),
+            matching_donors: r.matching_donors,
+            total_donations: format!("${:.2}", r.total_donations),
+            donor_employers: r.donor_employers.clone(),
+        })
+        .collect();
+
+    let mut table = Table::new(table_rows);
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints donation correlation rows as CSV to stdout.
+pub fn print_donation_correlation_csv(rows: &[crate::commands::conflicts::DonationCorrelationRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    wtr.write_record([
+        "politician",
+        "ticker",
+        "matching_donors",
+        "total_donations",
+        "donor_employers",
+    ])?;
+
+    for row in rows {
+        wtr.write_record(&[
+            sanitize_csv_field(&row.politician_name),
+            sanitize_csv_field(&row.ticker),
+            row.matching_donors.to_string(),
+            format!("{:.2}", row.total_donations),
+            sanitize_csv_field(&row.donor_employers),
+        ])?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints donation correlation rows as XML to stdout.
+pub fn print_donation_correlation_xml(rows: &[crate::commands::conflicts::DonationCorrelationRow]) {
+    println!("{}", xml_output::donation_correlations_to_xml(rows));
+}
+
 #[cfg(test)]
 #[path = "output_tests.rs"]
 mod tests;

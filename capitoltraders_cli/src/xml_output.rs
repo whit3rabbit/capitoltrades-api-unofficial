@@ -16,6 +16,7 @@ use capitoltraders_lib::{
 };
 
 use crate::commands::analytics::LeaderboardRow;
+use crate::commands::conflicts::{ConflictRow, DonationCorrelationRow};
 
 /// Singularize common array field names for XML child elements.
 fn singular(field: &str) -> &str {
@@ -165,6 +166,16 @@ pub fn state_agg_to_xml(rows: &[StateAggRow]) -> String {
 /// Serializes leaderboard into XML with `<leaderboard>` root element.
 pub fn leaderboard_to_xml(rows: &[LeaderboardRow]) -> String {
     items_to_xml("leaderboard", "politician", rows)
+}
+
+/// Serializes conflict rows into XML with `<conflicts>` root element.
+pub fn conflicts_to_xml(rows: &[ConflictRow]) -> String {
+    items_to_xml("conflicts", "conflict", rows)
+}
+
+/// Serializes donation correlations into XML with `<donation_correlations>` root element.
+pub fn donation_correlations_to_xml(rows: &[DonationCorrelationRow]) -> String {
+    items_to_xml("donation_correlations", "correlation", rows)
 }
 
 #[cfg(test)]

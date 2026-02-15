@@ -1,6 +1,7 @@
 //! CLI subcommand implementations.
 
 pub mod analytics;
+pub mod conflicts;
 pub mod donations;
 pub mod enrich_prices;
 pub mod issuers;

@@ -55,6 +55,8 @@ enum Commands {
     MapEmployers(commands::map_employers::MapEmployersArgs),
     /// View politician performance rankings and analytics
     Analytics(commands::analytics::AnalyticsArgs),
+    /// View committee trading scores and donation-trade correlations
+    Conflicts(commands::conflicts::ConflictsArgs),
 }
 
 #[tokio::main]
@@ -122,6 +124,7 @@ async fn main() -> Result<()> {
         Commands::Donations(args) => commands::donations::run(args, &format)?,
         Commands::MapEmployers(args) => commands::map_employers::run(args)?,
         Commands::Analytics(args) => commands::analytics::run(args, &format)?,
+        Commands::Conflicts(args) => commands::conflicts::run(args, &format)?,
     }
 
     Ok(())
