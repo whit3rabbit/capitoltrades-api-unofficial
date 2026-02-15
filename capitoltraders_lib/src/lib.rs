@@ -9,6 +9,7 @@ pub mod cache;
 pub mod client;
 pub mod committee;
 pub mod committee_jurisdiction;
+pub mod conflict;
 pub mod db;
 pub mod employer_mapping;
 pub mod error;
@@ -61,4 +62,8 @@ pub use analytics::{
 };
 pub use committee_jurisdiction::{
     CommitteeJurisdiction, load_committee_jurisdictions, get_committee_sectors,
+};
+pub use conflict::{
+    CommitteeTradingScore, DonationTradeCorrelation, ConflictSummary,
+    calculate_committee_trading_score,
 };

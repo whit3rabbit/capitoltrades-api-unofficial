@@ -256,6 +256,7 @@ fn row_to_analytics_trade(row: &AnalyticsTradeRow) -> AnalyticsTrade {
         trade_date_price: row.trade_date_price,
         benchmark_price: row.benchmark_price,
         has_sector_benchmark,
+        gics_sector: row.gics_sector.clone(),
     }
 }
 

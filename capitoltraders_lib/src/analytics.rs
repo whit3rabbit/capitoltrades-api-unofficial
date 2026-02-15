@@ -20,6 +20,7 @@ pub struct AnalyticsTrade {
     pub trade_date_price: f64,
     pub benchmark_price: Option<f64>,
     pub has_sector_benchmark: bool,
+    pub gics_sector: Option<String>,
 }
 
 /// A closed trade (matched buy-sell pair via FIFO).
@@ -36,6 +37,7 @@ pub struct ClosedTrade {
     pub sell_benchmark: Option<f64>,
     pub buy_has_sector: bool,
     pub sell_has_sector: bool,
+    pub gics_sector: Option<String>,
 }
 
 /// Trade performance metrics computed from a ClosedTrade.
@@ -72,6 +74,7 @@ struct AnalyticsLot {
     tx_date: String,
     benchmark_price: Option<f64>,
     has_sector_benchmark: bool,
+    gics_sector: Option<String>,
 }
 
 struct AnalyticsPosition {
@@ -98,6 +101,7 @@ impl AnalyticsPosition {
         tx_date: String,
         benchmark_price: Option<f64>,
         has_sector_benchmark: bool,
+        gics_sector: Option<String>,
     ) {
         self.lots.push_back(AnalyticsLot {
             shares,
@@ -105,6 +109,7 @@ impl AnalyticsPosition {
             tx_date,
             benchmark_price,
             has_sector_benchmark,
+            gics_sector,
         });
     }
 
@@ -115,6 +120,7 @@ impl AnalyticsPosition {
         tx_date: String,
         benchmark_price: Option<f64>,
         has_sector_benchmark: bool,
+        _gics_sector: Option<String>,
     ) {
         let mut remaining = shares;
 
@@ -145,6 +151,7 @@ impl AnalyticsPosition {
                 sell_benchmark: benchmark_price,
                 buy_has_sector: lot.has_sector_benchmark,
                 sell_has_sector: has_sector_benchmark,
+                gics_sector: lot.gics_sector.clone(),
             });
 
             lot.shares -= shares_to_sell;
@@ -175,6 +182,7 @@ pub fn calculate_closed_trades(trades: Vec<AnalyticsTrade>) -> Vec<ClosedTrade> 
                     trade.tx_date,
                     trade.benchmark_price,
                     trade.has_sector_benchmark,
+                    trade.gics_sector.clone(),
                 );
             }
             "sell" => {
@@ -184,6 +192,7 @@ pub fn calculate_closed_trades(trades: Vec<AnalyticsTrade>) -> Vec<ClosedTrade> 
                     trade.tx_date,
                     trade.benchmark_price,
                     trade.has_sector_benchmark,
+                    trade.gics_sector.clone(),
                 );
             }
             "exchange" => {
@@ -405,6 +414,7 @@ mod tests {
             trade_date_price: 50.0,
             benchmark_price: Some(400.0),
             has_sector_benchmark: false,
+            gics_sector: None,
         };
         assert_eq!(trade.tx_id, 1);
         assert_eq!(trade.ticker, "AAPL");
@@ -424,6 +434,7 @@ mod tests {
             sell_benchmark: Some(450.0),
             buy_has_sector: false,
             sell_has_sector: false,
+            gics_sector: None,
         };
         assert_eq!(closed.shares, 100.0);
     }
@@ -442,7 +453,8 @@ mod tests {
                 trade_date_price: 50.0,
                 benchmark_price: Some(400.0),
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
             AnalyticsTrade {
                 tx_id: 2,
                 politician_id: "P000001".to_string(),
@@ -453,7 +465,8 @@ mod tests {
                 trade_date_price: 75.0,
                 benchmark_price: Some(450.0),
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
         ];
 
         let closed = calculate_closed_trades(trades);
@@ -478,7 +491,8 @@ mod tests {
                 trade_date_price: 40.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
             AnalyticsTrade {
                 tx_id: 2,
                 politician_id: "P000001".to_string(),
@@ -489,7 +503,8 @@ mod tests {
                 trade_date_price: 60.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
             AnalyticsTrade {
                 tx_id: 3,
                 politician_id: "P000001".to_string(),
@@ -500,7 +515,8 @@ mod tests {
                 trade_date_price: 80.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
         ];
 
         let closed = calculate_closed_trades(trades);
@@ -528,7 +544,8 @@ mod tests {
                 trade_date_price: 50.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
             AnalyticsTrade {
                 tx_id: 2,
                 politician_id: "P000001".to_string(),
@@ -539,7 +556,8 @@ mod tests {
                 trade_date_price: 30.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
         ];
 
         let closed = calculate_closed_trades(trades);
@@ -561,7 +579,8 @@ mod tests {
                 trade_date_price: 50.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
             AnalyticsTrade {
                 tx_id: 2,
                 politician_id: "P000001".to_string(),
@@ -572,7 +591,8 @@ mod tests {
                 trade_date_price: 60.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
         ];
 
         let closed = calculate_closed_trades(trades);
@@ -592,7 +612,8 @@ mod tests {
                 trade_date_price: 75.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
         ];
 
         let closed = calculate_closed_trades(trades);
@@ -612,7 +633,8 @@ mod tests {
                 trade_date_price: 50.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
             AnalyticsTrade {
                 tx_id: 2,
                 politician_id: "P000002".to_string(),
@@ -623,7 +645,8 @@ mod tests {
                 trade_date_price: 60.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
             AnalyticsTrade {
                 tx_id: 3,
                 politician_id: "P000001".to_string(),
@@ -634,7 +657,8 @@ mod tests {
                 trade_date_price: 75.0,
                 benchmark_price: None,
                 has_sector_benchmark: false,
-            },
+            gics_sector: None,
+        },
         ];
 
         let closed = calculate_closed_trades(trades);
@@ -748,6 +772,7 @@ mod tests {
             sell_benchmark: Some(450.0),
             buy_has_sector: false,
             sell_has_sector: false,
+            gics_sector: None,
         };
 
         let metrics = compute_trade_metrics(&closed);
@@ -779,6 +804,7 @@ mod tests {
             sell_benchmark: Some(120.0),
             buy_has_sector: true,
             sell_has_sector: true,
+            gics_sector: None,
         };
 
         let metrics = compute_trade_metrics(&closed);
@@ -802,6 +828,7 @@ mod tests {
             sell_benchmark: None,
             buy_has_sector: false,
             sell_has_sector: false,
+            gics_sector: None,
         };
 
         let metrics = compute_trade_metrics(&closed);
@@ -824,6 +851,7 @@ mod tests {
             sell_benchmark: Some(450.0),
             buy_has_sector: false,
             sell_has_sector: true, // Mixed: buy SPY, sell sector
+            gics_sector: None,
         };
 
         let metrics = compute_trade_metrics(&closed);
