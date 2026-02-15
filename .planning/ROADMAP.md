@@ -76,12 +76,12 @@ Plans:
   7. User can filter rankings by time period (YTD, 1Y, 2Y, all-time)
   8. User can filter rankings by minimum trade count to exclude low-activity politicians
   9. User can see percentile rank for each politician
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 15-01: TBD
-- [ ] 15-02: TBD
-- [ ] 15-03: TBD
+- [ ] 15-01-PLAN.md -- Analytics calculation module (TDD): FIFO closed trade matching, metric functions, politician aggregation
+- [ ] 15-02-PLAN.md -- DB analytics query method: AnalyticsTradeRow type, query_trades_for_analytics with benchmark/sector data
+- [ ] 15-03-PLAN.md -- Analytics CLI command: leaderboard subcommand with filtering, sorting, and 5 output formats
 
 #### Phase 16: Conflict Detection
 **Goal**: Users can identify committee-sector overlaps and donation-trade correlations
@@ -141,6 +141,6 @@ Phases execute in numeric order: 13 -> 14 -> 15 -> 16 -> 17
 | 12. Employer Correlation & Analysis | v1.2 | 5/5 | Complete | 2026-02-14 |
 | 13. Data Foundation | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 14. Benchmark Enrichment | v1.3 | 2/2 | Complete | 2026-02-15 |
-| 15. Performance Scoring | v1.3 | 0/0 | Not started | - |
+| 15. Performance Scoring | v1.3 | 0/3 | Not started | - |
 | 16. Conflict Detection | v1.3 | 0/0 | Not started | - |
 | 17. Anomaly Detection | v1.3 | 0/0 | Not started | - |
