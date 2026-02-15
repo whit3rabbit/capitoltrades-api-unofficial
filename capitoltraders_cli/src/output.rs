@@ -952,6 +952,123 @@ pub fn print_state_agg_xml(rows: &[StateAggRow]) {
     println!("{}", xml_output::state_agg_to_xml(rows));
 }
 
+// -- Leaderboard output --
+
+use crate::commands::analytics::LeaderboardRow;
+
+/// Flattened row representation of leaderboard for tabular output.
+#[derive(Tabled, Serialize, Clone)]
+struct LeaderboardOutputRow {
+    #[tabled(rename = "#")]
+    #[serde(rename = "Rank")]
+    rank: usize,
+    #[tabled(rename = "Politician")]
+    #[serde(rename = "Politician")]
+    politician: String,
+    #[tabled(rename = "Party")]
+    #[serde(rename = "Party")]
+    party: String,
+    #[tabled(rename = "State")]
+    #[serde(rename = "State")]
+    state: String,
+    #[tabled(rename = "Trades")]
+    #[serde(rename = "Trades")]
+    trades: usize,
+    #[tabled(rename = "Win Rate")]
+    #[serde(rename = "WinRate")]
+    win_rate: String,
+    #[tabled(rename = "Avg Return")]
+    #[serde(rename = "AvgReturn")]
+    avg_return: String,
+    #[tabled(rename = "Alpha")]
+    #[serde(rename = "Alpha")]
+    alpha: String,
+    #[tabled(rename = "Avg Hold")]
+    #[serde(rename = "AvgHold")]
+    avg_hold: String,
+    #[tabled(rename = "Pctl")]
+    #[serde(rename = "Percentile")]
+    percentile: String,
+}
+
+fn build_leaderboard_rows(rows: &[LeaderboardRow]) -> Vec<LeaderboardOutputRow> {
+    rows.iter()
+        .map(|r| LeaderboardOutputRow {
+            rank: r.rank,
+            politician: r.politician_name.clone(),
+            party: r.party.clone(),
+            state: r.state.clone(),
+            trades: r.total_trades,
+            win_rate: format!("{:.1}%", r.win_rate * 100.0),
+            avg_return: if r.avg_return >= 0.0 {
+                format!("+{:.1}%", r.avg_return)
+            } else {
+                format!("{:.1}%", r.avg_return)
+            },
+            alpha: r.avg_alpha.map(|a| {
+                if a >= 0.0 {
+                    format!("+{:.1}%", a)
+                } else {
+                    format!("{:.1}%", a)
+                }
+            }).unwrap_or_else(|| "N/A".to_string()),
+            avg_hold: r.avg_holding_days.map(|d| format!("{:.0} days", d)).unwrap_or_else(|| "N/A".to_string()),
+            percentile: format!("{:.0}%", r.percentile * 100.0),
+        })
+        .collect()
+}
+
+/// Prints leaderboard as an ASCII table to stdout.
+pub fn print_leaderboard_table(rows: &[LeaderboardRow]) {
+    println!("{}", Table::new(build_leaderboard_rows(rows)));
+}
+
+/// Prints leaderboard as a GitHub-flavored Markdown table to stdout.
+pub fn print_leaderboard_markdown(rows: &[LeaderboardRow]) {
+    let mut table = Table::new(build_leaderboard_rows(rows));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints leaderboard as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_leaderboard_csv(rows: &[LeaderboardRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    wtr.write_record([
+        "rank",
+        "politician",
+        "party",
+        "state",
+        "trades",
+        "win_rate",
+        "avg_return",
+        "alpha",
+        "avg_holding_days",
+        "percentile",
+    ])?;
+
+    for r in rows {
+        wtr.write_record(&[
+            r.rank.to_string(),
+            sanitize_csv_field(&r.politician_name),
+            r.party.clone(),
+            r.state.clone(),
+            r.total_trades.to_string(),
+            format!("{:.2}", r.win_rate),
+            format!("{:.2}", r.avg_return),
+            r.avg_alpha.map(|a| format!("{:.2}", a)).unwrap_or_default(),
+            r.avg_holding_days.map(|d| format!("{:.2}", d)).unwrap_or_default(),
+            format!("{:.2}", r.percentile),
+        ])?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints leaderboard as a well-formed XML document to stdout.
+pub fn print_leaderboard_xml(rows: &[LeaderboardRow]) {
+    println!("{}", xml_output::leaderboard_to_xml(rows));
+}
+
 // -- JSON output --
 
 /// Prints any serializable data as pretty-printed JSON to stdout.

@@ -15,6 +15,8 @@ use capitoltraders_lib::{
     PortfolioPosition, StateAggRow,
 };
 
+use crate::commands::analytics::LeaderboardRow;
+
 /// Singularize common array field names for XML child elements.
 fn singular(field: &str) -> &str {
     match field {
@@ -158,6 +160,11 @@ pub fn employer_agg_to_xml(rows: &[EmployerAggRow]) -> String {
 /// Serializes state aggregations into XML.
 pub fn state_agg_to_xml(rows: &[StateAggRow]) -> String {
     items_to_xml("states", "state", rows)
+}
+
+/// Serializes leaderboard into XML with `<leaderboard>` root element.
+pub fn leaderboard_to_xml(rows: &[LeaderboardRow]) -> String {
+    items_to_xml("leaderboard", "politician", rows)
 }
 
 #[cfg(test)]

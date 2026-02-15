@@ -53,6 +53,8 @@ enum Commands {
     Donations(commands::donations::DonationsArgs),
     /// Build employer-to-issuer mapping database
     MapEmployers(commands::map_employers::MapEmployersArgs),
+    /// View politician performance rankings and analytics
+    Analytics(commands::analytics::AnalyticsArgs),
 }
 
 #[tokio::main]
@@ -119,6 +121,7 @@ async fn main() -> Result<()> {
         }
         Commands::Donations(args) => commands::donations::run(args, &format)?,
         Commands::MapEmployers(args) => commands::map_employers::run(args)?,
+        Commands::Analytics(args) => commands::analytics::run(args, &format)?,
     }
 
     Ok(())
