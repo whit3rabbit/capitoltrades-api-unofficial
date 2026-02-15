@@ -11,7 +11,7 @@ Requirements for Analytics & Scoring milestone. Each maps to roadmap phases.
 
 - [ ] **FOUND-01**: User can run schema v6 migration adding benchmark and analytics tables
 - [ ] **FOUND-02**: User can store benchmark prices (S&P 500 + 11 sector ETFs) in SQLite
-- [ ] **FOUND-03**: User can enrich benchmark prices via Yahoo Finance during enrich-prices run
+- [x] **FOUND-03**: User can enrich benchmark prices via Yahoo Finance during enrich-prices run
 - [ ] **FOUND-04**: User can map issuers to GICS sectors via static YAML classification
 
 ### Performance Scoring

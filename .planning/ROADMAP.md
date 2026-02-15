@@ -51,21 +51,16 @@ Plans:
 - [x] 13-01-PLAN.md -- Schema v6 migration, sector_benchmarks table, benchmark population, DB query helpers
 - [x] 13-02-PLAN.md -- Sector mapping module, GICS YAML data file, issuer sector update operations
 
-#### Phase 14: Benchmark Price Enrichment
+#### Phase 14: Benchmark Price Enrichment -- COMPLETE 2026-02-15
 **Goal**: Users can enrich trades with S&P 500 and sector ETF benchmark prices
 **Depends on**: Phase 13
 **Requirements**: FOUND-03
-**Success Criteria** (what must be TRUE):
-  1. User can run enrich-prices command which fetches benchmark prices in Phase 3
-  2. User can see benchmark_price column populated for trades with valid trade dates
-  3. User can see 12 benchmark tickers cached (SPY + 11 sector ETFs)
-  4. Weekend/holiday dates fall back to previous trading day for benchmark prices
-  5. Circuit breaker stops enrichment if 10+ consecutive benchmark price failures
-**Plans**: 2 plans
+**Verification**: 18/18 must-haves passed
+**Plans**: 2/2 complete
 
 Plans:
-- [ ] 14-01-PLAN.md -- Schema v7 migration, BenchmarkEnrichmentRow, get_benchmark_unenriched_trades, update_benchmark_price
-- [ ] 14-02-PLAN.md -- Phase 3 benchmark enrichment loop in enrich_prices.rs with sector-to-ETF mapping
+- [x] 14-01-PLAN.md -- Schema v7 migration, BenchmarkEnrichmentRow, get_benchmark_unenriched_trades, update_benchmark_price
+- [x] 14-02-PLAN.md -- Phase 3 benchmark enrichment loop in enrich_prices.rs with sector-to-ETF mapping
 
 #### Phase 15: Performance Scoring & Leaderboards
 **Goal**: Users can see performance metrics and politician rankings
@@ -145,7 +140,7 @@ Phases execute in numeric order: 13 -> 14 -> 15 -> 16 -> 17
 | 11. Donations CLI Command | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 12. Employer Correlation & Analysis | v1.2 | 5/5 | Complete | 2026-02-14 |
 | 13. Data Foundation | v1.3 | 2/2 | Complete | 2026-02-15 |
-| 14. Benchmark Enrichment | v1.3 | 0/2 | Not started | - |
+| 14. Benchmark Enrichment | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 15. Performance Scoring | v1.3 | 0/0 | Not started | - |
 | 16. Conflict Detection | v1.3 | 0/0 | Not started | - |
 | 17. Anomaly Detection | v1.3 | 0/0 | Not started | - |
