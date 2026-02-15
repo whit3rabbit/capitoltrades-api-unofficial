@@ -483,6 +483,7 @@ pub fn print_enriched_trades_xml(trades: &[crate::commands::trades::EnrichedDbTr
 /// Includes committee membership data from the politician_committees table
 /// and trade stats from the politician_stats table.
 #[derive(Tabled, Serialize)]
+#[allow(dead_code)]
 struct DbPoliticianOutputRow {
     #[tabled(rename = "Name")]
     #[serde(rename = "Name")]
@@ -507,6 +508,7 @@ struct DbPoliticianOutputRow {
     volume: String,
 }
 
+#[allow(dead_code)]
 fn build_db_politician_rows(politicians: &[DbPoliticianRow]) -> Vec<DbPoliticianOutputRow> {
     politicians
         .iter()
@@ -523,11 +525,13 @@ fn build_db_politician_rows(politicians: &[DbPoliticianRow]) -> Vec<DbPolitician
 }
 
 /// Prints DB politicians as an ASCII table to stdout.
+#[allow(dead_code)]
 pub fn print_db_politicians_table(politicians: &[DbPoliticianRow]) {
     println!("{}", Table::new(build_db_politician_rows(politicians)));
 }
 
 /// Prints DB politicians as a GitHub-flavored Markdown table to stdout.
+#[allow(dead_code)]
 pub fn print_db_politicians_markdown(politicians: &[DbPoliticianRow]) {
     let mut table = Table::new(build_db_politician_rows(politicians));
     table.with(Style::markdown());
@@ -535,6 +539,7 @@ pub fn print_db_politicians_markdown(politicians: &[DbPoliticianRow]) {
 }
 
 /// Prints DB politicians as CSV to stdout. Fields are sanitized against formula injection.
+#[allow(dead_code)]
 pub fn print_db_politicians_csv(politicians: &[DbPoliticianRow]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(std::io::stdout());
     for mut row in build_db_politician_rows(politicians) {
@@ -547,8 +552,130 @@ pub fn print_db_politicians_csv(politicians: &[DbPoliticianRow]) -> Result<()> {
 }
 
 /// Prints DB politicians as a well-formed XML document to stdout.
+#[allow(dead_code)]
 pub fn print_db_politicians_xml(politicians: &[DbPoliticianRow]) {
     println!("{}", xml_output::db_politicians_to_xml(politicians));
+}
+
+// -- Enriched DB politician output (with analytics) --
+
+/// Flattened row representation of an enriched DB politician for tabular output.
+///
+/// Extends [`DbPoliticianOutputRow`] with optional analytics summary fields.
+#[derive(Tabled, Serialize)]
+struct EnrichedDbPoliticianOutputRow {
+    #[tabled(rename = "Name")]
+    #[serde(rename = "Name")]
+    name: String,
+    #[tabled(rename = "Party")]
+    #[serde(rename = "Party")]
+    party: String,
+    #[tabled(rename = "State")]
+    #[serde(rename = "State")]
+    state: String,
+    #[tabled(rename = "Chamber")]
+    #[serde(rename = "Chamber")]
+    chamber: String,
+    #[tabled(rename = "Committees")]
+    #[serde(rename = "Committees")]
+    committees: String,
+    #[tabled(rename = "Trades")]
+    #[serde(rename = "Trades")]
+    trades: i64,
+    #[tabled(rename = "Volume")]
+    #[serde(rename = "Volume")]
+    volume: String,
+    #[tabled(rename = "Closed")]
+    #[serde(rename = "Closed")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_usize")]
+    closed_trades: Option<usize>,
+    #[tabled(rename = "Avg Ret")]
+    #[serde(rename = "Avg Ret")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_str")]
+    avg_return: Option<String>,
+    #[tabled(rename = "Win%")]
+    #[serde(rename = "Win%")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_str")]
+    win_rate: Option<String>,
+    #[tabled(rename = "Pctl")]
+    #[serde(rename = "Pctl")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_str")]
+    percentile: Option<String>,
+}
+
+fn display_option_usize(opt: &Option<usize>) -> String {
+    opt.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string())
+}
+
+fn build_enriched_db_politician_rows(
+    politicians: &[crate::commands::politicians::EnrichedDbPoliticianRow],
+) -> Vec<EnrichedDbPoliticianOutputRow> {
+    politicians
+        .iter()
+        .map(|p| EnrichedDbPoliticianOutputRow {
+            name: p.name.clone(),
+            party: p.party.clone(),
+            state: p.state.clone(),
+            chamber: p.chamber.clone(),
+            committees: p.committees.join(", "),
+            trades: p.trades,
+            volume: format_value(p.volume),
+            closed_trades: p.closed_trades,
+            avg_return: p.avg_return.map(|r| {
+                if r >= 0.0 {
+                    format!("+{:.1}%", r)
+                } else {
+                    format!("{:.1}%", r)
+                }
+            }),
+            win_rate: p.win_rate.map(|w| format!("{:.1}%", w)),
+            percentile: p.percentile.map(|pct| format!("{:.0}%", pct)),
+        })
+        .collect()
+}
+
+/// Prints enriched DB politicians (with analytics) as an ASCII table to stdout.
+pub fn print_enriched_politicians_table(
+    politicians: &[crate::commands::politicians::EnrichedDbPoliticianRow],
+) {
+    println!(
+        "{}",
+        Table::new(build_enriched_db_politician_rows(politicians))
+    );
+}
+
+/// Prints enriched DB politicians as a GitHub-flavored Markdown table to stdout.
+pub fn print_enriched_politicians_markdown(
+    politicians: &[crate::commands::politicians::EnrichedDbPoliticianRow],
+) {
+    let mut table = Table::new(build_enriched_db_politician_rows(politicians));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints enriched DB politicians as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_enriched_politicians_csv(
+    politicians: &[crate::commands::politicians::EnrichedDbPoliticianRow],
+) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_enriched_db_politician_rows(politicians) {
+        row.name = sanitize_csv_field(&row.name);
+        row.committees = sanitize_csv_field(&row.committees);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints enriched DB politicians as a well-formed XML document to stdout.
+pub fn print_enriched_politicians_xml(
+    politicians: &[crate::commands::politicians::EnrichedDbPoliticianRow],
+) {
+    println!("{}", xml_output::enriched_politicians_to_xml(politicians));
 }
 
 // -- DB issuer output --

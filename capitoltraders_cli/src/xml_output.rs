@@ -135,7 +135,15 @@ pub fn enriched_trades_to_xml(trades: &[crate::commands::trades::EnrichedDbTrade
 }
 
 /// Serializes a slice of DB politician rows into an XML string with `<politicians>` as the root element.
+#[allow(dead_code)]
 pub fn db_politicians_to_xml(politicians: &[DbPoliticianRow]) -> String {
+    items_to_xml("politicians", "politician", politicians)
+}
+
+/// Serializes enriched DB politician rows (with analytics) into an XML string with `<politicians>` as the root element.
+pub fn enriched_politicians_to_xml(
+    politicians: &[crate::commands::politicians::EnrichedDbPoliticianRow],
+) -> String {
     items_to_xml("politicians", "politician", politicians)
 }
 

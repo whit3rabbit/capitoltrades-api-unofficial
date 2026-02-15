@@ -3,16 +3,23 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
+use capitoltraders_lib::analytics::{
+    aggregate_politician_metrics, calculate_closed_trades, compute_trade_metrics, AnalyticsTrade,
+    PoliticianMetrics,
+};
 use capitoltraders_lib::types::PoliticianDetail;
 use capitoltraders_lib::validation;
-use capitoltraders_lib::{Db, DbPoliticianFilter, ScrapeClient, ScrapedPoliticianCard};
+use capitoltraders_lib::{Db, DbPoliticianFilter, DbPoliticianRow, ScrapeClient, ScrapedPoliticianCard};
 use chrono::NaiveDate;
 use clap::Args;
+use serde::Serialize;
+use std::collections::HashMap;
 
 use crate::output::{
-    print_db_politicians_csv, print_db_politicians_markdown, print_db_politicians_table,
-    print_db_politicians_xml, print_json, print_politicians_csv, print_politicians_markdown,
-    print_politicians_table, print_politicians_xml, OutputFormat,
+    print_enriched_politicians_csv, print_enriched_politicians_markdown,
+    print_enriched_politicians_table, print_enriched_politicians_xml, print_json,
+    print_politicians_csv, print_politicians_markdown, print_politicians_table,
+    print_politicians_xml, OutputFormat,
 };
 
 /// Arguments for the `politicians` subcommand.
@@ -63,6 +70,51 @@ pub struct PoliticiansArgs {
     /// Read politicians from local SQLite database (requires prior sync)
     #[arg(long)]
     pub db: Option<PathBuf>,
+}
+
+/// Enriched politician row with optional analytics summary fields.
+///
+/// Extends [`DbPoliticianRow`] with closed_trades, avg_return, win_rate, and percentile.
+/// All analytics fields are Option types for backward compatibility.
+#[derive(Serialize, Clone)]
+pub struct EnrichedDbPoliticianRow {
+    // Base DbPoliticianRow fields
+    pub politician_id: String,
+    pub name: String,
+    pub party: String,
+    pub state: String,
+    pub chamber: String,
+    pub committees: Vec<String>,
+    pub trades: i64,
+    pub volume: i64,
+    // Analytics enrichment fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed_trades: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_return: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub win_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percentile: Option<f64>,
+}
+
+impl From<DbPoliticianRow> for EnrichedDbPoliticianRow {
+    fn from(row: DbPoliticianRow) -> Self {
+        Self {
+            politician_id: row.politician_id,
+            name: row.name,
+            party: row.party,
+            state: row.state,
+            chamber: row.chamber,
+            committees: row.committees,
+            trades: row.trades,
+            volume: row.volume,
+            closed_trades: None,
+            avg_return: None,
+            win_rate: None,
+            percentile: None,
+        }
+    }
 }
 
 /// Executes the politicians subcommand: validates inputs, scrapes results,
@@ -233,15 +285,96 @@ pub async fn run_db(
     let rows = db.query_politicians(&filter)?;
     eprintln!("{} politicians from database", rows.len());
 
+    // Best-effort analytics enrichment: compute politician performance metrics
+    let metrics_map: HashMap<String, PoliticianMetrics> = match load_politician_analytics(&db) {
+        Ok(map) => map,
+        Err(e) => {
+            eprintln!(
+                "Note: Analytics data unavailable ({}). Run 'enrich-prices' to enable performance metrics.",
+                e
+            );
+            HashMap::new()
+        }
+    };
+
+    // Enrich rows with analytics data
+    let enriched_rows: Vec<EnrichedDbPoliticianRow> = rows
+        .into_iter()
+        .map(|row| enrich_politician_row(row, &metrics_map))
+        .collect();
+
     match format {
-        OutputFormat::Table => print_db_politicians_table(&rows),
-        OutputFormat::Json => print_json(&rows),
-        OutputFormat::Csv => print_db_politicians_csv(&rows)?,
-        OutputFormat::Markdown => print_db_politicians_markdown(&rows),
-        OutputFormat::Xml => print_db_politicians_xml(&rows),
+        OutputFormat::Table => print_enriched_politicians_table(&enriched_rows),
+        OutputFormat::Json => print_json(&enriched_rows),
+        OutputFormat::Csv => print_enriched_politicians_csv(&enriched_rows)?,
+        OutputFormat::Markdown => print_enriched_politicians_markdown(&enriched_rows),
+        OutputFormat::Xml => print_enriched_politicians_xml(&enriched_rows),
     }
 
     Ok(())
+}
+
+/// Load politician analytics metrics from price-enriched trades.
+///
+/// Returns a HashMap keyed by politician_id with aggregated performance metrics.
+/// Best-effort: returns error if price enrichment data is unavailable.
+fn load_politician_analytics(db: &Db) -> Result<HashMap<String, PoliticianMetrics>> {
+    // Query price-enriched trades for analytics
+    let analytics_rows = db.query_trades_for_analytics()?;
+    if analytics_rows.is_empty() {
+        bail!("no price-enriched trades available");
+    }
+
+    // Convert to AnalyticsTrade
+    let analytics_trades: Vec<AnalyticsTrade> = analytics_rows
+        .into_iter()
+        .map(|row| AnalyticsTrade {
+            tx_id: row.tx_id,
+            politician_id: row.politician_id,
+            ticker: row.issuer_ticker,
+            tx_type: row.tx_type,
+            tx_date: row.tx_date,
+            estimated_shares: row.estimated_shares,
+            trade_date_price: row.trade_date_price,
+            benchmark_price: row.benchmark_price,
+            has_sector_benchmark: row.gics_sector.is_some(),
+            gics_sector: row.gics_sector,
+        })
+        .collect();
+
+    // Calculate closed trades using FIFO
+    let closed_trades = calculate_closed_trades(analytics_trades);
+
+    // Compute metrics for each closed trade
+    let all_metrics: Vec<_> = closed_trades.iter().map(compute_trade_metrics).collect();
+
+    // Aggregate by politician
+    let politician_metrics = aggregate_politician_metrics(&all_metrics);
+
+    // Build HashMap keyed by politician_id
+    let metrics_map: HashMap<String, PoliticianMetrics> = politician_metrics
+        .into_iter()
+        .map(|m| (m.politician_id.clone(), m))
+        .collect();
+
+    Ok(metrics_map)
+}
+
+/// Enrich a DbPoliticianRow with analytics performance metrics.
+fn enrich_politician_row(
+    row: DbPoliticianRow,
+    metrics_map: &HashMap<String, PoliticianMetrics>,
+) -> EnrichedDbPoliticianRow {
+    let mut enriched = EnrichedDbPoliticianRow::from(row);
+
+    if let Some(metrics) = metrics_map.get(&enriched.politician_id) {
+        enriched.closed_trades = Some(metrics.total_trades);
+        enriched.avg_return = Some(metrics.avg_return);
+        enriched.win_rate = Some(metrics.win_rate);
+        enriched.percentile = Some(metrics.percentile_rank * 100.0); // Convert to percentage
+    }
+
+    enriched
 }
 
 fn parse_date_opt(value: &Option<String>) -> Option<NaiveDate> {
