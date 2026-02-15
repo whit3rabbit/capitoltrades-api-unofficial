@@ -74,21 +74,16 @@ Plans:
 - [x] 15-02-PLAN.md -- DB analytics query method: AnalyticsTradeRow type, query_trades_for_analytics with benchmark/sector data
 - [x] 15-03-PLAN.md -- Analytics CLI command: leaderboard subcommand with filtering, sorting, and 5 output formats
 
-#### Phase 16: Conflict Detection
+#### Phase 16: Conflict Detection -- COMPLETE 2026-02-15
 **Goal**: Users can identify committee-sector overlaps and donation-trade correlations
 **Depends on**: Phase 15
 **Requirements**: CONF-01, CONF-02, CONF-03, CONF-04
-**Success Criteria** (what must be TRUE):
-  1. User can see trades flagged as "committee-related" when trade sector matches committee jurisdiction
-  2. User can see per-politician committee trading score (% of trades in committee-related sectors)
-  3. User can see donation-trade correlation flags when donors' employers match traded issuers
-  4. User can query conflict signals via analytics CLI with politician/committee filters
-  5. User can see disclaimer "current committee only (may not reflect assignment at trade time)"
-**Plans**: 2 plans
+**Verification**: All must-haves passed
+**Plans**: 2/2 complete
 
 Plans:
-- [ ] 16-01-PLAN.md -- Committee jurisdiction YAML mapping, loader module, conflict scoring types and pure functions
-- [ ] 16-02-PLAN.md -- DB conflict query methods, conflicts CLI subcommand with output formatting
+- [x] 16-01-PLAN.md -- Committee jurisdiction YAML mapping, loader module, conflict scoring types and pure functions
+- [x] 16-02-PLAN.md -- DB conflict query methods, conflicts CLI subcommand with output formatting
 
 #### Phase 17: Anomaly Detection & Output Integration
 **Goal**: Users can detect unusual trading patterns and see analytics in all outputs
@@ -104,12 +99,12 @@ Plans:
   7. User can see conflict flags in existing portfolio output
   8. User can see analytics scores in existing politicians output
   9. All new analytics output supports 5 formats (table, JSON, CSV, markdown, XML)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 17-01: TBD
-- [ ] 17-02: TBD
-- [ ] 17-03: TBD
+- [ ] 17-01-PLAN.md -- Anomaly detection pure functions (TDD): pre-move, volume, HHI, composite scoring
+- [ ] 17-02-PLAN.md -- Output integration: extend trades/portfolio/politicians with analytics and conflict data
+- [ ] 17-03-PLAN.md -- Anomaly DB queries and anomalies CLI subcommand with 5 output formats
 
 ## Progress
 
@@ -133,5 +128,5 @@ Phases execute in numeric order: 13 -> 14 -> 15 -> 16 -> 17
 | 13. Data Foundation | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 14. Benchmark Enrichment | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 15. Performance Scoring | v1.3 | 3/3 | Complete | 2026-02-15 |
-| 16. Conflict Detection | v1.3 | Complete    | 2026-02-15 | - |
-| 17. Anomaly Detection | v1.3 | 0/0 | Not started | - |
+| 16. Conflict Detection | v1.3 | 2/2 | Complete | 2026-02-15 |
+| 17. Anomaly Detection | v1.3 | 0/3 | Not started | - |
