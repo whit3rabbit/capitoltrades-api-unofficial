@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-14)
 ## Current Position
 
 Phase: 15 of 17 (Performance Scoring)
-Plan: 01 of 3 (15-02 complete)
-Status: In Progress
-Last activity: 2026-02-15 - Completed 15-02 (Analytics trade query)
+Plan: 03 of 3 (15-03 complete - Phase 15 COMPLETE)
+Status: Phase Complete
+Last activity: 2026-02-15 - Completed 15-03 (Analytics CLI command)
 
-Progress: [█████████████░░░░░░░] 76%
+Progress: [██████████████░░░░░░] 80%
 
 ## Shipped Milestones
 
@@ -24,9 +24,9 @@ Progress: [█████████████░░░░░░░] 76%
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 27
-- Average duration: 6.6 min
-- Total execution time: 3.08 hours
+- Total plans completed: 28
+- Average duration: 6.3 min
+- Total execution time: 3.15 hours
 
 **By Milestone:**
 
@@ -34,13 +34,14 @@ Progress: [█████████████░░░░░░░] 76%
 |-----------|--------|-------|------------|----------|
 | v1.1 | 6 | 7 | 0.52 hours | 4.5 min |
 | v1.2 | 6 | 15 | 2.18 hours | 8.7 min |
-| v1.3 | 5 | 5 | 0.38 hours | 4.6 min |
+| v1.3 | 5 | 6 | 0.45 hours | 4.5 min |
 
 **Recent Trend:**
-- Last 5 plans: [6min, 5.6min, 4.7min, 2.1min, 4.4min]
-- Trend: Stable (recent plans consistently under 5 minutes, excellent velocity)
+- Last 5 plans: [5.6min, 4.7min, 2.1min, 4.4min, 4.2min]
+- Trend: Stable (recent plans consistently under 6 minutes, excellent velocity)
 
 *Updated after each plan completion*
+| Phase 15 P03 | 257 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -57,6 +58,10 @@ Recent decisions affecting current work:
 - v1.3: Phase 3 uses separate semaphore from Phase 1 (Phase 1 permits may not be released if circuit breaker tripped)
 - v1.3: BenchmarkPriceResult uses Vec<i64> (tx_ids) not Vec<usize> (Phase 3 uses separate query, indices would reference wrong vec)
 - v1.3: query_trades_for_analytics does NOT filter benchmark_price IS NOT NULL (trades without benchmarks needed for FIFO matching)
+- [Phase 15-03]: Filter closed trades before computing metrics (ClosedTrade has sell_date, TradeMetrics doesn't)
+- [Phase 15-03]: Re-compute percentile ranks after filtering (percentile is relative to filtered pool, not global)
+- [Phase 15-03]: Filter closed trades before computing metrics (ClosedTrade has sell_date, TradeMetrics doesn't)
+- [Phase 15-03]: Re-compute percentile ranks after filtering (percentile is relative to filtered pool, not global)
 
 ### Pending Todos
 
@@ -69,5 +74,5 @@ None yet. v1.3 builds on existing v1.1 price enrichment infrastructure with no n
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: Completed 15-02-PLAN.md (Analytics trade query)
-Next step: Continue Phase 15 (Plan 03 - Analytics CLI command)
+Stopped at: Completed 15-03-PLAN.md (Analytics CLI command) - Phase 15 COMPLETE
+Next step: Continue to Phase 16 (next milestone phase)
