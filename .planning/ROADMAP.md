@@ -40,20 +40,16 @@ Full details: `.planning/milestones/v1.2-ROADMAP.md`
 
 **Milestone Goal:** Derive actionable insights from trade, price, portfolio, and donation data through performance scoring, historical anomaly detection, and sector/committee cross-reference analysis.
 
-#### Phase 13: Data Foundation & Sector Classification
+#### Phase 13: Data Foundation & Sector Classification -- COMPLETE 2026-02-15
 **Goal**: Users can store benchmark prices and sector mappings for analytics
 **Depends on**: Nothing (foundation)
 **Requirements**: FOUND-01, FOUND-02, FOUND-04
-**Success Criteria** (what must be TRUE):
-  1. User can run schema v6 migration adding benchmark and analytics columns to trades table
-  2. User can map top 200 traded tickers to GICS sectors via static YAML classification
-  3. User can query sector_benchmarks reference table showing 11 GICS sectors with ETF tickers
-  4. Schema migration is idempotent (running twice has no side effects)
-**Plans**: 2 plans
+**Verification**: 4/4 must-haves passed
+**Plans**: 2/2 complete
 
 Plans:
-- [ ] 13-01-PLAN.md -- Schema v6 migration, sector_benchmarks table, benchmark population, DB query helpers
-- [ ] 13-02-PLAN.md -- Sector mapping module, GICS YAML data file, issuer sector update operations
+- [x] 13-01-PLAN.md -- Schema v6 migration, sector_benchmarks table, benchmark population, DB query helpers
+- [x] 13-02-PLAN.md -- Sector mapping module, GICS YAML data file, issuer sector update operations
 
 #### Phase 14: Benchmark Price Enrichment
 **Goal**: Users can enrich trades with S&P 500 and sector ETF benchmark prices
@@ -147,7 +143,7 @@ Phases execute in numeric order: 13 → 14 → 15 → 16 → 17
 | 10. Donation Sync Pipeline | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 11. Donations CLI Command | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 12. Employer Correlation & Analysis | v1.2 | 5/5 | Complete | 2026-02-14 |
-| 13. Data Foundation | v1.3 | 0/2 | Planned | - |
+| 13. Data Foundation | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 14. Benchmark Enrichment | v1.3 | 0/0 | Not started | - |
 | 15. Performance Scoring | v1.3 | 0/0 | Not started | - |
 | 16. Conflict Detection | v1.3 | 0/0 | Not started | - |
