@@ -3296,6 +3296,142 @@ impl Db {
             top_sectors,
         }))
     }
+
+    /// Get committee names for a politician.
+    ///
+    /// Returns a list of committee short codes the politician serves on.
+    ///
+    /// # Arguments
+    /// * `politician_id` - Politician ID to query
+    ///
+    /// # Returns
+    /// * `Ok(Vec<String>)` - List of committee names (empty if politician has no committees)
+    /// * `Err(DbError)` - Database error
+    pub fn get_politician_committee_names(&self, politician_id: &str) -> Result<Vec<String>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT committee FROM politician_committees WHERE politician_id = ?1"
+        )?;
+
+        let rows = stmt.query_map(params![politician_id], |row| {
+            row.get::<_, String>(0)
+        })?;
+
+        let mut committees = Vec::new();
+        for committee in rows {
+            committees.push(committee?);
+        }
+
+        Ok(committees)
+    }
+
+    /// Get all politicians with their committee assignments.
+    ///
+    /// Returns (politician_id, politician_name, committee_names) tuples for all
+    /// politicians who have at least one committee assignment.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<(String, String, Vec<String>)>)` - List of (id, name, committees)
+    /// * `Err(DbError)` - Database error
+    pub fn get_all_politicians_with_committees(&self) -> Result<Vec<(String, String, Vec<String>)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT p.politician_id, p.first_name || ' ' || p.last_name AS name,
+                    GROUP_CONCAT(pc.committee, ',') AS committees
+             FROM politicians p
+             JOIN politician_committees pc ON p.politician_id = pc.politician_id
+             GROUP BY p.politician_id, name"
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let politician_id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let committees_str: String = row.get(2)?;
+
+            // Split GROUP_CONCAT result on comma
+            let committees: Vec<String> = committees_str
+                .split(',')
+                .map(|s| s.to_string())
+                .collect();
+
+            Ok((politician_id, name, committees))
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+
+        Ok(result)
+    }
+
+    /// Query donation-trade correlations.
+    ///
+    /// Finds trades where the politician received donations from employees of the
+    /// traded company (matched via employer_mappings).
+    ///
+    /// # Arguments
+    /// * `min_confidence` - Minimum employer mapping confidence (0.0-1.0)
+    ///
+    /// # Returns
+    /// * `Ok(Vec<DonationTradeCorrelation>)` - List of correlated donations/trades
+    /// * `Err(DbError)` - Database error
+    ///
+    /// # Note
+    /// Returns empty Vec if employer_mappings or donations tables are empty (no error).
+    pub fn query_donation_trade_correlations(&self, min_confidence: f64) -> Result<Vec<crate::conflict::DonationTradeCorrelation>, DbError> {
+        // Check if employer_mappings table has data
+        let has_mappings: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM employer_mappings",
+            [],
+            |row| row.get(0)
+        )?;
+
+        if has_mappings == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Complex JOIN query to correlate donations with trades
+        let sql = "
+            SELECT
+                p.politician_id,
+                p.first_name || ' ' || p.last_name AS politician_name,
+                i.issuer_ticker AS ticker,
+                COUNT(DISTINCT d.contributor_employer) AS matching_donor_count,
+                AVG(em.confidence) AS avg_mapping_confidence,
+                GROUP_CONCAT(DISTINCT d.contributor_employer, ', ') AS donor_employers,
+                SUM(d.contribution_receipt_amount) AS total_donation_amount
+            FROM trades t
+            JOIN issuers i ON t.issuer_id = i.issuer_id
+            JOIN politicians p ON t.politician_id = p.politician_id
+            JOIN employer_mappings em ON i.issuer_ticker = em.ticker
+            JOIN donations d ON LOWER(d.contributor_employer) = LOWER(em.employer)
+            JOIN donation_sync_meta dsm ON d.sub_id = dsm.sub_id
+            WHERE em.confidence >= ?1
+              AND dsm.politician_id = t.politician_id
+            GROUP BY p.politician_id, politician_name, ticker
+            HAVING matching_donor_count > 0
+            ORDER BY matching_donor_count DESC, total_donation_amount DESC
+        ";
+
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(params![min_confidence], |row| {
+            Ok(crate::conflict::DonationTradeCorrelation {
+                politician_id: row.get(0)?,
+                politician_name: row.get(1)?,
+                ticker: row.get(2)?,
+                matching_donor_count: row.get(3)?,
+                avg_mapping_confidence: row.get(4)?,
+                donor_employers: row.get(5)?,
+                total_donation_amount: row.get(6)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+
+        Ok(result)
+    }
 }
 
 /// Build dynamic WHERE clause for donation queries.
@@ -9311,5 +9447,134 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             )
             .expect("query AAPL");
         assert_eq!(sector, Some("Information Technology".to_string()));
+    }
+
+    #[test]
+    fn test_get_politician_committee_names() {
+        let db = Db::open_in_memory().expect("open db");
+        db.init().expect("init schema");
+
+        // Insert a politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, first_name, last_name, party, state_id, dob, gender, chamber)
+                 VALUES ('P000001', 'John', 'Doe', 'Democrat', 'CA', '1960-01-01', 'M', 'House')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert committees
+        db.conn
+            .execute(
+                "INSERT INTO politician_committees (politician_id, committee) VALUES ('P000001', 'hsba')",
+                [],
+            )
+            .expect("insert committee 1");
+        db.conn
+            .execute(
+                "INSERT INTO politician_committees (politician_id, committee) VALUES ('P000001', 'ssfi')",
+                [],
+            )
+            .expect("insert committee 2");
+
+        // Query committees
+        let committees = db.get_politician_committee_names("P000001").expect("query committees");
+
+        assert_eq!(committees.len(), 2);
+        assert!(committees.contains(&"hsba".to_string()));
+        assert!(committees.contains(&"ssfi".to_string()));
+    }
+
+    #[test]
+    fn test_get_politician_committee_names_empty() {
+        let db = Db::open_in_memory().expect("open db");
+        db.init().expect("init schema");
+
+        // Insert a politician with no committees
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, first_name, last_name, party, state_id, dob, gender, chamber)
+                 VALUES ('P000002', 'Jane', 'Smith', 'Republican', 'TX', '1965-01-01', 'F', 'Senate')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Query committees (should be empty)
+        let committees = db.get_politician_committee_names("P000002").expect("query committees");
+
+        assert_eq!(committees.len(), 0);
+    }
+
+    #[test]
+    fn test_get_all_politicians_with_committees() {
+        let db = Db::open_in_memory().expect("open db");
+        db.init().expect("init schema");
+
+        // Insert politicians
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, first_name, last_name, party, state_id, dob, gender, chamber)
+                 VALUES ('P000001', 'John', 'Doe', 'Democrat', 'CA', '1960-01-01', 'M', 'House')",
+                [],
+            )
+            .expect("insert politician 1");
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, first_name, last_name, party, state_id, dob, gender, chamber)
+                 VALUES ('P000002', 'Jane', 'Smith', 'Republican', 'TX', '1965-01-01', 'F', 'Senate')",
+                [],
+            )
+            .expect("insert politician 2");
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, first_name, last_name, party, state_id, dob, gender, chamber)
+                 VALUES ('P000003', 'Bob', 'Johnson', 'Democrat', 'NY', '1970-01-01', 'M', 'House')",
+                [],
+            )
+            .expect("insert politician 3 (no committees)");
+
+        // Insert committees
+        db.conn.execute(
+            "INSERT INTO politician_committees (politician_id, committee) VALUES ('P000001', 'hsba')",
+            [],
+        ).expect("insert committee");
+        db.conn.execute(
+            "INSERT INTO politician_committees (politician_id, committee) VALUES ('P000001', 'ssfi')",
+            [],
+        ).expect("insert committee");
+        db.conn.execute(
+            "INSERT INTO politician_committees (politician_id, committee) VALUES ('P000002', 'hsif')",
+            [],
+        ).expect("insert committee");
+
+        // Query all politicians with committees
+        let politicians = db.get_all_politicians_with_committees().expect("query politicians");
+
+        // Should return 2 politicians (P000003 has no committees)
+        assert_eq!(politicians.len(), 2);
+
+        // Find John Doe
+        let john = politicians.iter().find(|(id, _, _)| id == "P000001").expect("find John Doe");
+        assert_eq!(john.1, "John Doe");
+        assert_eq!(john.2.len(), 2);
+        assert!(john.2.contains(&"hsba".to_string()));
+        assert!(john.2.contains(&"ssfi".to_string()));
+
+        // Find Jane Smith
+        let jane = politicians.iter().find(|(id, _, _)| id == "P000002").expect("find Jane Smith");
+        assert_eq!(jane.1, "Jane Smith");
+        assert_eq!(jane.2.len(), 1);
+        assert!(jane.2.contains(&"hsif".to_string()));
+    }
+
+    #[test]
+    fn test_query_donation_trade_correlations_empty() {
+        let db = Db::open_in_memory().expect("open db");
+        db.init().expect("init schema");
+
+        // Query with no data (should return empty Vec, not error)
+        let correlations = db.query_donation_trade_correlations(0.90).expect("query correlations");
+
+        assert_eq!(correlations.len(), 0);
     }
 }
