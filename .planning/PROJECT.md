@@ -46,7 +46,19 @@ Users can see what politicians are trading, what those positions are currently w
 
 ### Active
 
-(None -- define next milestone with `/gsd:new-milestone`)
+**Current Milestone: v1.3 Analytics & Scoring**
+
+**Goal:** Derive actionable insights from trade, price, portfolio, and donation data through performance scoring, historical anomaly detection, and sector/committee cross-reference analysis.
+
+**Target features:**
+- Trade performance scoring with multi-benchmark comparison (absolute, S&P 500, sector ETF)
+- Benchmark price storage in SQLite for offline analysis
+- Historical unusual activity detection (pre-move trades, clustering, behavioral deviation)
+- Sector concentration analysis per politician
+- Committee-to-sector overlap flagging (per-trade flags + per-politician scores)
+- Donation-to-trade cross-reference signals
+- New analytics CLI subcommands
+- Summary scores embedded in existing trades/portfolio/politicians output
 
 ### Out of Scope
 
@@ -82,4 +94,4 @@ Users can see what politicians are trading, what those positions are currently w
 | Separate `sync-donations` | Donation data is large and requires API key; keep separate from core sync | Targeted data ingestion |
 
 ---
-*Last updated: 2026-02-14 after v1.2 milestone shipped*
+*Last updated: 2026-02-14 after v1.3 milestone started*
