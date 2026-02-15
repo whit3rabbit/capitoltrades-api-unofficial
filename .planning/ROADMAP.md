@@ -62,26 +62,17 @@ Plans:
 - [x] 14-01-PLAN.md -- Schema v7 migration, BenchmarkEnrichmentRow, get_benchmark_unenriched_trades, update_benchmark_price
 - [x] 14-02-PLAN.md -- Phase 3 benchmark enrichment loop in enrich_prices.rs with sector-to-ETF mapping
 
-#### Phase 15: Performance Scoring & Leaderboards
+#### Phase 15: Performance Scoring & Leaderboards -- COMPLETE 2026-02-15
 **Goal**: Users can see performance metrics and politician rankings
 **Depends on**: Phase 14
 **Requirements**: PERF-01, PERF-02, PERF-03, PERF-04, PERF-05, PERF-06, LEAD-01, LEAD-02, LEAD-03, LEAD-04
-**Success Criteria** (what must be TRUE):
-  1. User can see absolute return (%) for each closed trade with estimated P&L
-  2. User can see win/loss rate per politician (% of trades with positive return)
-  3. User can see S&P 500 alpha (trade return minus benchmark return over same period)
-  4. User can see sector ETF relative return for trades in mapped sectors
-  5. User can see annualized return for trades with known holding period
-  6. User can view politician rankings sorted by performance metrics via new analytics CLI subcommand
-  7. User can filter rankings by time period (YTD, 1Y, 2Y, all-time)
-  8. User can filter rankings by minimum trade count to exclude low-activity politicians
-  9. User can see percentile rank for each politician
-**Plans**: 3 plans
+**Verification**: 9/9 must-haves passed
+**Plans**: 3/3 complete
 
 Plans:
-- [ ] 15-01-PLAN.md -- Analytics calculation module (TDD): FIFO closed trade matching, metric functions, politician aggregation
-- [ ] 15-02-PLAN.md -- DB analytics query method: AnalyticsTradeRow type, query_trades_for_analytics with benchmark/sector data
-- [ ] 15-03-PLAN.md -- Analytics CLI command: leaderboard subcommand with filtering, sorting, and 5 output formats
+- [x] 15-01-PLAN.md -- Analytics calculation module (TDD): FIFO closed trade matching, metric functions, politician aggregation
+- [x] 15-02-PLAN.md -- DB analytics query method: AnalyticsTradeRow type, query_trades_for_analytics with benchmark/sector data
+- [x] 15-03-PLAN.md -- Analytics CLI command: leaderboard subcommand with filtering, sorting, and 5 output formats
 
 #### Phase 16: Conflict Detection
 **Goal**: Users can identify committee-sector overlaps and donation-trade correlations
@@ -141,6 +132,6 @@ Phases execute in numeric order: 13 -> 14 -> 15 -> 16 -> 17
 | 12. Employer Correlation & Analysis | v1.2 | 5/5 | Complete | 2026-02-14 |
 | 13. Data Foundation | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 14. Benchmark Enrichment | v1.3 | 2/2 | Complete | 2026-02-15 |
-| 15. Performance Scoring | v1.3 | 0/3 | Not started | - |
+| 15. Performance Scoring | v1.3 | 3/3 | Complete | 2026-02-15 |
 | 16. Conflict Detection | v1.3 | 0/0 | Not started | - |
 | 17. Anomaly Detection | v1.3 | 0/0 | Not started | - |

@@ -5,7 +5,7 @@
 See: .planning/PROJECT.md (updated 2026-02-14)
 
 **Core value:** Users can see what politicians are trading, what those positions are currently worth, whether they are making or losing money, and who is funding their campaigns.
-**Current focus:** Phase 15 - Performance Scoring (v1.3 Analytics & Scoring)
+**Current focus:** Phase 16 - Conflict Detection (v1.3 Analytics & Scoring)
 
 ## Current Position
 
@@ -58,10 +58,8 @@ Recent decisions affecting current work:
 - v1.3: Phase 3 uses separate semaphore from Phase 1 (Phase 1 permits may not be released if circuit breaker tripped)
 - v1.3: BenchmarkPriceResult uses Vec<i64> (tx_ids) not Vec<usize> (Phase 3 uses separate query, indices would reference wrong vec)
 - v1.3: query_trades_for_analytics does NOT filter benchmark_price IS NOT NULL (trades without benchmarks needed for FIFO matching)
-- [Phase 15-03]: Filter closed trades before computing metrics (ClosedTrade has sell_date, TradeMetrics doesn't)
-- [Phase 15-03]: Re-compute percentile ranks after filtering (percentile is relative to filtered pool, not global)
-- [Phase 15-03]: Filter closed trades before computing metrics (ClosedTrade has sell_date, TradeMetrics doesn't)
-- [Phase 15-03]: Re-compute percentile ranks after filtering (percentile is relative to filtered pool, not global)
+- v1.3: Filter closed trades before computing metrics (ClosedTrade has sell_date, TradeMetrics doesn't)
+- v1.3: Re-compute percentile ranks after filtering (percentile is relative to filtered pool, not global)
 
 ### Pending Todos
 
@@ -74,5 +72,5 @@ None yet. v1.3 builds on existing v1.1 price enrichment infrastructure with no n
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: Completed 15-03-PLAN.md (Analytics CLI command) - Phase 15 COMPLETE
-Next step: Continue to Phase 16 (next milestone phase)
+Stopped at: Phase 15 complete (all 3 plans, 9/9 verification passed)
+Next step: Plan Phase 16 (Conflict Detection)
