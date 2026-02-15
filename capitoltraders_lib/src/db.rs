@@ -296,7 +296,8 @@ impl Db {
         {
             Ok(_) => {}
             Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
-                if msg.contains("duplicate column name") => {}
+                if msg.contains("duplicate column name")
+                    || msg.contains("no such table") => {}
             Err(e) => return Err(e.into()),
         }
 
@@ -311,19 +312,34 @@ impl Db {
         )?;
 
         // Create index on gics_sector column
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_issuers_gics_sector ON issuers(gics_sector)",
-            [],
-        )?;
+        match self
+            .conn
+            .execute("CREATE INDEX IF NOT EXISTS idx_issuers_gics_sector ON issuers(gics_sector)", [])
+        {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("no such table") => {}
+            Err(e) => return Err(e.into()),
+        }
 
         Ok(())
     }
 
     fn populate_sector_benchmarks(&self) -> Result<(), DbError> {
         // Check if sector_benchmarks already has data
-        let count: i64 = self
+        let count: i64 = match self
             .conn
-            .query_row("SELECT COUNT(*) FROM sector_benchmarks", [], |row| row.get(0))?;
+            .query_row("SELECT COUNT(*) FROM sector_benchmarks", [], |row| row.get(0))
+        {
+            Ok(count) => count,
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("no such table") =>
+            {
+                // Table doesn't exist yet, will be created by schema.sql
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         if count > 0 {
             return Ok(());
@@ -3948,7 +3964,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 5);
+        assert_eq!(get_user_version(&db), 6);
     }
 
     #[test]
@@ -3981,7 +3997,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(has_column(&db, "issuers", "enriched_at"));
 
         // Verify user_version is now 3 (all migrations v1, v2, v3 applied)
-        assert_eq!(get_user_version(&db), 5);
+        assert_eq!(get_user_version(&db), 6);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -4049,7 +4065,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "positions table should exist");
 
         // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
-        assert_eq!(get_user_version(&db), 5);
+        assert_eq!(get_user_version(&db), 6);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -4065,7 +4081,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 5);
+        assert_eq!(get_user_version(&db), 6);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -4130,7 +4146,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "fec_mappings table should exist after migration");
 
         // Verify user_version is now 3
-        assert_eq!(get_user_version(&db), 5);
+        assert_eq!(get_user_version(&db), 6);
 
         // Verify pre-existing politician data is preserved
         let name: String = db.conn.query_row(
@@ -4146,7 +4162,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = Db::open_in_memory().unwrap();
         db.init().unwrap();
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -4155,7 +4171,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.init().unwrap();
         db.init().unwrap(); // Should not fail
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -7058,7 +7074,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         // Verify all three new tables exist
         let tables: Vec<String> = db
@@ -7085,7 +7101,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -7137,7 +7153,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         // Verify employer_mappings table exists
         let has_employer_mappings: bool = db
@@ -7193,7 +7209,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -7205,7 +7221,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 5, "fresh database should have version 5");
+        assert_eq!(version, 6, "fresh database should have version 6");
     }
 
     #[test]
@@ -8287,5 +8303,217 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             )
             .expect("query lookup");
         assert_eq!(normalized, "alphabet inc");
+    }
+
+    #[test]
+    fn test_migrate_v6_from_v5() {
+        let db = Db::open_in_memory().expect("open");
+
+        // Manually set version to 5
+        db.conn.pragma_update(None, "user_version", 5).expect("set version");
+
+        // Now run init which should migrate to v6
+        db.init().expect("init");
+
+        // Verify user_version is 6
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 6);
+
+        // Verify gics_sector column exists on issuers
+        assert!(has_column(&db, "issuers", "gics_sector"), "gics_sector column should exist after v6 migration");
+
+        // Verify sector_benchmarks table exists
+        let has_sector_benchmarks: bool = db
+            .conn
+            .prepare("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sector_benchmarks'")
+            .expect("prepare")
+            .query_row([], |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            })
+            .expect("query");
+        assert!(has_sector_benchmarks, "sector_benchmarks table should exist after v6 migration");
+
+        // Verify we can insert and select with gics_sector column
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, gics_sector) VALUES (1, 'Test Corp', 'Technology')",
+            [],
+        ).expect("insert issuer with gics_sector");
+
+        let sector: String = db
+            .conn
+            .query_row(
+                "SELECT gics_sector FROM issuers WHERE issuer_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query gics_sector");
+        assert_eq!(sector, "Technology");
+    }
+
+    #[test]
+    fn test_migrate_v6_idempotent() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("first init");
+        db.init().expect("second init should not fail");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 6);
+    }
+
+    #[test]
+    fn test_v6_version_check() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("get version");
+        assert_eq!(version, 6, "fresh database should have version 6");
+    }
+
+    #[test]
+    fn test_fresh_db_has_sector_benchmarks() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        // Verify sector_benchmarks table exists and has 12 rows
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM sector_benchmarks", [], |row| row.get(0))
+            .expect("count sector_benchmarks");
+        assert_eq!(count, 12, "sector_benchmarks should have 12 rows after init");
+    }
+
+    #[test]
+    fn test_sector_benchmarks_populated_once() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        // Verify 12 rows
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM sector_benchmarks", [], |row| row.get(0))
+            .expect("count sector_benchmarks");
+        assert_eq!(count, 12);
+
+        // Call populate_sector_benchmarks again
+        db.populate_sector_benchmarks().expect("populate again");
+
+        // Should still be 12 rows, not 24
+        let count_after: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM sector_benchmarks", [], |row| row.get(0))
+            .expect("count after second populate");
+        assert_eq!(count_after, 12, "should not duplicate benchmark rows");
+    }
+
+    #[test]
+    fn test_get_sector_benchmarks() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        let benchmarks = db.get_sector_benchmarks().expect("get_sector_benchmarks");
+
+        // Should have 12 results
+        assert_eq!(benchmarks.len(), 12, "should return 12 sector benchmarks");
+
+        // Find SPY (Market)
+        let spy = benchmarks.iter().find(|(sector, _, _)| sector == "Market");
+        assert!(spy.is_some(), "should contain Market/SPY benchmark");
+        let (sector, ticker, name) = spy.unwrap();
+        assert_eq!(sector, "Market");
+        assert_eq!(ticker, "SPY");
+        assert_eq!(name, "SPDR S&P 500 ETF Trust");
+
+        // Find XLK (Information Technology)
+        let xlk = benchmarks.iter().find(|(sector, _, _)| sector == "Information Technology");
+        assert!(xlk.is_some(), "should contain Information Technology/XLK benchmark");
+        let (sector, ticker, _) = xlk.unwrap();
+        assert_eq!(sector, "Information Technology");
+        assert_eq!(ticker, "XLK");
+
+        // Verify alphabetical ordering (first should be "Communication Services")
+        assert_eq!(benchmarks[0].0, "Communication Services", "results should be ordered alphabetically by sector");
+    }
+
+    #[test]
+    fn test_get_top_traded_tickers() {
+        let db = Db::open_in_memory().expect("open");
+        db.init().expect("init");
+
+        // Insert minimal test data
+        // 1 politician
+        db.conn.execute(
+            "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+             VALUES ('P000001', 'CA', 'democrat', 'Jane', 'Doe', '1970-01-01', 'F', 'house')",
+            [],
+        ).expect("insert politician");
+
+        // 1 asset
+        db.conn.execute(
+            "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+            [],
+        ).expect("insert asset");
+
+        // 3 issuers with tickers
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple Inc', 'AAPL')",
+            [],
+        ).expect("insert AAPL");
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (2, 'Microsoft', 'MSFT')",
+            [],
+        ).expect("insert MSFT");
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (3, 'Google', 'GOOG')",
+            [],
+        ).expect("insert GOOG");
+
+        // Insert trades: 5 for AAPL, 3 for MSFT, 1 for GOOG
+        for i in 1..=5 {
+            db.conn.execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (?1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+                params![i],
+            ).expect("insert AAPL trade");
+        }
+        for i in 6..=8 {
+            db.conn.execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+                 VALUES (?1, 'P000001', 1, 2, '2024-01-01', '2024-01-01', '2024-01-01', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+                params![i],
+            ).expect("insert MSFT trade");
+        }
+        db.conn.execute(
+            "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap)
+             VALUES (9, 'P000001', 1, 3, '2024-01-01', '2024-01-01', '2024-01-01', 'purchase', 0, 'self', 'house', 10000, 1, 'http://example.com', 0)",
+            [],
+        ).expect("insert GOOG trade");
+
+        // Test get_top_traded_tickers with limit 2
+        let top_tickers = db.get_top_traded_tickers(2).expect("get_top_traded_tickers");
+
+        // Should return top 2
+        assert_eq!(top_tickers.len(), 2, "should respect limit of 2");
+
+        // Should be ordered by count descending
+        assert_eq!(top_tickers[0].0, "AAPL");
+        assert_eq!(top_tickers[0].1, 5);
+        assert_eq!(top_tickers[1].0, "MSFT");
+        assert_eq!(top_tickers[1].1, 3);
+
+        // Test with limit 3 to get all
+        let all_tickers = db.get_top_traded_tickers(3).expect("get_top_traded_tickers");
+        assert_eq!(all_tickers.len(), 3);
+        assert_eq!(all_tickers[2].0, "GOOG");
+        assert_eq!(all_tickers[2].1, 1);
     }
 }
