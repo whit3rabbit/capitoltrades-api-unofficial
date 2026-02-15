@@ -3432,6 +3432,156 @@ impl Db {
 
         Ok(result)
     }
+
+    /// Query trades with 30-day future prices for pre-move detection.
+    ///
+    /// Returns trades where:
+    /// - trade_date_price is available (price enrichment done)
+    /// - tx_date is at least 30 days ago (exclude recent trades without forward data)
+    /// - asset_type = 'stock' (exclude options and other instruments)
+    ///
+    /// For price_30d_later, finds the nearest trade of the same ticker within 28-32 days
+    /// that also has trade_date_price available. If no such trade exists, price_30d_later is NULL.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<PreMoveCandidateRow>)` - Trades with forward price data
+    /// * `Err(DbError)` - Database error
+    pub fn query_pre_move_candidates(&self) -> Result<Vec<PreMoveCandidateRow>, DbError> {
+        let sql = "
+            SELECT
+                t.tx_id,
+                t.politician_id,
+                p.first_name || ' ' || p.last_name AS politician_name,
+                i.issuer_ticker AS ticker,
+                t.tx_type,
+                t.tx_date,
+                t.trade_date_price,
+                (SELECT t2.trade_date_price
+                 FROM trades t2
+                 JOIN issuers i2 ON t2.issuer_id = i2.issuer_id
+                 WHERE i2.issuer_ticker = i.issuer_ticker
+                   AND t2.tx_date >= DATE(t.tx_date, '+28 days')
+                   AND t2.tx_date <= DATE(t.tx_date, '+32 days')
+                   AND t2.trade_date_price IS NOT NULL
+                 ORDER BY t2.tx_date ASC
+                 LIMIT 1) as price_30d_later
+            FROM trades t
+            JOIN issuers i ON t.issuer_id = i.issuer_id
+            JOIN politicians p ON t.politician_id = p.politician_id
+            JOIN assets a ON t.asset_id = a.asset_id
+            WHERE t.trade_date_price IS NOT NULL
+              AND t.tx_date <= date('now', '-30 days')
+              AND a.asset_type = 'stock'
+            ORDER BY t.tx_date DESC
+        ";
+
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(PreMoveCandidateRow {
+                tx_id: row.get(0)?,
+                politician_id: row.get(1)?,
+                politician_name: row.get(2)?,
+                ticker: row.get(3)?,
+                tx_type: row.get(4)?,
+                tx_date: row.get(5)?,
+                trade_price: row.get(6)?,
+                price_30d_later: row.get(7)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+
+        Ok(result)
+    }
+
+    /// Query trade volume by politician for unusual activity detection.
+    ///
+    /// Returns all trade dates per politician for volume analysis.
+    /// The caller groups by politician_id and compares recent vs historical frequency.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<TradeVolumeRow>)` - List of (politician_id, politician_name, tx_date) records
+    /// * `Err(DbError)` - Database error
+    pub fn query_trade_volume_by_politician(&self) -> Result<Vec<TradeVolumeRow>, DbError> {
+        let sql = "
+            SELECT
+                t.politician_id,
+                p.first_name || ' ' || p.last_name AS politician_name,
+                t.tx_date
+            FROM trades t
+            JOIN politicians p ON t.politician_id = p.politician_id
+            ORDER BY t.politician_id, t.tx_date
+        ";
+
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TradeVolumeRow {
+                politician_id: row.get(0)?,
+                politician_name: row.get(1)?,
+                tx_date: row.get(2)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+
+        Ok(result)
+    }
+
+    /// Query portfolio positions for HHI sector concentration calculation.
+    ///
+    /// Returns open positions (shares_held > 0.01) with ticker, sector, and estimated value.
+    /// Estimated value uses (shares_held * current_price) if available, else (shares_held * cost_basis).
+    ///
+    /// # Returns
+    /// * `Ok(Vec<HHIPositionRow>)` - Open positions with sector and value data
+    /// * `Err(DbError)` - Database error
+    pub fn query_portfolio_positions_for_hhi(&self) -> Result<Vec<HHIPositionRow>, DbError> {
+        let sql = "
+            SELECT
+                p2.politician_id,
+                p2.first_name || ' ' || p2.last_name AS politician_name,
+                p.issuer_ticker AS ticker,
+                i.gics_sector,
+                COALESCE(p.shares_held * (SELECT t2.current_price
+                                           FROM trades t2
+                                           JOIN issuers i2 ON t2.issuer_id = i2.issuer_id
+                                           WHERE i2.issuer_ticker = p.issuer_ticker
+                                             AND t2.current_price IS NOT NULL
+                                           ORDER BY t2.price_enriched_at DESC
+                                           LIMIT 1),
+                         p.shares_held * p.cost_basis,
+                         0.0) AS estimated_value
+            FROM positions p
+            JOIN politicians p2 ON p.politician_id = p2.politician_id
+            JOIN issuers i ON p.issuer_ticker = i.issuer_ticker
+            WHERE p.shares_held > 0.01
+            ORDER BY p.politician_id, estimated_value DESC
+        ";
+
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(HHIPositionRow {
+                politician_id: row.get(0)?,
+                politician_name: row.get(1)?,
+                ticker: row.get(2)?,
+                gics_sector: row.get(3)?,
+                estimated_value: row.get(4)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+
+        Ok(result)
+    }
 }
 
 /// Build dynamic WHERE clause for donation queries.
@@ -3766,6 +3916,43 @@ pub struct AnalyticsTradeRow {
     pub trade_date_price: f64,
     pub benchmark_price: Option<f64>,
     pub gics_sector: Option<String>,
+}
+
+/// Row for pre-move trade detection (trades with 30-day future price).
+///
+/// Used by anomaly detection to identify trades that preceded significant price movements.
+#[derive(Debug, Clone)]
+pub struct PreMoveCandidateRow {
+    pub tx_id: i64,
+    pub politician_id: String,
+    pub politician_name: String,
+    pub ticker: String,
+    pub tx_type: String,
+    pub tx_date: String,
+    pub trade_price: f64,
+    pub price_30d_later: Option<f64>,
+}
+
+/// Row for trade volume analysis (politician_id and trade date).
+///
+/// Used by unusual volume detection to calculate trading frequency.
+#[derive(Debug, Clone)]
+pub struct TradeVolumeRow {
+    pub politician_id: String,
+    pub politician_name: String,
+    pub tx_date: String,
+}
+
+/// Row for HHI sector concentration calculation.
+///
+/// Used by portfolio concentration scoring to measure diversification.
+#[derive(Debug, Clone)]
+pub struct HHIPositionRow {
+    pub politician_id: String,
+    pub politician_name: String,
+    pub ticker: String,
+    pub gics_sector: Option<String>,
+    pub estimated_value: f64,
 }
 
 fn normalize_empty(value: Option<&str>) -> Option<String> {
@@ -9576,5 +9763,38 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let correlations = db.query_donation_trade_correlations(0.90).expect("query correlations");
 
         assert_eq!(correlations.len(), 0);
+    }
+
+    #[test]
+    fn test_query_pre_move_candidates_empty() {
+        let db = Db::open_in_memory().expect("open db");
+        db.init().expect("init schema");
+
+        // Query with no enriched trades (should return empty Vec, not error)
+        let candidates = db.query_pre_move_candidates().expect("query candidates");
+
+        assert_eq!(candidates.len(), 0);
+    }
+
+    #[test]
+    fn test_query_trade_volume_empty() {
+        let db = Db::open_in_memory().expect("open db");
+        db.init().expect("init schema");
+
+        // Query with no trades (should return empty Vec, not error)
+        let volume = db.query_trade_volume_by_politician().expect("query volume");
+
+        assert_eq!(volume.len(), 0);
+    }
+
+    #[test]
+    fn test_query_portfolio_positions_for_hhi_empty() {
+        let db = Db::open_in_memory().expect("open db");
+        db.init().expect("init schema");
+
+        // Query with no positions (should return empty Vec, not error)
+        let positions = db.query_portfolio_positions_for_hhi().expect("query positions");
+
+        assert_eq!(positions.len(), 0);
     }
 }

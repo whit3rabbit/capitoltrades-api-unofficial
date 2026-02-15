@@ -35,8 +35,9 @@ pub use committee::{CommitteeClass, CommitteeError, CommitteeResolver, ResolvedC
 pub use db::{
     AnalyticsTradeRow, ContributorAggRow, Db, DbError, DbIssuerFilter, DbIssuerRow,
     DbPoliticianFilter, DbPoliticianRow, DbTradeFilter, DbTradeRow, DonationFilter, DonationRow,
-    DonationSummary, DonorContext, EmployerAggRow, IssuerStatsRow, PoliticianStatsRow,
-    PortfolioFilter, PortfolioPosition, PriceEnrichmentRow, SectorTotal, StateAggRow,
+    DonationSummary, DonorContext, EmployerAggRow, HHIPositionRow, IssuerStatsRow,
+    PoliticianStatsRow, PortfolioFilter, PortfolioPosition, PreMoveCandidateRow,
+    PriceEnrichmentRow, SectorTotal, StateAggRow, TradeVolumeRow,
 };
 pub use employer_mapping::{
     is_blacklisted, load_seed_data, match_employer, normalize_employer, EmployerMappingError,
