@@ -1,0 +1,272 @@
+# Congressional Committee-to-GICS Sector Jurisdiction Mapping
+#
+# Maps congressional committee short codes (from CapitolTrades scrape data)
+# to GICS sectors that fall under each committee's legislative jurisdiction.
+#
+# Committee codes format: [chamber][committee_abbreviation]
+#   h = House, s = Senate
+#   Examples: hsba = House Banking, ssfi = Senate Finance
+#
+# Sources: House Rules, Senate Rules, committee jurisdiction statements
+# Last updated: 2026-02-15
+#
+# Note: Committee jurisdictions overlap by design (shared oversight).
+# A single sector may appear under multiple committees.
+
+committees:
+  # House Committees
+
+  - committee_name: hsba
+    chamber: House
+    full_name: Financial Services
+    sectors:
+      - Financials
+    notes: Banking, housing, insurance, securities exchanges, consumer credit
+
+  - committee_name: hsif
+    chamber: House
+    full_name: Energy and Commerce
+    sectors:
+      - Energy
+      - Utilities
+      - Communication Services
+      - Health Care
+      - Consumer Discretionary
+      - Consumer Staples
+    notes: Broadest jurisdiction - telecommunications, health, energy, environment, consumer protection, interstate commerce
+
+  - committee_name: hsag
+    chamber: House
+    full_name: Agriculture
+    sectors:
+      - Consumer Staples
+    notes: Agriculture, food, rural development, forestry
+
+  - committee_name: hspw
+    chamber: House
+    full_name: Transportation and Infrastructure
+    sectors:
+      - Industrials
+      - Real Estate
+    notes: Transportation, infrastructure, public buildings, aviation, maritime
+
+  - committee_name: hsas
+    chamber: House
+    full_name: Armed Services
+    sectors:
+      - Industrials
+    notes: National defense, military installations, defense contractors
+
+  - committee_name: hssm
+    chamber: House
+    full_name: Science, Space, and Technology
+    sectors:
+      - Information Technology
+    notes: Scientific research, space exploration, technology standards
+
+  - committee_name: hswm
+    chamber: House
+    full_name: Ways and Means
+    sectors: []
+    notes: Tax, trade, Social Security - affects all sectors equally, no sector-specific jurisdiction
+
+  - committee_name: hsju
+    chamber: House
+    full_name: Judiciary
+    sectors: []
+    notes: Federal courts, constitutional amendments, antitrust - affects all sectors equally
+
+  - committee_name: hsed
+    chamber: House
+    full_name: Education and Labor
+    sectors:
+      - Health Care
+    notes: Education, workforce, pensions, labor standards (health overlaps with Energy and Commerce)
+
+  - committee_name: hsgo
+    chamber: House
+    full_name: Oversight and Reform
+    sectors: []
+    notes: Government operations, investigative authority across all sectors
+
+  - committee_name: hsfa
+    chamber: House
+    full_name: Foreign Affairs
+    sectors: []
+    notes: Foreign policy, international relations, export controls - affects all sectors
+
+  - committee_name: hsii
+    chamber: House
+    full_name: Natural Resources
+    sectors:
+      - Energy
+      - Materials
+    notes: Public lands, mining, energy resources, national parks
+
+  - committee_name: hssm
+    chamber: House
+    full_name: Small Business
+    sectors: []
+    notes: Small business assistance - affects all sectors equally
+
+  - committee_name: hsbu
+    chamber: House
+    full_name: Budget
+    sectors: []
+    notes: Federal budget - affects all sectors equally
+
+  - committee_name: hsru
+    chamber: House
+    full_name: Rules
+    sectors: []
+    notes: House procedures, legislative scheduling - no sector jurisdiction
+
+  - committee_name: hsha
+    chamber: House
+    full_name: House Administration
+    sectors: []
+    notes: House operations, elections - no sector jurisdiction
+
+  - committee_name: hsvc
+    chamber: House
+    full_name: Veterans' Affairs
+    sectors:
+      - Health Care
+    notes: Veterans benefits, VA hospitals, military healthcare
+
+  # Senate Committees
+
+  - committee_name: ssbk
+    chamber: Senate
+    full_name: Banking, Housing, and Urban Affairs
+    sectors:
+      - Financials
+    notes: Banking, insurance, financial markets, securities, housing, consumer credit
+
+  - committee_name: sscm
+    chamber: Senate
+    full_name: Commerce, Science, and Transportation
+    sectors:
+      - Communication Services
+      - Information Technology
+      - Industrials
+    notes: Science, technology, telecommunications, transportation, consumer affairs
+
+  - committee_name: sseg
+    chamber: Senate
+    full_name: Energy and Natural Resources
+    sectors:
+      - Energy
+      - Materials
+    notes: Energy policy, mining, national parks, public lands
+
+  - committee_name: sshr
+    chamber: Senate
+    full_name: Health, Education, Labor, and Pensions
+    sectors:
+      - Health Care
+    notes: Public health, biomedical research, education, labor, pensions
+
+  - committee_name: spag
+    chamber: Senate
+    full_name: Agriculture, Nutrition, and Forestry
+    sectors:
+      - Consumer Staples
+    notes: Agriculture, food programs, rural development, forestry
+
+  - committee_name: ssas
+    chamber: Senate
+    full_name: Armed Services
+    sectors:
+      - Industrials
+    notes: National defense, military installations, defense contractors
+
+  - committee_name: ssev
+    chamber: Senate
+    full_name: Environment and Public Works
+    sectors:
+      - Utilities
+      - Materials
+    notes: Environmental policy, infrastructure, highways, water resources
+
+  - committee_name: ssfi
+    chamber: Senate
+    full_name: Finance
+    sectors: []
+    notes: Tax, trade, Social Security, Medicare - affects all sectors equally
+
+  - committee_name: ssju
+    chamber: Senate
+    full_name: Judiciary
+    sectors: []
+    notes: Federal courts, constitutional amendments, antitrust - affects all sectors equally
+
+  - committee_name: ssfr
+    chamber: Senate
+    full_name: Foreign Relations
+    sectors: []
+    notes: Foreign policy, treaties, international relations - affects all sectors
+
+  - committee_name: ssga
+    chamber: Senate
+    full_name: Homeland Security and Governmental Affairs
+    sectors: []
+    notes: Government operations, homeland security - investigative authority across sectors
+
+  - committee_name: ssra
+    chamber: Senate
+    full_name: Rules and Administration
+    sectors: []
+    notes: Senate procedures, elections - no sector jurisdiction
+
+  - committee_name: sssb
+    chamber: Senate
+    full_name: Small Business and Entrepreneurship
+    sectors: []
+    notes: Small business assistance - affects all sectors equally
+
+  - committee_name: ssbu
+    chamber: Senate
+    full_name: Budget
+    sectors: []
+    notes: Federal budget - affects all sectors equally
+
+  - committee_name: ssva
+    chamber: Senate
+    full_name: Veterans' Affairs
+    sectors:
+      - Health Care
+    notes: Veterans benefits, VA healthcare
+
+  - committee_name: ssia
+    chamber: Senate
+    full_name: Indian Affairs
+    sectors: []
+    notes: Native American affairs, tribal issues - affects all sectors
+
+  - committee_name: slet
+    chamber: Senate
+    full_name: Select Committee on Ethics
+    sectors: []
+    notes: Senate ethics - no sector jurisdiction
+
+  - committee_name: slin
+    chamber: Senate
+    full_name: Select Committee on Intelligence
+    sectors: []
+    notes: Intelligence oversight - affects all sectors
+
+  - committee_name: scnc
+    chamber: Senate
+    full_name: Special Committee on Aging
+    sectors:
+      - Health Care
+    notes: Aging policy, Medicare, senior healthcare
+
+  # House Select/Special Committees (less common but may appear)
+
+  - committee_name: hlig
+    chamber: House
+    full_name: Permanent Select Committee on Intelligence
+    sectors: []
+    notes: Intelligence oversight - affects all sectors

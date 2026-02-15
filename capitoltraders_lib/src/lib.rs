@@ -8,6 +8,7 @@ pub mod analytics;
 pub mod cache;
 pub mod client;
 pub mod committee;
+pub mod committee_jurisdiction;
 pub mod db;
 pub mod employer_mapping;
 pub mod error;
@@ -57,4 +58,7 @@ pub use analytics::{
     AnalyticsTrade, ClosedTrade, TradeMetrics, PoliticianMetrics, calculate_closed_trades,
     compute_trade_metrics, aggregate_politician_metrics, absolute_return, annualized_return,
     holding_period_days, simple_alpha,
+};
+pub use committee_jurisdiction::{
+    CommitteeJurisdiction, load_committee_jurisdictions, get_committee_sectors,
 };
