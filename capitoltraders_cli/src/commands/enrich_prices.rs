@@ -1,8 +1,9 @@
 //! Price enrichment pipeline for fetching historical and current prices from Yahoo Finance.
 //!
-//! Implements two-phase enrichment:
+//! Implements three-phase enrichment:
 //! - Phase 1: Historical prices deduplicated by (ticker, date)
 //! - Phase 2: Current prices deduplicated by ticker
+//! - Phase 3: Benchmark prices (sector ETF or SPY) deduplicated by (ETF ticker, date)
 //!
 //! Uses Semaphore + JoinSet + mpsc pattern for concurrent fetching with rate limiting.
 
@@ -50,6 +51,12 @@ struct CurrentPriceResult {
     result: Result<Option<f64>, capitoltraders_lib::yahoo::YahooError>,
 }
 
+/// Message sent from fetch tasks to receiver for benchmark price enrichment.
+struct BenchmarkPriceResult {
+    trade_indices: Vec<i64>,  // tx_ids of trades to update
+    result: Result<Option<f64>, capitoltraders_lib::yahoo::YahooError>,
+}
+
 /// Circuit breaker to stop processing after consecutive failures.
 struct CircuitBreaker {
     consecutive_failures: usize,
@@ -74,6 +81,27 @@ impl CircuitBreaker {
 
     fn is_tripped(&self) -> bool {
         self.consecutive_failures >= self.threshold
+    }
+}
+
+/// Map GICS sector name to benchmark ETF ticker.
+///
+/// Returns sector-specific ETF if issuer has GICS sector mapping,
+/// otherwise SPY (S&P 500 market benchmark).
+fn get_benchmark_ticker(gics_sector: Option<&str>) -> &'static str {
+    match gics_sector {
+        Some("Communication Services") => "XLC",
+        Some("Consumer Discretionary") => "XLY",
+        Some("Consumer Staples") => "XLP",
+        Some("Energy") => "XLE",
+        Some("Financials") => "XLF",
+        Some("Health Care") => "XLV",
+        Some("Industrials") => "XLI",
+        Some("Information Technology") => "XLK",
+        Some("Materials") => "XLB",
+        Some("Real Estate") => "XLRE",
+        Some("Utilities") => "XLU",
+        _ => "SPY",
     }
 }
 
@@ -342,18 +370,131 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
         current_enriched, current_skipped
     ));
 
+    // Step 4.5: Phase 3 -- Benchmark price enrichment
+    let benchmark_trades = db.get_benchmark_unenriched_trades(args.batch_size)?;
+
+    let (benchmark_enriched, benchmark_skipped, breaker3_tripped) = if benchmark_trades.is_empty() {
+        eprintln!("No trades need benchmark enrichment");
+        (0, 0, false)
+    } else {
+        // Build dedup map: (benchmark_ticker, date) -> Vec<tx_id>
+        let mut benchmark_date_map: HashMap<(String, NaiveDate), Vec<i64>> = HashMap::new();
+        for trade in &benchmark_trades {
+            let date = match NaiveDate::parse_from_str(&trade.tx_date, "%Y-%m-%d") {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let benchmark_ticker = get_benchmark_ticker(trade.gics_sector.as_deref());
+            benchmark_date_map
+                .entry((benchmark_ticker.to_string(), date))
+                .or_default()
+                .push(trade.tx_id);
+        }
+
+        let unique_pairs = benchmark_date_map.len();
+        eprintln!(
+            "Phase 3: Fetching benchmark prices for {} unique (ETF, date) pairs across {} trades",
+            unique_pairs,
+            benchmark_trades.len()
+        );
+
+        let pb3 = ProgressBar::new(unique_pairs as u64);
+        pb3.set_style(
+            ProgressStyle::with_template(
+                "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}",
+            )
+            .unwrap(),
+        );
+        pb3.set_message("fetching benchmark prices...");
+
+        let semaphore3 = Arc::new(Semaphore::new(CONCURRENCY));
+        let (tx3, mut rx3) = mpsc::channel::<BenchmarkPriceResult>(CONCURRENCY * 2);
+        let mut join_set3 = JoinSet::new();
+
+        for ((ticker, date), tx_ids) in benchmark_date_map {
+            let sem = Arc::clone(&semaphore3);
+            let sender = tx3.clone();
+            let yahoo_clone = Arc::clone(&yahoo);
+
+            join_set3.spawn(async move {
+                let _permit = sem.acquire().await.expect("semaphore closed");
+                let delay_ms = rand::thread_rng().gen_range(200..500);
+                sleep(Duration::from_millis(delay_ms)).await;
+
+                let result = yahoo_clone.get_price_on_date_with_fallback(&ticker, date).await;
+                let _ = sender
+                    .send(BenchmarkPriceResult {
+                        trade_indices: tx_ids,
+                        result,
+                    })
+                    .await;
+            });
+        }
+        drop(tx3);
+
+        let mut benchmark_enriched = 0usize;
+        let mut benchmark_skipped = 0usize;
+        let mut breaker3 = CircuitBreaker::new(CIRCUIT_BREAKER_THRESHOLD);
+
+        while let Some(fetch) = rx3.recv().await {
+            match fetch.result {
+                Ok(Some(price)) => {
+                    for tx_id in &fetch.trade_indices {
+                        db.update_benchmark_price(*tx_id, Some(price))?;
+                        benchmark_enriched += 1;
+                    }
+                    breaker3.record_success();
+                }
+                Ok(None) | Err(_) => {
+                    // Mark as processed to avoid re-fetch
+                    for tx_id in &fetch.trade_indices {
+                        db.update_benchmark_price(*tx_id, None)?;
+                        benchmark_skipped += 1;
+                    }
+                    breaker3.record_failure();
+                }
+            }
+            pb3.set_message(format!("{} ok, {} skip", benchmark_enriched, benchmark_skipped));
+            pb3.inc(1);
+
+            if breaker3.is_tripped() {
+                pb3.println(format!(
+                    "Circuit breaker tripped after {} consecutive failures, stopping Phase 3",
+                    CIRCUIT_BREAKER_THRESHOLD
+                ));
+                join_set3.abort_all();
+                break;
+            }
+        }
+
+        pb3.finish_with_message(format!(
+            "Phase 3 done: {} enriched, {} skipped",
+            benchmark_enriched, benchmark_skipped
+        ));
+
+        (benchmark_enriched, benchmark_skipped, breaker3.is_tripped())
+    };
+
     // Step 5: Summary
     eprintln!();
     eprintln!(
-        "Price enrichment complete: {} enriched, {} failed, {} skipped",
+        "Price enrichment complete: {} enriched, {} failed, {} skipped (historical)",
         enriched, failed, skipped + skipped_parse_errors
+    );
+    eprintln!(
+        "  Phase 2: {} current prices enriched, {} skipped",
+        current_enriched, current_skipped
+    );
+    eprintln!(
+        "  Phase 3: {} benchmark prices enriched, {} skipped",
+        benchmark_enriched, benchmark_skipped
     );
     eprintln!(
         "  ({} total trades, {} unique ticker-date pairs, {} unique tickers)",
         total_trades, unique_pairs, unique_tickers
     );
 
-    if breaker.is_tripped() {
+    if breaker.is_tripped() || breaker3_tripped {
         eprintln!(
             "Warning: Circuit breaker tripped after {} consecutive failures -- some trades were not processed",
             CIRCUIT_BREAKER_THRESHOLD
