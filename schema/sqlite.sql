@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS issuers (
     issuer_name TEXT NOT NULL,
     issuer_ticker TEXT,
     sector TEXT,
-    enriched_at TEXT
+    enriched_at TEXT,
+    gics_sector TEXT
 );
 
 CREATE TABLE IF NOT EXISTS politicians (
@@ -220,6 +221,12 @@ CREATE TABLE IF NOT EXISTS employer_lookup (
     normalized_employer TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS sector_benchmarks (
+    sector TEXT PRIMARY KEY,
+    etf_ticker TEXT NOT NULL,
+    etf_name TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_trades_politician ON trades(politician_id);
 CREATE INDEX IF NOT EXISTS idx_trades_issuer ON trades(issuer_id);
 CREATE INDEX IF NOT EXISTS idx_trades_pub_date ON trades(pub_date);
@@ -249,3 +256,4 @@ CREATE INDEX IF NOT EXISTS idx_employer_mappings_ticker ON employer_mappings(iss
 CREATE INDEX IF NOT EXISTS idx_employer_mappings_confidence ON employer_mappings(confidence);
 CREATE INDEX IF NOT EXISTS idx_employer_mappings_type ON employer_mappings(match_type);
 CREATE INDEX IF NOT EXISTS idx_employer_lookup_normalized ON employer_lookup(normalized_employer);
+CREATE INDEX IF NOT EXISTS idx_issuers_gics_sector ON issuers(gics_sector);

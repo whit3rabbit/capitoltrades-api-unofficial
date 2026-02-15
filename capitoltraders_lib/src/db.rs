@@ -84,8 +84,15 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 5)?;
         }
 
+        if version < 6 {
+            self.migrate_v6()?;
+            self.conn.pragma_update(None, "user_version", 6)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
+
+        self.populate_sector_benchmarks()?;
 
         Ok(())
     }
@@ -278,6 +285,76 @@ impl Db {
             [],
         )?;
 
+        Ok(())
+    }
+
+    fn migrate_v6(&self) -> Result<(), DbError> {
+        // Add gics_sector column to issuers table
+        match self
+            .conn
+            .execute("ALTER TABLE issuers ADD COLUMN gics_sector TEXT", [])
+        {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("duplicate column name") => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        // Create sector_benchmarks table
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS sector_benchmarks (
+                sector TEXT PRIMARY KEY,
+                etf_ticker TEXT NOT NULL,
+                etf_name TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Create index on gics_sector column
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_issuers_gics_sector ON issuers(gics_sector)",
+            [],
+        )?;
+
+        Ok(())
+    }
+
+    fn populate_sector_benchmarks(&self) -> Result<(), DbError> {
+        // Check if sector_benchmarks already has data
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM sector_benchmarks", [], |row| row.get(0))?;
+
+        if count > 0 {
+            return Ok(());
+        }
+
+        // Insert 12 benchmark rows
+        let tx = self.conn.unchecked_transaction()?;
+
+        let benchmarks = [
+            ("Market", "SPY", "SPDR S&P 500 ETF Trust"),
+            ("Communication Services", "XLC", "Communication Services Select Sector SPDR Fund"),
+            ("Consumer Discretionary", "XLY", "Consumer Discretionary Select Sector SPDR Fund"),
+            ("Consumer Staples", "XLP", "Consumer Staples Select Sector SPDR Fund"),
+            ("Energy", "XLE", "Energy Select Sector SPDR Fund"),
+            ("Financials", "XLF", "Financial Select Sector SPDR Fund"),
+            ("Health Care", "XLV", "Health Care Select Sector SPDR Fund"),
+            ("Industrials", "XLI", "Industrial Select Sector SPDR Fund"),
+            ("Information Technology", "XLK", "Technology Select Sector SPDR Fund"),
+            ("Materials", "XLB", "Materials Select Sector SPDR Fund"),
+            ("Real Estate", "XLRE", "Real Estate Select Sector SPDR Fund"),
+            ("Utilities", "XLU", "Utilities Select Sector SPDR Fund"),
+        ];
+
+        for (sector, etf_ticker, etf_name) in &benchmarks {
+            tx.execute(
+                "INSERT INTO sector_benchmarks (sector, etf_ticker, etf_name) VALUES (?1, ?2, ?3)",
+                params![sector, etf_ticker, etf_name],
+            )?;
+        }
+
+        tx.commit()?;
         Ok(())
     }
 
@@ -2873,6 +2950,53 @@ impl Db {
                 row.get(0)
             })?;
         Ok(count)
+    }
+
+    /// Get all sector benchmarks (12 rows: Market + 11 GICS sectors).
+    /// Returns tuples of (sector, etf_ticker, etf_name) sorted by sector name.
+    pub fn get_sector_benchmarks(&self) -> Result<Vec<(String, String, String)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT sector, etf_ticker, etf_name FROM sector_benchmarks ORDER BY sector"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Get top N most-traded tickers across all trades.
+    /// Returns tuples of (ticker, trade_count) sorted by count descending.
+    pub fn get_top_traded_tickers(&self, limit: usize) -> Result<Vec<(String, i64)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT i.issuer_ticker, COUNT(*) as trade_count
+             FROM trades t
+             JOIN issuers i ON t.issuer_id = i.issuer_id
+             WHERE i.issuer_ticker IS NOT NULL AND i.issuer_ticker != ''
+             GROUP BY i.issuer_ticker
+             ORDER BY trade_count DESC
+             LIMIT ?1"
+        )?;
+        let rows = stmt.query_map([limit as i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+            ))
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
     }
 
     /// Insert employer lookup entries in batch.
