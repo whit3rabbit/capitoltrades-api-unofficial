@@ -5,6 +5,7 @@
 
 pub mod analysis;
 pub mod analytics;
+pub mod anomaly;
 pub mod cache;
 pub mod client;
 pub mod committee;
@@ -66,4 +67,10 @@ pub use committee_jurisdiction::{
 pub use conflict::{
     CommitteeTradingScore, DonationTradeCorrelation, ConflictSummary,
     calculate_committee_trading_score,
+};
+pub use anomaly::{
+    PreMoveSignal, VolumeSignal, ConcentrationScore, AnomalyScore,
+    TradeWithFuturePrice, TradeVolumeRecord, PortfolioPositionForHHI,
+    detect_pre_move_trades, detect_unusual_volume, calculate_sector_concentration,
+    calculate_composite_anomaly_score,
 };
