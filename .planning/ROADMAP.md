@@ -84,11 +84,11 @@ Plans:
   3. User can see donation-trade correlation flags when donors' employers match traded issuers
   4. User can query conflict signals via analytics CLI with politician/committee filters
   5. User can see disclaimer "current committee only (may not reflect assignment at trade time)"
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 16-01: TBD
-- [ ] 16-02: TBD
+- [ ] 16-01-PLAN.md -- Committee jurisdiction YAML mapping, loader module, conflict scoring types and pure functions
+- [ ] 16-02-PLAN.md -- DB conflict query methods, conflicts CLI subcommand with output formatting
 
 #### Phase 17: Anomaly Detection & Output Integration
 **Goal**: Users can detect unusual trading patterns and see analytics in all outputs
@@ -133,5 +133,5 @@ Phases execute in numeric order: 13 -> 14 -> 15 -> 16 -> 17
 | 13. Data Foundation | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 14. Benchmark Enrichment | v1.3 | 2/2 | Complete | 2026-02-15 |
 | 15. Performance Scoring | v1.3 | 3/3 | Complete | 2026-02-15 |
-| 16. Conflict Detection | v1.3 | 0/0 | Not started | - |
+| 16. Conflict Detection | v1.3 | 0/2 | Not started | - |
 | 17. Anomaly Detection | v1.3 | 0/0 | Not started | - |
