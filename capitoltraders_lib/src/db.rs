@@ -8545,4 +8545,128 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(all_tickers[2].0, "GOOG");
         assert_eq!(all_tickers[2].1, 1);
     }
+
+    #[test]
+    fn test_update_issuer_sectors() {
+        let db = open_test_db();
+
+        // Insert 3 issuers
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple Inc', 'AAPL')",
+            [],
+        ).expect("insert AAPL");
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (2, 'Microsoft', 'MSFT')",
+            [],
+        ).expect("insert MSFT");
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (3, 'Google', 'GOOG')",
+            [],
+        ).expect("insert GOOG");
+
+        // Create mappings for AAPL and MSFT
+        let mappings = vec![
+            crate::sector_mapping::SectorMapping {
+                ticker: "AAPL".to_string(),
+                sector: "Information Technology".to_string(),
+            },
+            crate::sector_mapping::SectorMapping {
+                ticker: "MSFT".to_string(),
+                sector: "Information Technology".to_string(),
+            },
+        ];
+
+        // Update sectors
+        let updated = db.update_issuer_sectors(&mappings).expect("update_issuer_sectors");
+        assert_eq!(updated, 2, "should update 2 rows");
+
+        // Verify AAPL sector
+        let aapl_sector: Option<String> = db.conn
+            .query_row(
+                "SELECT gics_sector FROM issuers WHERE issuer_ticker = 'AAPL'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query AAPL");
+        assert_eq!(aapl_sector, Some("Information Technology".to_string()));
+
+        // Verify MSFT sector
+        let msft_sector: Option<String> = db.conn
+            .query_row(
+                "SELECT gics_sector FROM issuers WHERE issuer_ticker = 'MSFT'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query MSFT");
+        assert_eq!(msft_sector, Some("Information Technology".to_string()));
+
+        // Verify GOOG sector is still NULL (not in mappings)
+        let goog_sector: Option<String> = db.conn
+            .query_row(
+                "SELECT gics_sector FROM issuers WHERE issuer_ticker = 'GOOG'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query GOOG");
+        assert_eq!(goog_sector, None);
+    }
+
+    #[test]
+    fn test_update_issuer_sectors_no_match() {
+        let db = open_test_db();
+
+        // Insert issuer with ticker "ZZZZ"
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Test Corp', 'ZZZZ')",
+            [],
+        ).expect("insert ZZZZ");
+
+        // Create mapping for AAPL (which doesn't exist in DB)
+        let mappings = vec![
+            crate::sector_mapping::SectorMapping {
+                ticker: "AAPL".to_string(),
+                sector: "Information Technology".to_string(),
+            },
+        ];
+
+        // Update sectors
+        let updated = db.update_issuer_sectors(&mappings).expect("update_issuer_sectors");
+        assert_eq!(updated, 0, "should update 0 rows when no ticker matches");
+    }
+
+    #[test]
+    fn test_update_issuer_sectors_idempotent() {
+        let db = open_test_db();
+
+        // Insert issuer
+        db.conn.execute(
+            "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple Inc', 'AAPL')",
+            [],
+        ).expect("insert AAPL");
+
+        let mappings = vec![
+            crate::sector_mapping::SectorMapping {
+                ticker: "AAPL".to_string(),
+                sector: "Information Technology".to_string(),
+            },
+        ];
+
+        // First update
+        let updated1 = db.update_issuer_sectors(&mappings).expect("first update");
+        assert_eq!(updated1, 1);
+
+        // Second update with same data
+        let updated2 = db.update_issuer_sectors(&mappings).expect("second update");
+        assert_eq!(updated2, 1, "should still update 1 row (idempotent)");
+
+        // Verify sector is still correct
+        let sector: Option<String> = db.conn
+            .query_row(
+                "SELECT gics_sector FROM issuers WHERE issuer_ticker = 'AAPL'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query AAPL");
+        assert_eq!(sector, Some("Information Technology".to_string()));
+    }
 }
