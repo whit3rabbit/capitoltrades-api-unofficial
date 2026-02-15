@@ -61,10 +61,11 @@ Plans:
   3. User can see 12 benchmark tickers cached (SPY + 11 sector ETFs)
   4. Weekend/holiday dates fall back to previous trading day for benchmark prices
   5. Circuit breaker stops enrichment if 10+ consecutive benchmark price failures
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 14-01: TBD
+- [ ] 14-01-PLAN.md -- Schema v7 migration, BenchmarkEnrichmentRow, get_benchmark_unenriched_trades, update_benchmark_price
+- [ ] 14-02-PLAN.md -- Phase 3 benchmark enrichment loop in enrich_prices.rs with sector-to-ETF mapping
 
 #### Phase 15: Performance Scoring & Leaderboards
 **Goal**: Users can see performance metrics and politician rankings
@@ -127,7 +128,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 13 → 14 → 15 → 16 → 17
+Phases execute in numeric order: 13 -> 14 -> 15 -> 16 -> 17
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -144,7 +145,7 @@ Phases execute in numeric order: 13 → 14 → 15 → 16 → 17
 | 11. Donations CLI Command | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 12. Employer Correlation & Analysis | v1.2 | 5/5 | Complete | 2026-02-14 |
 | 13. Data Foundation | v1.3 | 2/2 | Complete | 2026-02-15 |
-| 14. Benchmark Enrichment | v1.3 | 0/0 | Not started | - |
+| 14. Benchmark Enrichment | v1.3 | 0/2 | Not started | - |
 | 15. Performance Scoring | v1.3 | 0/0 | Not started | - |
 | 16. Conflict Detection | v1.3 | 0/0 | Not started | - |
 | 17. Anomaly Detection | v1.3 | 0/0 | Not started | - |
