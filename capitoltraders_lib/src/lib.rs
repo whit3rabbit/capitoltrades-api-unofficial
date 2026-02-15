@@ -4,6 +4,7 @@
 //! rate limiting, input validation, and trade analysis functions.
 
 pub mod analysis;
+pub mod analytics;
 pub mod cache;
 pub mod client;
 pub mod committee;
@@ -52,3 +53,8 @@ pub use sector_mapping::{
     SectorMappingError, GICS_SECTORS,
 };
 pub use yahoo::{YahooClient, YahooError};
+pub use analytics::{
+    AnalyticsTrade, ClosedTrade, TradeMetrics, PoliticianMetrics, calculate_closed_trades,
+    compute_trade_metrics, aggregate_politician_metrics, absolute_return, annualized_return,
+    holding_period_days, simple_alpha,
+};
