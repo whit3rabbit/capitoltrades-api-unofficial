@@ -2185,6 +2185,47 @@ impl Db {
         Ok(result)
     }
 
+    /// Query trades for analytics processing.
+    ///
+    /// Returns only stock trades with non-null estimated_shares and trade_date_price,
+    /// ordered chronologically (tx_date ASC, tx_id ASC) for deterministic FIFO processing.
+    /// Includes benchmark_price and gics_sector for performance metric calculation.
+    ///
+    /// Note: Does NOT filter on benchmark_price IS NOT NULL. Trades without benchmark prices
+    /// are still needed for FIFO matching -- they just won't have alpha metrics calculated.
+    pub fn query_trades_for_analytics(&self) -> Result<Vec<AnalyticsTradeRow>, DbError> {
+        let sql = "SELECT t.tx_id, t.politician_id, i.issuer_ticker, t.tx_type, t.tx_date,
+                          t.estimated_shares, t.trade_date_price, t.benchmark_price, i.gics_sector
+                   FROM trades t
+                   JOIN issuers i ON t.issuer_id = i.issuer_id
+                   JOIN assets a ON t.asset_id = a.asset_id
+                   WHERE t.estimated_shares IS NOT NULL
+                     AND t.trade_date_price IS NOT NULL
+                     AND a.asset_type = 'stock'
+                   ORDER BY t.tx_date ASC, t.tx_id ASC";
+
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| {
+            Ok(AnalyticsTradeRow {
+                tx_id: row.get(0)?,
+                politician_id: row.get(1)?,
+                issuer_ticker: row.get(2)?,
+                tx_type: row.get(3)?,
+                tx_date: row.get(4)?,
+                estimated_shares: row.get(5)?,
+                trade_date_price: row.get(6)?,
+                benchmark_price: row.get(7)?,
+                gics_sector: row.get(8)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     /// Upsert calculated positions to the positions table.
     ///
     /// Inserts all positions (including closed positions with shares_held near zero)
@@ -3570,6 +3611,24 @@ pub struct BenchmarkEnrichmentRow {
     pub tx_id: i64,
     pub issuer_ticker: String,
     pub tx_date: String,
+    pub gics_sector: Option<String>,
+}
+
+/// A trade row for analytics processing, including benchmark prices and sector information.
+///
+/// Used by the analytics CLI command to calculate performance metrics. Includes both
+/// benchmark_price (from trades table) and gics_sector (from issuers table) to determine
+/// whether the benchmark is a sector ETF or SPY.
+#[derive(Debug, Clone)]
+pub struct AnalyticsTradeRow {
+    pub tx_id: i64,
+    pub politician_id: String,
+    pub issuer_ticker: String,
+    pub tx_type: String,
+    pub tx_date: String,
+    pub estimated_shares: f64,
+    pub trade_date_price: f64,
+    pub benchmark_price: Option<f64>,
     pub gics_sector: Option<String>,
 }
 
