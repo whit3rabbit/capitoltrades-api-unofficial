@@ -1468,6 +1468,35 @@ impl Db {
         Ok(())
     }
 
+    /// Update GICS sector assignments for issuers based on ticker mappings.
+    ///
+    /// # Arguments
+    /// * `mappings` - Slice of ticker-to-sector mappings
+    ///
+    /// # Returns
+    /// Number of issuer rows updated (only issuers with matching tickers are affected)
+    pub fn update_issuer_sectors(
+        &self,
+        mappings: &[crate::sector_mapping::SectorMapping],
+    ) -> Result<usize, DbError> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut total_updated = 0;
+
+        let mut stmt = tx.prepare(
+            "UPDATE issuers SET gics_sector = ?1 WHERE issuer_ticker = ?2"
+        )?;
+
+        for mapping in mappings {
+            let rows_affected = stmt.execute(params![&mapping.sector, &mapping.ticker])?;
+            total_updated += rows_affected;
+        }
+
+        drop(stmt);
+        tx.commit()?;
+
+        Ok(total_updated)
+    }
+
     /// Persist scraped issuer detail data to the database.
     ///
     /// Updates the issuers table (with COALESCE protection for nullable fields),

@@ -15,6 +15,7 @@ pub mod openfec;
 pub mod portfolio;
 pub mod pricing;
 pub mod scrape;
+pub mod sector_mapping;
 pub mod validation;
 pub mod yahoo;
 
@@ -45,5 +46,9 @@ pub use pricing::{estimate_shares, parse_trade_range, ShareEstimate, TradeRange}
 pub use scrape::{
     ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
     ScrapedPoliticianCard, ScrapedTrade, ScrapedTradeDetail,
+};
+pub use sector_mapping::{
+    load_sector_mappings, parse_sector_mappings, validate_sector, SectorMapping,
+    SectorMappingError, GICS_SECTORS,
 };
 pub use yahoo::{YahooClient, YahooError};

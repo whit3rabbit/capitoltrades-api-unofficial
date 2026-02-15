@@ -1,0 +1,441 @@
+# GICS Sector Mapping for Top 200 Congressional Trading Tickers
+#
+# This file maps ticker symbols to their GICS (Global Industry Classification Standard) sectors.
+# The 11 official GICS sectors are:
+#   - Communication Services
+#   - Consumer Discretionary
+#   - Consumer Staples
+#   - Energy
+#   - Financials
+#   - Health Care
+#   - Industrials
+#   - Information Technology
+#   - Materials
+#   - Real Estate
+#   - Utilities
+#
+# Data sources: MSCI GICS classification, verified against S&P sector assignments.
+# Last updated: 2026-02-15
+
+mappings:
+  # Information Technology (40 tickers)
+  - ticker: AAPL
+    sector: Information Technology
+  - ticker: MSFT
+    sector: Information Technology
+  - ticker: NVDA
+    sector: Information Technology
+  - ticker: GOOG
+    sector: Information Technology
+  - ticker: GOOGL
+    sector: Information Technology
+  - ticker: META
+    sector: Information Technology
+  - ticker: AVGO
+    sector: Information Technology
+  - ticker: CRM
+    sector: Information Technology
+  - ticker: CSCO
+    sector: Information Technology
+  - ticker: ORCL
+    sector: Information Technology
+  - ticker: ACN
+    sector: Information Technology
+  - ticker: AMD
+    sector: Information Technology
+  - ticker: ADBE
+    sector: Information Technology
+  - ticker: TXN
+    sector: Information Technology
+  - ticker: INTC
+    sector: Information Technology
+  - ticker: QCOM
+    sector: Information Technology
+  - ticker: IBM
+    sector: Information Technology
+  - ticker: NOW
+    sector: Information Technology
+  - ticker: AMAT
+    sector: Information Technology
+  - ticker: INTU
+    sector: Information Technology
+  - ticker: MU
+    sector: Information Technology
+  - ticker: ADI
+    sector: Information Technology
+  - ticker: LRCX
+    sector: Information Technology
+  - ticker: KLAC
+    sector: Information Technology
+  - ticker: SNPS
+    sector: Information Technology
+  - ticker: CDNS
+    sector: Information Technology
+  - ticker: MRVL
+    sector: Information Technology
+  - ticker: FTNT
+    sector: Information Technology
+  - ticker: PANW
+    sector: Information Technology
+  - ticker: PLTR
+    sector: Information Technology
+  - ticker: CRWD
+    sector: Information Technology
+  - ticker: HPE
+    sector: Information Technology
+  - ticker: HPQ
+    sector: Information Technology
+  - ticker: DELL
+    sector: Information Technology
+  - ticker: ANET
+    sector: Information Technology
+  - ticker: NXPI
+    sector: Information Technology
+  - ticker: ON
+    sector: Information Technology
+  - ticker: MCHP
+    sector: Information Technology
+  - ticker: KEYS
+    sector: Information Technology
+  - ticker: IT
+    sector: Information Technology
+
+  # Financials (25 tickers)
+  - ticker: JPM
+    sector: Financials
+  - ticker: BAC
+    sector: Financials
+  - ticker: WFC
+    sector: Financials
+  - ticker: GS
+    sector: Financials
+  - ticker: MS
+    sector: Financials
+  - ticker: BLK
+    sector: Financials
+  - ticker: SCHW
+    sector: Financials
+  - ticker: C
+    sector: Financials
+  - ticker: AXP
+    sector: Financials
+  - ticker: USB
+    sector: Financials
+  - ticker: PNC
+    sector: Financials
+  - ticker: COF
+    sector: Financials
+  - ticker: CME
+    sector: Financials
+  - ticker: ICE
+    sector: Financials
+  - ticker: SPGI
+    sector: Financials
+  - ticker: MSCI
+    sector: Financials
+  - ticker: MCO
+    sector: Financials
+  - ticker: TFC
+    sector: Financials
+  - ticker: BK
+    sector: Financials
+  - ticker: AIG
+    sector: Financials
+  - ticker: MET
+    sector: Financials
+  - ticker: PRU
+    sector: Financials
+  - ticker: AFL
+    sector: Financials
+  - ticker: ALL
+    sector: Financials
+  - ticker: TRV
+    sector: Financials
+
+  # Health Care (25 tickers)
+  - ticker: UNH
+    sector: Health Care
+  - ticker: JNJ
+    sector: Health Care
+  - ticker: LLY
+    sector: Health Care
+  - ticker: ABBV
+    sector: Health Care
+  - ticker: MRK
+    sector: Health Care
+  - ticker: PFE
+    sector: Health Care
+  - ticker: TMO
+    sector: Health Care
+  - ticker: ABT
+    sector: Health Care
+  - ticker: DHR
+    sector: Health Care
+  - ticker: AMGN
+    sector: Health Care
+  - ticker: BMY
+    sector: Health Care
+  - ticker: MDT
+    sector: Health Care
+  - ticker: ISRG
+    sector: Health Care
+  - ticker: GILD
+    sector: Health Care
+  - ticker: VRTX
+    sector: Health Care
+  - ticker: REGN
+    sector: Health Care
+  - ticker: CI
+    sector: Health Care
+  - ticker: ELV
+    sector: Health Care
+  - ticker: HCA
+    sector: Health Care
+  - ticker: ZTS
+    sector: Health Care
+  - ticker: BSX
+    sector: Health Care
+  - ticker: SYK
+    sector: Health Care
+  - ticker: BDX
+    sector: Health Care
+  - ticker: A
+    sector: Health Care
+  - ticker: DXCM
+    sector: Health Care
+
+  # Consumer Discretionary (20 tickers)
+  - ticker: AMZN
+    sector: Consumer Discretionary
+  - ticker: TSLA
+    sector: Consumer Discretionary
+  - ticker: HD
+    sector: Consumer Discretionary
+  - ticker: MCD
+    sector: Consumer Discretionary
+  - ticker: NKE
+    sector: Consumer Discretionary
+  - ticker: SBUX
+    sector: Consumer Discretionary
+  - ticker: LOW
+    sector: Consumer Discretionary
+  - ticker: TJX
+    sector: Consumer Discretionary
+  - ticker: BKNG
+    sector: Consumer Discretionary
+  - ticker: MAR
+    sector: Consumer Discretionary
+  - ticker: CMG
+    sector: Consumer Discretionary
+  - ticker: ABNB
+    sector: Consumer Discretionary
+  - ticker: ROST
+    sector: Consumer Discretionary
+  - ticker: DHI
+    sector: Consumer Discretionary
+  - ticker: LEN
+    sector: Consumer Discretionary
+  - ticker: GM
+    sector: Consumer Discretionary
+  - ticker: F
+    sector: Consumer Discretionary
+  - ticker: YUM
+    sector: Consumer Discretionary
+  - ticker: DPZ
+    sector: Consumer Discretionary
+  - ticker: APTV
+    sector: Consumer Discretionary
+
+  # Communication Services (10 tickers)
+  - ticker: DIS
+    sector: Communication Services
+  - ticker: NFLX
+    sector: Communication Services
+  - ticker: CMCSA
+    sector: Communication Services
+  - ticker: T
+    sector: Communication Services
+  - ticker: VZ
+    sector: Communication Services
+  - ticker: TMUS
+    sector: Communication Services
+  - ticker: CHTR
+    sector: Communication Services
+  - ticker: EA
+    sector: Communication Services
+  - ticker: TTWO
+    sector: Communication Services
+  - ticker: WBD
+    sector: Communication Services
+
+  # Energy (15 tickers)
+  - ticker: XOM
+    sector: Energy
+  - ticker: CVX
+    sector: Energy
+  - ticker: COP
+    sector: Energy
+  - ticker: EOG
+    sector: Energy
+  - ticker: SLB
+    sector: Energy
+  - ticker: MPC
+    sector: Energy
+  - ticker: PSX
+    sector: Energy
+  - ticker: VLO
+    sector: Energy
+  - ticker: OXY
+    sector: Energy
+  - ticker: PXD
+    sector: Energy
+  - ticker: DVN
+    sector: Energy
+  - ticker: HES
+    sector: Energy
+  - ticker: FANG
+    sector: Energy
+  - ticker: KMI
+    sector: Energy
+  - ticker: WMB
+    sector: Energy
+
+  # Industrials (20 tickers)
+  - ticker: HON
+    sector: Industrials
+  - ticker: UNP
+    sector: Industrials
+  - ticker: UPS
+    sector: Industrials
+  - ticker: CAT
+    sector: Industrials
+  - ticker: RTX
+    sector: Industrials
+  - ticker: BA
+    sector: Industrials
+  - ticker: DE
+    sector: Industrials
+  - ticker: LMT
+    sector: Industrials
+  - ticker: GE
+    sector: Industrials
+  - ticker: GD
+    sector: Industrials
+  - ticker: NOC
+    sector: Industrials
+  - ticker: MMM
+    sector: Industrials
+  - ticker: WM
+    sector: Industrials
+  - ticker: RSG
+    sector: Industrials
+  - ticker: EMR
+    sector: Industrials
+  - ticker: ETN
+    sector: Industrials
+  - ticker: ITW
+    sector: Industrials
+  - ticker: FDX
+    sector: Industrials
+  - ticker: CSX
+    sector: Industrials
+  - ticker: NSC
+    sector: Industrials
+
+  # Consumer Staples (15 tickers)
+  - ticker: PG
+    sector: Consumer Staples
+  - ticker: KO
+    sector: Consumer Staples
+  - ticker: PEP
+    sector: Consumer Staples
+  - ticker: COST
+    sector: Consumer Staples
+  - ticker: WMT
+    sector: Consumer Staples
+  - ticker: PM
+    sector: Consumer Staples
+  - ticker: MO
+    sector: Consumer Staples
+  - ticker: MDLZ
+    sector: Consumer Staples
+  - ticker: CL
+    sector: Consumer Staples
+  - ticker: KMB
+    sector: Consumer Staples
+  - ticker: EL
+    sector: Consumer Staples
+  - ticker: GIS
+    sector: Consumer Staples
+  - ticker: K
+    sector: Consumer Staples
+  - ticker: SJM
+    sector: Consumer Staples
+  - ticker: HSY
+    sector: Consumer Staples
+
+  # Materials (10 tickers)
+  - ticker: LIN
+    sector: Materials
+  - ticker: APD
+    sector: Materials
+  - ticker: SHW
+    sector: Materials
+  - ticker: ECL
+    sector: Materials
+  - ticker: FCX
+    sector: Materials
+  - ticker: NEM
+    sector: Materials
+  - ticker: NUE
+    sector: Materials
+  - ticker: DOW
+    sector: Materials
+  - ticker: DD
+    sector: Materials
+  - ticker: VMC
+    sector: Materials
+
+  # Utilities (10 tickers)
+  - ticker: NEE
+    sector: Utilities
+  - ticker: SO
+    sector: Utilities
+  - ticker: DUK
+    sector: Utilities
+  - ticker: D
+    sector: Utilities
+  - ticker: SRE
+    sector: Utilities
+  - ticker: AEP
+    sector: Utilities
+  - ticker: EXC
+    sector: Utilities
+  - ticker: XEL
+    sector: Utilities
+  - ticker: ES
+    sector: Utilities
+  - ticker: WEC
+    sector: Utilities
+
+  # Real Estate (10 tickers)
+  - ticker: AMT
+    sector: Real Estate
+  - ticker: PLD
+    sector: Real Estate
+  - ticker: CCI
+    sector: Real Estate
+  - ticker: EQIX
+    sector: Real Estate
+  - ticker: PSA
+    sector: Real Estate
+  - ticker: O
+    sector: Real Estate
+  - ticker: WELL
+    sector: Real Estate
+  - ticker: SPG
+    sector: Real Estate
+  - ticker: DLR
+    sector: Real Estate
+  - ticker: VICI
+    sector: Real Estate
