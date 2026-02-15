@@ -268,6 +268,7 @@ pub fn print_issuers_xml(issuers: &[IssuerDetail]) {
 /// Includes enriched fields (asset type, committees, labels) not present
 /// in the API-based [`TradeRow`].
 #[derive(Tabled, Serialize)]
+#[allow(dead_code)]
 struct DbTradeOutputRow {
     #[tabled(rename = "Date")]
     #[serde(rename = "Date")]
@@ -301,6 +302,7 @@ struct DbTradeOutputRow {
     labels: String,
 }
 
+#[allow(dead_code)]
 fn build_db_trade_rows(trades: &[DbTradeRow]) -> Vec<DbTradeOutputRow> {
     trades
         .iter()
@@ -320,11 +322,13 @@ fn build_db_trade_rows(trades: &[DbTradeRow]) -> Vec<DbTradeOutputRow> {
 }
 
 /// Prints DB trades as an ASCII table to stdout.
+#[allow(dead_code)]
 pub fn print_db_trades_table(trades: &[DbTradeRow]) {
     println!("{}", Table::new(build_db_trade_rows(trades)));
 }
 
 /// Prints DB trades as a GitHub-flavored Markdown table to stdout.
+#[allow(dead_code)]
 pub fn print_db_trades_markdown(trades: &[DbTradeRow]) {
     let mut table = Table::new(build_db_trade_rows(trades));
     table.with(Style::markdown());
@@ -332,6 +336,7 @@ pub fn print_db_trades_markdown(trades: &[DbTradeRow]) {
 }
 
 /// Prints DB trades as CSV to stdout. Fields are sanitized against formula injection.
+#[allow(dead_code)]
 pub fn print_db_trades_csv(trades: &[DbTradeRow]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(std::io::stdout());
     for mut row in build_db_trade_rows(trades) {
@@ -347,8 +352,128 @@ pub fn print_db_trades_csv(trades: &[DbTradeRow]) -> Result<()> {
 }
 
 /// Prints DB trades as a well-formed XML document to stdout.
+#[allow(dead_code)]
 pub fn print_db_trades_xml(trades: &[DbTradeRow]) {
     println!("{}", xml_output::db_trades_to_xml(trades));
+}
+
+// -- Enriched DB trade output (with analytics) --
+
+/// Flattened row representation of an enriched DB trade for tabular output.
+///
+/// Extends [`DbTradeOutputRow`] with optional analytics fields: absolute_return and alpha.
+#[derive(Tabled, Serialize)]
+struct EnrichedDbTradeOutputRow {
+    #[tabled(rename = "Date")]
+    #[serde(rename = "Date")]
+    tx_date: String,
+    #[tabled(rename = "Politician")]
+    #[serde(rename = "Politician")]
+    politician: String,
+    #[tabled(rename = "Party")]
+    #[serde(rename = "Party")]
+    party: String,
+    #[tabled(rename = "Issuer")]
+    #[serde(rename = "Issuer")]
+    issuer: String,
+    #[tabled(rename = "Ticker")]
+    #[serde(rename = "Ticker")]
+    ticker: String,
+    #[tabled(rename = "Type")]
+    #[serde(rename = "Type")]
+    tx_type: String,
+    #[tabled(rename = "Asset")]
+    #[serde(rename = "Asset")]
+    asset_type: String,
+    #[tabled(rename = "Value")]
+    #[serde(rename = "Value")]
+    value: String,
+    #[tabled(rename = "Committees")]
+    #[serde(rename = "Committees")]
+    committees: String,
+    #[tabled(rename = "Labels")]
+    #[serde(rename = "Labels")]
+    labels: String,
+    #[tabled(rename = "Return")]
+    #[serde(rename = "Return")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_str")]
+    absolute_return: Option<String>,
+    #[tabled(rename = "Alpha")]
+    #[serde(rename = "Alpha")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_str")]
+    alpha: Option<String>,
+}
+
+fn display_option_str(opt: &Option<String>) -> String {
+    opt.as_ref().map(|s| s.as_str()).unwrap_or("-").to_string()
+}
+
+fn build_enriched_db_trade_rows(
+    trades: &[crate::commands::trades::EnrichedDbTradeRow],
+) -> Vec<EnrichedDbTradeOutputRow> {
+    trades
+        .iter()
+        .map(|t| EnrichedDbTradeOutputRow {
+            tx_date: t.tx_date.clone(),
+            politician: t.politician_name.clone(),
+            party: t.party.clone(),
+            issuer: t.issuer_name.clone(),
+            ticker: t.issuer_ticker.clone(),
+            tx_type: t.tx_type.clone(),
+            asset_type: t.asset_type.clone(),
+            value: format_value(t.value),
+            committees: t.committees.join(", "),
+            labels: t.labels.join(", "),
+            absolute_return: t.absolute_return.map(|r| {
+                if r >= 0.0 {
+                    format!("+{:.1}%", r)
+                } else {
+                    format!("{:.1}%", r)
+                }
+            }),
+            alpha: t.alpha.map(|a| {
+                if a >= 0.0 {
+                    format!("+{:.1}%", a)
+                } else {
+                    format!("{:.1}%", a)
+                }
+            }),
+        })
+        .collect()
+}
+
+/// Prints enriched DB trades (with analytics) as an ASCII table to stdout.
+pub fn print_enriched_trades_table(trades: &[crate::commands::trades::EnrichedDbTradeRow]) {
+    println!("{}", Table::new(build_enriched_db_trade_rows(trades)));
+}
+
+/// Prints enriched DB trades as a GitHub-flavored Markdown table to stdout.
+pub fn print_enriched_trades_markdown(trades: &[crate::commands::trades::EnrichedDbTradeRow]) {
+    let mut table = Table::new(build_enriched_db_trade_rows(trades));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints enriched DB trades as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_enriched_trades_csv(trades: &[crate::commands::trades::EnrichedDbTradeRow]) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_enriched_db_trade_rows(trades) {
+        row.politician = sanitize_csv_field(&row.politician);
+        row.issuer = sanitize_csv_field(&row.issuer);
+        row.ticker = sanitize_csv_field(&row.ticker);
+        row.committees = sanitize_csv_field(&row.committees);
+        row.labels = sanitize_csv_field(&row.labels);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints enriched DB trades as a well-formed XML document to stdout.
+pub fn print_enriched_trades_xml(trades: &[crate::commands::trades::EnrichedDbTradeRow]) {
+    println!("{}", xml_output::enriched_trades_to_xml(trades));
 }
 
 // -- DB politician output --
@@ -548,6 +673,7 @@ pub fn print_db_issuers_xml(issuers: &[DbIssuerRow]) {
 ///
 /// Includes P&L calculations and current market values from the portfolio table.
 #[derive(Tabled, Serialize)]
+#[allow(dead_code)]
 struct PortfolioRow {
     #[tabled(rename = "Politician")]
     #[serde(rename = "Politician")]
@@ -602,6 +728,7 @@ fn format_currency_with_commas(value: f64) -> String {
     format!("${}.{}", result, decimal_part)
 }
 
+#[allow(dead_code)]
 fn build_portfolio_rows(positions: &[PortfolioPosition]) -> Vec<PortfolioRow> {
     positions
         .iter()
@@ -643,11 +770,13 @@ fn build_portfolio_rows(positions: &[PortfolioPosition]) -> Vec<PortfolioRow> {
 }
 
 /// Prints portfolio positions as an ASCII table to stdout.
+#[allow(dead_code)]
 pub fn print_portfolio_table(positions: &[PortfolioPosition]) {
     println!("{}", Table::new(build_portfolio_rows(positions)));
 }
 
 /// Prints portfolio positions as a GitHub-flavored Markdown table to stdout.
+#[allow(dead_code)]
 pub fn print_portfolio_markdown(positions: &[PortfolioPosition]) {
     let mut table = Table::new(build_portfolio_rows(positions));
     table.with(Style::markdown());
@@ -655,6 +784,7 @@ pub fn print_portfolio_markdown(positions: &[PortfolioPosition]) {
 }
 
 /// Prints portfolio positions as CSV to stdout. Fields are sanitized against formula injection.
+#[allow(dead_code)]
 pub fn print_portfolio_csv(positions: &[PortfolioPosition]) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(std::io::stdout());
     for mut row in build_portfolio_rows(positions) {
@@ -667,8 +797,139 @@ pub fn print_portfolio_csv(positions: &[PortfolioPosition]) -> Result<()> {
 }
 
 /// Prints portfolio positions as a well-formed XML document to stdout.
+#[allow(dead_code)]
 pub fn print_portfolio_xml(positions: &[PortfolioPosition]) {
     println!("{}", xml_output::portfolio_to_xml(positions));
+}
+
+// -- Enriched portfolio output (with conflict detection) --
+
+/// Flattened row representation of an enriched portfolio position for tabular output.
+///
+/// Extends [`PortfolioRow`] with optional conflict detection fields: gics_sector and in_committee_sector.
+#[derive(Tabled, Serialize)]
+struct EnrichedPortfolioRow {
+    #[tabled(rename = "Politician")]
+    #[serde(rename = "Politician")]
+    politician_id: String,
+    #[tabled(rename = "Ticker")]
+    #[serde(rename = "Ticker")]
+    ticker: String,
+    #[tabled(rename = "Shares")]
+    #[serde(rename = "Shares")]
+    shares_held: String,
+    #[tabled(rename = "Avg Cost")]
+    #[serde(rename = "Avg Cost")]
+    avg_cost_basis: String,
+    #[tabled(rename = "Current Price")]
+    #[serde(rename = "Current Price")]
+    current_price: String,
+    #[tabled(rename = "Current Value")]
+    #[serde(rename = "Current Value")]
+    current_value: String,
+    #[tabled(rename = "Unrealized P&L")]
+    #[serde(rename = "Unrealized P&L")]
+    unrealized_pnl: String,
+    #[tabled(rename = "P&L %")]
+    #[serde(rename = "P&L %")]
+    unrealized_pnl_pct: String,
+    #[tabled(rename = "Sector")]
+    #[serde(rename = "Sector")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_str")]
+    gics_sector: Option<String>,
+    #[tabled(rename = "Cmte?")]
+    #[serde(rename = "Cmte?")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option_str")]
+    in_committee_sector: Option<String>,
+}
+
+fn build_enriched_portfolio_rows(
+    positions: &[crate::commands::portfolio::EnrichedPortfolioPosition],
+) -> Vec<EnrichedPortfolioRow> {
+    positions
+        .iter()
+        .map(|p| EnrichedPortfolioRow {
+            politician_id: p.politician_id.clone(),
+            ticker: p.ticker.clone(),
+            shares_held: format_shares(p.shares_held),
+            avg_cost_basis: format_currency(p.cost_basis),
+            current_price: p
+                .current_price
+                .map(format_currency)
+                .unwrap_or_else(|| "-".to_string()),
+            current_value: p
+                .current_value
+                .map(format_currency_with_commas)
+                .unwrap_or_else(|| "-".to_string()),
+            unrealized_pnl: p
+                .unrealized_pnl
+                .map(|pnl| {
+                    if pnl >= 0.0 {
+                        format!("+{}", format_currency_with_commas(pnl))
+                    } else {
+                        format!("-{}", format_currency_with_commas(pnl.abs()))
+                    }
+                })
+                .unwrap_or_else(|| "-".to_string()),
+            unrealized_pnl_pct: p
+                .unrealized_pnl_pct
+                .map(|pct| {
+                    if pct >= 0.0 {
+                        format!("+{:.1}%", pct)
+                    } else {
+                        format!("{:.1}%", pct)
+                    }
+                })
+                .unwrap_or_else(|| "-".to_string()),
+            gics_sector: p.gics_sector.clone(),
+            in_committee_sector: p.in_committee_sector.map(|flag| {
+                if flag {
+                    "Y".to_string()
+                } else {
+                    "N".to_string()
+                }
+            }),
+        })
+        .collect()
+}
+
+/// Prints enriched portfolio positions (with conflict detection) as an ASCII table to stdout.
+pub fn print_enriched_portfolio_table(
+    positions: &[crate::commands::portfolio::EnrichedPortfolioPosition],
+) {
+    println!("{}", Table::new(build_enriched_portfolio_rows(positions)));
+}
+
+/// Prints enriched portfolio positions as a GitHub-flavored Markdown table to stdout.
+pub fn print_enriched_portfolio_markdown(
+    positions: &[crate::commands::portfolio::EnrichedPortfolioPosition],
+) {
+    let mut table = Table::new(build_enriched_portfolio_rows(positions));
+    table.with(Style::markdown());
+    println!("{}", table);
+}
+
+/// Prints enriched portfolio positions as CSV to stdout. Fields are sanitized against formula injection.
+pub fn print_enriched_portfolio_csv(
+    positions: &[crate::commands::portfolio::EnrichedPortfolioPosition],
+) -> Result<()> {
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for mut row in build_enriched_portfolio_rows(positions) {
+        row.politician_id = sanitize_csv_field(&row.politician_id);
+        row.ticker = sanitize_csv_field(&row.ticker);
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Prints enriched portfolio positions as a well-formed XML document to stdout.
+pub fn print_enriched_portfolio_xml(
+    positions: &[crate::commands::portfolio::EnrichedPortfolioPosition],
+) {
+    println!("{}", xml_output::enriched_portfolio_to_xml(positions));
 }
 
 // -- Donations output --

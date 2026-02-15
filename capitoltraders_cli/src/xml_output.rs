@@ -124,7 +124,13 @@ pub fn issuers_to_xml(issuers: &[IssuerDetail]) -> String {
 }
 
 /// Serializes a slice of DB trade rows into an XML string with `<trades>` as the root element.
+#[allow(dead_code)]
 pub fn db_trades_to_xml(trades: &[DbTradeRow]) -> String {
+    items_to_xml("trades", "trade", trades)
+}
+
+/// Serializes enriched DB trade rows (with analytics) into an XML string with `<trades>` as the root element.
+pub fn enriched_trades_to_xml(trades: &[crate::commands::trades::EnrichedDbTradeRow]) -> String {
     items_to_xml("trades", "trade", trades)
 }
 
@@ -139,7 +145,15 @@ pub fn db_issuers_to_xml(issuers: &[DbIssuerRow]) -> String {
 }
 
 /// Serializes a slice of portfolio positions into an XML string with `<portfolio>` as the root element.
+#[allow(dead_code)]
 pub fn portfolio_to_xml(positions: &[PortfolioPosition]) -> String {
+    items_to_xml("portfolio", "position", positions)
+}
+
+/// Serializes enriched portfolio positions (with conflict detection) into an XML string with `<portfolio>` as the root element.
+pub fn enriched_portfolio_to_xml(
+    positions: &[crate::commands::portfolio::EnrichedPortfolioPosition],
+) -> String {
     items_to_xml("portfolio", "position", positions)
 }
 

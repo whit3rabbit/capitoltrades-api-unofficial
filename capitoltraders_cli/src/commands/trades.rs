@@ -1,20 +1,24 @@
 //! The `trades` subcommand: lists congressional trades with extensive filtering.
 
 use anyhow::{bail, Result};
+use capitoltraders_lib::analytics::{
+    calculate_closed_trades, compute_trade_metrics, AnalyticsTrade, TradeMetrics,
+};
 use capitoltraders_lib::types::Trade;
 use capitoltraders_lib::validation;
-use capitoltraders_lib::{Db, DbTradeFilter, ScrapeClient, ScrapedTrade};
+use capitoltraders_lib::{Db, DbTradeFilter, DbTradeRow, ScrapeClient, ScrapedTrade};
 use chrono::{NaiveDate, Utc};
 use clap::Args;
-use std::collections::HashSet;
+use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::output::{
-    print_db_trades_csv, print_db_trades_markdown, print_db_trades_table, print_db_trades_xml,
-    print_json, print_trades_csv, print_trades_markdown, print_trades_table, print_trades_xml,
-    OutputFormat,
+    print_enriched_trades_csv, print_enriched_trades_markdown, print_enriched_trades_table,
+    print_enriched_trades_xml, print_json, print_trades_csv, print_trades_markdown,
+    print_trades_table, print_trades_xml, OutputFormat,
 };
 
 /// Arguments for the `trades` subcommand.
@@ -581,12 +585,28 @@ pub async fn run_db(
     let rows = db.query_trades(&filter)?;
     eprintln!("{} trades from database", rows.len());
 
+    // Best-effort analytics enrichment: compute performance metrics for closed trades
+    let metrics_map: HashMap<(String, String), TradeMetrics> = match load_analytics_metrics(&db) {
+        Ok(map) => map,
+        Err(e) => {
+            eprintln!("Note: Analytics data unavailable ({}). Run 'enrich-prices' to enable performance metrics.", e);
+            HashMap::new()
+        }
+    };
+
+    // Enrich rows with analytics data (clone rows for donor context display)
+    let enriched_rows: Vec<EnrichedDbTradeRow> = rows
+        .iter()
+        .cloned()
+        .map(|row| enrich_trade_row(row, &metrics_map))
+        .collect();
+
     match format {
-        OutputFormat::Table => print_db_trades_table(&rows),
-        OutputFormat::Json => print_json(&rows),
-        OutputFormat::Csv => print_db_trades_csv(&rows)?,
-        OutputFormat::Markdown => print_db_trades_markdown(&rows),
-        OutputFormat::Xml => print_db_trades_xml(&rows),
+        OutputFormat::Table => print_enriched_trades_table(&enriched_rows),
+        OutputFormat::Json => print_json(&enriched_rows),
+        OutputFormat::Csv => print_enriched_trades_csv(&enriched_rows)?,
+        OutputFormat::Markdown => print_enriched_trades_markdown(&enriched_rows),
+        OutputFormat::Xml => print_enriched_trades_xml(&enriched_rows),
     }
 
     // Donor context display (opt-in via --show-donor-context)
@@ -633,6 +653,152 @@ pub async fn run_db(
     }
 
     Ok(())
+}
+
+/// Enriched trade row with optional analytics performance metrics.
+///
+/// Extends [`DbTradeRow`] with absolute_return and alpha for closed trades.
+/// All analytics fields are Option types for backward compatibility.
+#[derive(Serialize, Clone)]
+pub struct EnrichedDbTradeRow {
+    // Base DbTradeRow fields
+    pub tx_id: i64,
+    pub pub_date: String,
+    pub tx_date: String,
+    pub tx_type: String,
+    pub value: i64,
+    pub price: Option<f64>,
+    pub size: Option<i64>,
+    pub filing_url: String,
+    pub reporting_gap: i64,
+    pub enriched_at: Option<String>,
+    pub trade_date_price: Option<f64>,
+    pub current_price: Option<f64>,
+    pub price_enriched_at: Option<String>,
+    pub estimated_shares: Option<f64>,
+    pub estimated_value: Option<f64>,
+    pub politician_name: String,
+    pub party: String,
+    pub state: String,
+    pub chamber: String,
+    pub issuer_name: String,
+    pub issuer_ticker: String,
+    pub asset_type: String,
+    pub committees: Vec<String>,
+    pub labels: Vec<String>,
+    pub politician_id: String,
+    pub issuer_sector: Option<String>,
+    // Analytics enrichment fields (sell trades only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub absolute_return: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<f64>,
+}
+
+impl From<DbTradeRow> for EnrichedDbTradeRow {
+    fn from(row: DbTradeRow) -> Self {
+        Self {
+            tx_id: row.tx_id,
+            pub_date: row.pub_date,
+            tx_date: row.tx_date,
+            tx_type: row.tx_type,
+            value: row.value,
+            price: row.price,
+            size: row.size,
+            filing_url: row.filing_url,
+            reporting_gap: row.reporting_gap,
+            enriched_at: row.enriched_at,
+            trade_date_price: row.trade_date_price,
+            current_price: row.current_price,
+            price_enriched_at: row.price_enriched_at,
+            estimated_shares: row.estimated_shares,
+            estimated_value: row.estimated_value,
+            politician_name: row.politician_name,
+            party: row.party,
+            state: row.state,
+            chamber: row.chamber,
+            issuer_name: row.issuer_name,
+            issuer_ticker: row.issuer_ticker,
+            asset_type: row.asset_type,
+            committees: row.committees,
+            labels: row.labels,
+            politician_id: row.politician_id,
+            issuer_sector: row.issuer_sector,
+            absolute_return: None,
+            alpha: None,
+        }
+    }
+}
+
+/// Load analytics metrics for all closed trades.
+///
+/// Returns a HashMap keyed by (politician_id, ticker) with the most recent
+/// TradeMetrics for each sell trade. Best-effort: returns error if price
+/// enrichment data is unavailable.
+fn load_analytics_metrics(db: &Db) -> Result<HashMap<(String, String), TradeMetrics>> {
+    // Query price-enriched trades for analytics
+    let analytics_rows = db.query_trades_for_analytics()?;
+    if analytics_rows.is_empty() {
+        bail!("no price-enriched trades available");
+    }
+
+    // Convert to AnalyticsTrade
+    let analytics_trades: Vec<AnalyticsTrade> = analytics_rows
+        .into_iter()
+        .map(|row| AnalyticsTrade {
+            tx_id: row.tx_id,
+            politician_id: row.politician_id,
+            ticker: row.issuer_ticker,
+            tx_type: row.tx_type,
+            tx_date: row.tx_date,
+            estimated_shares: row.estimated_shares,
+            trade_date_price: row.trade_date_price,
+            benchmark_price: row.benchmark_price,
+            has_sector_benchmark: row.gics_sector.is_some(),
+            gics_sector: row.gics_sector,
+        })
+        .collect();
+
+    // Calculate closed trades using FIFO
+    let closed_trades = calculate_closed_trades(analytics_trades);
+
+    // Compute metrics for each closed trade
+    let all_metrics: Vec<TradeMetrics> = closed_trades
+        .iter()
+        .map(compute_trade_metrics)
+        .collect();
+
+    // Build HashMap keyed by (politician_id, ticker)
+    // For multiple closed trades of same (politician, ticker), keep most recent
+    let mut metrics_map: HashMap<(String, String), TradeMetrics> = HashMap::new();
+    for metric in all_metrics {
+        let key = (metric.politician_id.clone(), metric.ticker.clone());
+        metrics_map.insert(key, metric);
+    }
+
+    Ok(metrics_map)
+}
+
+/// Enrich a DbTradeRow with analytics performance metrics.
+///
+/// Sell trades are enriched with absolute_return and alpha from the metrics map.
+/// Buy trades and trades without matching metrics remain unenriched (None fields).
+fn enrich_trade_row(
+    row: DbTradeRow,
+    metrics_map: &HashMap<(String, String), TradeMetrics>,
+) -> EnrichedDbTradeRow {
+    let mut enriched = EnrichedDbTradeRow::from(row);
+
+    // Only sell trades can have metrics (closed trades are recorded at sell time)
+    if enriched.tx_type == "sell" {
+        let key = (enriched.politician_id.clone(), enriched.issuer_ticker.clone());
+        if let Some(metrics) = metrics_map.get(&key) {
+            enriched.absolute_return = Some(metrics.absolute_return);
+            enriched.alpha = metrics.alpha;
+        }
+    }
+
+    enriched
 }
 
 fn scraped_trade_to_trade(trade: &ScrapedTrade) -> Result<Trade> {
