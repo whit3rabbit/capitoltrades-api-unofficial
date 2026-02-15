@@ -6751,6 +6751,243 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
     }
 
     #[test]
+    fn test_query_trades_for_analytics_empty() {
+        let db = open_test_db();
+        let trades = db
+            .query_trades_for_analytics()
+            .expect("query_trades_for_analytics");
+        assert_eq!(trades.len(), 0);
+    }
+
+    #[test]
+    fn test_query_trades_for_analytics_includes_benchmark_and_sector() {
+        let db = open_test_db();
+
+        // Insert politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert issuer with gics_sector
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker, gics_sector)
+                 VALUES (1, 'Apple Inc.', 'AAPL', 'Information Technology')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // Insert stock asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert stock asset");
+
+        // Insert trade with benchmark_price
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price, benchmark_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0, 150.0)",
+                [],
+            )
+            .expect("insert trade");
+
+        let trades = db
+            .query_trades_for_analytics()
+            .expect("query_trades_for_analytics");
+
+        assert_eq!(trades.len(), 1);
+        assert_eq!(trades[0].tx_id, 1);
+        assert_eq!(trades[0].benchmark_price, Some(150.0));
+        assert_eq!(trades[0].gics_sector, Some("Information Technology".to_string()));
+    }
+
+    #[test]
+    fn test_query_trades_for_analytics_includes_null_benchmark() {
+        let db = open_test_db();
+
+        // Insert politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert issuer without gics_sector
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // Insert stock asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert stock asset");
+
+        // Insert trade without benchmark_price
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert trade");
+
+        let trades = db
+            .query_trades_for_analytics()
+            .expect("query_trades_for_analytics");
+
+        assert_eq!(trades.len(), 1);
+        assert_eq!(trades[0].tx_id, 1);
+        assert_eq!(trades[0].benchmark_price, None);
+        assert_eq!(trades[0].gics_sector, None);
+    }
+
+    #[test]
+    fn test_query_trades_for_analytics_filters_options() {
+        let db = open_test_db();
+
+        // Insert politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert issuer
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // Insert stock asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert stock asset");
+
+        // Insert stock-option asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (2, 'stock-option')",
+                [],
+            )
+            .expect("insert option asset");
+
+        // Insert stock trade
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert stock trade");
+
+        // Insert stock-option trade
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (2, 'P000001', 2, 1, '2024-01-02', '2024-01-02', '2024-01-02', 'buy', 0, 'self', 'house', 1000, 1, 'http://example.com', 0, 10.0, 100.0)",
+                [],
+            )
+            .expect("insert option trade");
+
+        let trades = db
+            .query_trades_for_analytics()
+            .expect("query_trades_for_analytics");
+
+        assert_eq!(trades.len(), 1, "Should only return stock trade");
+        assert_eq!(trades[0].tx_id, 1);
+        assert_eq!(trades[0].issuer_ticker, "AAPL");
+    }
+
+    #[test]
+    fn test_query_trades_for_analytics_ordering() {
+        let db = open_test_db();
+
+        // Insert politician
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert issuer
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker)
+                 VALUES (1, 'Apple Inc.', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // Insert stock asset
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+
+        // Insert trades in non-chronological order
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (3, 'P000001', 1, 1, '2024-01-03', '2024-01-03', '2024-01-03', 'buy', 0, 'self', 'house', 3000, 1, 'http://example.com', 0, 60.0, 50.0)",
+                [],
+            )
+            .expect("insert trade 3");
+
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert trade 1");
+
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (2, 'P000001', 1, 1, '2024-01-02', '2024-01-02', '2024-01-02', 'sell', 0, 'self', 'house', 2000, 1, 'http://example.com', 0, 40.0, 50.0)",
+                [],
+            )
+            .expect("insert trade 2");
+
+        let trades = db
+            .query_trades_for_analytics()
+            .expect("query_trades_for_analytics");
+
+        assert_eq!(trades.len(), 3);
+        assert_eq!(trades[0].tx_id, 1, "Should be ordered by tx_date ASC");
+        assert_eq!(trades[1].tx_id, 2);
+        assert_eq!(trades[2].tx_id, 3);
+    }
+
+    #[test]
     fn test_upsert_positions_basic() {
         use crate::portfolio::Position;
         use std::collections::HashMap;
