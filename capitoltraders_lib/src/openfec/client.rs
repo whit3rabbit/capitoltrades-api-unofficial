@@ -5,7 +5,12 @@ use super::types::{
     CandidateSearchQuery, CandidateSearchResponse, CommitteeResponse, ScheduleAQuery,
     ScheduleAResponse,
 };
+use std::time::Duration;
+
 use serde::de::DeserializeOwned;
+
+/// Request timeout for OpenFEC API calls (seconds).
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// OpenFEC API client for fetching FEC data.
 pub struct OpenFecClient {
@@ -17,8 +22,12 @@ pub struct OpenFecClient {
 impl OpenFecClient {
     /// Create a new OpenFecClient with default base URL.
     pub fn new(api_key: String) -> Result<Self, OpenFecError> {
+        let client = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .map_err(|e| OpenFecError::Network(e))?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             api_key,
             base_url: "https://api.open.fec.gov/v1".to_string(),
         })
@@ -26,8 +35,12 @@ impl OpenFecClient {
 
     /// Create a new OpenFecClient with custom base URL (for testing with wiremock).
     pub fn with_base_url(base_url: &str, api_key: String) -> Result<Self, OpenFecError> {
+        let client = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .map_err(|e| OpenFecError::Network(e))?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             api_key,
             base_url: base_url.to_string(),
         })

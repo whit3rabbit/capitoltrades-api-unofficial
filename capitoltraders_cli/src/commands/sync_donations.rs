@@ -54,6 +54,7 @@ enum DonationMessage {
     Completed {
         politician_id: String,
         committee_id: String,
+        cycle: Option<i32>,
     },
     Error {
         committee_id: String,
@@ -178,20 +179,27 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
         // For each committee, check for existing cursor
         for committee in &committees {
             // Load cursor from DB (before spawning tasks)
-            let cursor = setup_db.load_sync_cursor(politician_id, &committee.committee_id)?;
+            let cursor = setup_db.load_sync_cursor(politician_id, &committee.committee_id, args.cycle)?;
 
-            // Check if sync completed recently (within 24 hours)
+            // Check if sync completed recently (within 24 hours) for this specific cycle
             if cursor.is_none() {
+                let cycle_clause = match args.cycle {
+                    Some(c) => format!("AND election_cycle = {}", c),
+                    None => "AND election_cycle IS NULL".to_string(),
+                };
                 let completed_recently: bool = setup_db.conn()
                     .query_row(
-                        "SELECT EXISTS(
-                            SELECT 1 FROM donation_sync_meta
-                            WHERE politician_id = ?1
-                              AND committee_id = ?2
-                              AND last_index IS NULL
-                              AND datetime(last_synced_at) > datetime('now', '-24 hours')
-                        )",
-                        [politician_id, &committee.committee_id],
+                        &format!(
+                            "SELECT EXISTS(
+                                SELECT 1 FROM donation_sync_meta
+                                WHERE politician_id = ?1
+                                  AND committee_id = ?2
+                                  {}
+                                  AND last_index IS NULL
+                                  AND datetime(last_synced_at) > datetime('now', '-24 hours')
+                            )", cycle_clause
+                        ),
+                        [politician_id.as_str(), committee.committee_id.as_str()],
                         |row| row.get(0),
                     )?;
 
@@ -284,6 +292,7 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
                             let _ = sender.send(DonationMessage::Completed {
                                 politician_id: politician_id.clone(),
                                 committee_id: committee_id.clone(),
+                                cycle,
                             }).await;
                             break;
                         }
@@ -319,6 +328,7 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
                             let _ = sender.send(DonationMessage::Completed {
                                 politician_id: politician_id.clone(),
                                 committee_id: committee_id.clone(),
+                                cycle,
                             }).await;
                             break;
                         }
@@ -383,9 +393,10 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
             DonationMessage::Completed {
                 politician_id,
                 committee_id,
+                cycle,
             } => {
-                // Mark sync as completed
-                receiver_db.mark_sync_completed(&politician_id, &committee_id)?;
+                // Mark sync as completed for this specific cycle
+                receiver_db.mark_sync_completed(&politician_id, &committee_id, cycle)?;
                 committees_processed += 1;
                 pb.inc(1);
                 breaker.record_success();

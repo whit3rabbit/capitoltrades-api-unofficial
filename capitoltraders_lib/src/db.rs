@@ -94,6 +94,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 7)?;
         }
 
+        if version < 8 {
+            self.migrate_v8()?;
+            self.conn.pragma_update(None, "user_version", 8)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -198,7 +203,7 @@ impl Db {
             [],
         )?;
 
-        // Create donation_sync_meta table
+        // Create donation_sync_meta table (v4 schema, upgraded by v8 migration)
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS donation_sync_meta (
                 politician_id TEXT NOT NULL,
@@ -353,6 +358,44 @@ impl Db {
                 if msg.contains("no such table") => {}
             Err(e) => return Err(e.into()),
         }
+
+        Ok(())
+    }
+
+    fn migrate_v8(&self) -> Result<(), DbError> {
+        // Add election_cycle to donation_sync_meta PK.
+        // SQLite cannot alter PKs, so recreate the table.
+        // The old table may not exist if upgrading from pre-v4.
+        let has_old_table: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='donation_sync_meta')",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if has_old_table {
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS donation_sync_meta_new (
+                    politician_id TEXT NOT NULL,
+                    committee_id TEXT NOT NULL,
+                    election_cycle INTEGER,
+                    last_index INTEGER,
+                    last_contribution_receipt_date TEXT,
+                    last_synced_at TEXT NOT NULL,
+                    total_synced INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (politician_id, committee_id, election_cycle)
+                );
+                INSERT OR IGNORE INTO donation_sync_meta_new
+                    (politician_id, committee_id, election_cycle, last_index,
+                     last_contribution_receipt_date, last_synced_at, total_synced)
+                SELECT politician_id, committee_id, NULL, last_index,
+                       last_contribution_receipt_date, last_synced_at, total_synced
+                FROM donation_sync_meta;
+                DROP TABLE donation_sync_meta;
+                ALTER TABLE donation_sync_meta_new RENAME TO donation_sync_meta;"
+            )?;
+        }
+        // If table doesn't exist yet, v4 migration or base schema.sql will create it
+        // with the new schema (including election_cycle).
 
         Ok(())
     }
@@ -2638,19 +2681,21 @@ impl Db {
     /// Load sync cursor for a politician/committee pair.
     ///
     /// Returns Some((last_index, last_contribution_receipt_date)) if cursor exists,
-    /// None if this is the first sync for this politician/committee.
+    /// None if this is the first sync for this politician/committee/cycle.
     pub fn load_sync_cursor(
         &self,
         politician_id: &str,
         committee_id: &str,
+        cycle: Option<i32>,
     ) -> Result<Option<(i64, String)>, DbError> {
         self.conn
             .query_row(
                 "SELECT last_index, last_contribution_receipt_date
                  FROM donation_sync_meta
                  WHERE politician_id = ?1 AND committee_id = ?2
+                   AND (election_cycle IS ?3)
                    AND last_index IS NOT NULL",
-                params![politician_id, committee_id],
+                params![politician_id, committee_id, cycle],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
@@ -2709,19 +2754,21 @@ impl Db {
         // Update cursor state with inserted count
         tx.execute(
             "INSERT OR REPLACE INTO donation_sync_meta (
-                politician_id, committee_id, last_index,
+                politician_id, committee_id, election_cycle, last_index,
                 last_contribution_receipt_date, last_synced_at, total_synced
             ) VALUES (
-                ?1, ?2, ?3, ?4, datetime('now'),
+                ?1, ?2, ?3, ?4, ?5, datetime('now'),
                 COALESCE(
                     (SELECT total_synced FROM donation_sync_meta
-                     WHERE politician_id = ?1 AND committee_id = ?2),
+                     WHERE politician_id = ?1 AND committee_id = ?2
+                       AND (election_cycle IS ?3)),
                     0
-                ) + ?5
+                ) + ?6
             )",
             params![
                 politician_id,
                 committee_id,
+                cycle,
                 last_index,
                 last_date,
                 inserted_count
@@ -2732,7 +2779,7 @@ impl Db {
         Ok(inserted_count)
     }
 
-    /// Mark a politician/committee sync as completed.
+    /// Mark a politician/committee/cycle sync as completed.
     ///
     /// Sets last_index to NULL to signal "sync completed, no more pages".
     /// Subsequent syncs can check is_sync_completed by testing last_index IS NULL.
@@ -2740,20 +2787,22 @@ impl Db {
         &self,
         politician_id: &str,
         committee_id: &str,
+        cycle: Option<i32>,
     ) -> Result<(), DbError> {
         self.conn.execute(
             "INSERT OR REPLACE INTO donation_sync_meta (
-                politician_id, committee_id, last_index,
+                politician_id, committee_id, election_cycle, last_index,
                 last_contribution_receipt_date, last_synced_at, total_synced
             ) VALUES (
-                ?1, ?2, NULL, NULL, datetime('now'),
+                ?1, ?2, ?3, NULL, NULL, datetime('now'),
                 COALESCE(
                     (SELECT total_synced FROM donation_sync_meta
-                     WHERE politician_id = ?1 AND committee_id = ?2),
+                     WHERE politician_id = ?1 AND committee_id = ?2
+                       AND (election_cycle IS ?3)),
                     0
                 )
             )",
-            params![politician_id, committee_id],
+            params![politician_id, committee_id, cycle],
         )?;
         Ok(())
     }
@@ -4477,7 +4526,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 7);
+        assert_eq!(get_user_version(&db), 8);
     }
 
     #[test]
@@ -4509,8 +4558,8 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(has_column(&db, "politicians", "enriched_at"));
         assert!(has_column(&db, "issuers", "enriched_at"));
 
-        // Verify user_version is now 3 (all migrations v1, v2, v3 applied)
-        assert_eq!(get_user_version(&db), 7);
+        // Verify user_version is now 8 (all migrations applied)
+        assert_eq!(get_user_version(&db), 8);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -4578,7 +4627,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "positions table should exist");
 
         // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
-        assert_eq!(get_user_version(&db), 7);
+        assert_eq!(get_user_version(&db), 8);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -4594,7 +4643,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 7);
+        assert_eq!(get_user_version(&db), 8);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -4659,7 +4708,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "fec_mappings table should exist after migration");
 
         // Verify user_version is now 3
-        assert_eq!(get_user_version(&db), 7);
+        assert_eq!(get_user_version(&db), 8);
 
         // Verify pre-existing politician data is preserved
         let name: String = db.conn.query_row(
@@ -4675,7 +4724,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = Db::open_in_memory().unwrap();
         db.init().unwrap();
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -4684,7 +4733,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.init().unwrap();
         db.init().unwrap(); // Should not fail
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -7824,7 +7873,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
 
         // Verify all three new tables exist
         let tables: Vec<String> = db
@@ -7851,7 +7900,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -7903,7 +7952,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
 
         // Verify employer_mappings table exists
         let has_employer_mappings: bool = db
@@ -7959,7 +8008,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -7971,7 +8020,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7, "fresh database should have version 7");
+        assert_eq!(version, 8, "fresh database should have version 8");
     }
 
     #[test]
@@ -8283,7 +8332,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
 
         let cursor = db
-            .load_sync_cursor("P000001", "C00000001")
+            .load_sync_cursor("P000001", "C00000001", Some(2024))
             .expect("load_sync_cursor");
         assert_eq!(cursor, None, "Should return None for non-existent cursor");
     }
@@ -8326,7 +8375,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
         // Load cursor
         let cursor = db
-            .load_sync_cursor("P000010", "C00000002")
+            .load_sync_cursor("P000010", "C00000002", Some(2024))
             .expect("load_sync_cursor")
             .expect("cursor should exist");
 
@@ -8456,7 +8505,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(donation_count, 1, "Donation should exist");
 
         let cursor = db
-            .load_sync_cursor("P000012", "C00000004")
+            .load_sync_cursor("P000012", "C00000004", Some(2024))
             .expect("load cursor")
             .expect("cursor should exist");
         assert_eq!(cursor.0, 300, "Cursor should exist with correct last_index");
@@ -8498,11 +8547,11 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         .expect("save");
 
         // Mark completed
-        db.mark_sync_completed("P000013", "C00000005")
+        db.mark_sync_completed("P000013", "C00000005", Some(2024))
             .expect("mark_sync_completed");
 
         // Verify last_index is NULL
-        let cursor = db.load_sync_cursor("P000013", "C00000005").expect("load");
+        let cursor = db.load_sync_cursor("P000013", "C00000005", Some(2024)).expect("load");
         assert_eq!(cursor, None, "Cursor should return None when completed (last_index NULL)");
 
         // Verify total_synced is preserved
@@ -9070,7 +9119,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
 
         // Verify gics_sector column exists on issuers
         assert!(has_column(&db, "issuers", "gics_sector"), "gics_sector column should exist after v6 migration");
@@ -9114,7 +9163,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -9126,7 +9175,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7, "fresh database should have version 7");
+        assert_eq!(version, 8, "fresh database should have version 8");
     }
 
     #[test]
@@ -9277,12 +9326,12 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         // Now run init which should migrate to v7
         db.init().expect("init");
 
-        // Verify user_version is 7
+        // Verify user_version is 8
         let version: i32 = db
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
 
         // Verify benchmark_price column exists on trades
         assert!(has_column(&db, "trades", "benchmark_price"), "benchmark_price column should exist after v7 migration");
@@ -9339,7 +9388,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -9351,7 +9400,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 7, "fresh database should have version 7");
+        assert_eq!(version, 8, "fresh database should have version 8");
     }
 
     #[test]

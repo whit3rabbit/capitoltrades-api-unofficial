@@ -200,11 +200,12 @@ CREATE TABLE IF NOT EXISTS donations (
 CREATE TABLE IF NOT EXISTS donation_sync_meta (
     politician_id TEXT NOT NULL,
     committee_id TEXT NOT NULL,
+    election_cycle INTEGER,
     last_index INTEGER,
     last_contribution_receipt_date TEXT,
     last_synced_at TEXT NOT NULL,
     total_synced INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (politician_id, committee_id)
+    PRIMARY KEY (politician_id, committee_id, election_cycle)
 );
 
 CREATE TABLE IF NOT EXISTS employer_mappings (
