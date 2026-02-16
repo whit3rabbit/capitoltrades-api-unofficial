@@ -50,9 +50,9 @@ pub struct Term {
     #[serde(rename = "type")]
     pub term_type: String,
     pub start: String,
-    pub end: String,
+    pub end: Option<String>,
     pub state: String,
-    pub party: String,
+    pub party: Option<String>,
 }
 
 /// Result of matching a legislator to a politician
@@ -190,9 +190,9 @@ mod tests {
             terms: vec![Term {
                 term_type: "rep".to_string(),
                 start: "2021-01-03".to_string(),
-                end: "2023-01-03".to_string(),
+                end: Some("2023-01-03".to_string()),
                 state: "CA".to_string(),
-                party: "Democrat".to_string(),
+                party: Some("Democrat".to_string()),
             }],
         }];
 
@@ -225,9 +225,9 @@ mod tests {
             terms: vec![Term {
                 term_type: "sen".to_string(),
                 start: "2021-01-03".to_string(),
-                end: "2027-01-03".to_string(),
+                end: Some("2027-01-03".to_string()),
                 state: "TX".to_string(),
-                party: "Republican".to_string(),
+                party: Some("Republican".to_string()),
             }],
         }];
 
@@ -257,9 +257,9 @@ mod tests {
             terms: vec![Term {
                 term_type: "rep".to_string(),
                 start: "2021-01-03".to_string(),
-                end: "2023-01-03".to_string(),
+                end: Some("2023-01-03".to_string()),
                 state: "NY".to_string(),
-                party: "Democrat".to_string(),
+                party: Some("Democrat".to_string()),
             }],
         }];
 
@@ -293,9 +293,9 @@ mod tests {
             terms: vec![Term {
                 term_type: "rep".to_string(),
                 start: "2015-01-03".to_string(),
-                end: "2023-01-03".to_string(),
+                end: Some("2023-01-03".to_string()),
                 state: "FL".to_string(),
-                party: "Republican".to_string(),
+                party: Some("Republican".to_string()),
             }],
         }];
 
@@ -330,9 +330,9 @@ mod tests {
             terms: vec![Term {
                 term_type: "rep".to_string(),
                 start: "2021-01-03".to_string(),
-                end: "2023-01-03".to_string(),
+                end: Some("2023-01-03".to_string()),
                 state: "OH".to_string(),
-                party: "Democrat".to_string(),
+                party: Some("Democrat".to_string()),
             }],
         }];
 
@@ -362,9 +362,9 @@ mod tests {
             terms: vec![Term {
                 term_type: "rep".to_string(),
                 start: "2021-01-03".to_string(),
-                end: "2023-01-03".to_string(),
+                end: Some("2023-01-03".to_string()),
                 state: "WA".to_string(),
-                party: "Democrat".to_string(),
+                party: Some("Democrat".to_string()),
             }],
         }];
 
@@ -394,9 +394,9 @@ mod tests {
             terms: vec![Term {
                 term_type: "rep".to_string(),
                 start: "2021-01-03".to_string(),
-                end: "2023-01-03".to_string(),
+                end: Some("2023-01-03".to_string()),
                 state: "ma".to_string(), // lowercase state
-                party: "Democrat".to_string(),
+                party: Some("Democrat".to_string()),
             }],
         }];
 

@@ -7,6 +7,7 @@ use anyhow::{bail, Result};
 use capitoltraders_lib::{
     committee::CommitteeResolver,
     openfec::{
+        rate_limiter::{with_retry, RateLimiter},
         types::{Contribution, ScheduleAQuery},
         OpenFecClient, OpenFecError,
     },
@@ -14,13 +15,11 @@ use capitoltraders_lib::{
 };
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use rand::Rng;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinSet;
-use tokio::time::sleep;
 
 /// Donation sync CLI arguments.
 #[derive(Args)]
@@ -98,6 +97,7 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
     setup_db.init()?;
 
     let client = Arc::new(OpenFecClient::new(api_key)?);
+    let rate_limiter = Arc::new(RateLimiter::default());
     let resolver = CommitteeResolver::new(
         Arc::clone(&client),
         Arc::new(Mutex::new(Db::open(&args.db)?)),
@@ -240,15 +240,12 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
         let sem = Arc::clone(&semaphore);
         let sender = tx.clone();
         let client_clone = Arc::clone(&client);
+        let rl = Arc::clone(&rate_limiter);
         let cycle = args.cycle;
         let per_page = args.batch_size;
 
         join_set.spawn(async move {
             let _permit = sem.acquire().await.expect("semaphore closed");
-
-            // Jittered delay for rate limiting
-            let delay_ms = rand::thread_rng().gen_range(200..500);
-            sleep(Duration::from_millis(delay_ms)).await;
 
             // Keyset pagination loop
             let mut current_cursor = cursor;
@@ -269,8 +266,18 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
                         .with_last_contribution_receipt_date(last_date);
                 }
 
-                // Fetch page from API
-                match client_clone.get_schedule_a(&query).await {
+                // Fetch page from API with rate limiting and retry
+                let client_ref = &client_clone;
+                let query_ref = &query;
+                let result = with_retry(
+                    &rl,
+                    3,
+                    Duration::from_secs(60),
+                    || async move { client_ref.get_schedule_a(query_ref).await },
+                )
+                .await;
+
+                match result {
                     Ok(response) => {
                         if response.results.is_empty() {
                             // No more results, mark completed
@@ -317,7 +324,7 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
                         }
                     }
                     Err(e) => {
-                        // Send error to receiver
+                        // Send error to receiver (post-retry failure)
                         let _ = sender.send(DonationMessage::Error {
                             committee_id: committee_id.clone(),
                             error: e,
@@ -325,10 +332,6 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
                         break;
                     }
                 }
-
-                // Rate limiting between pages within same committee
-                let delay_ms = rand::thread_rng().gen_range(200..500);
-                sleep(Duration::from_millis(delay_ms)).await;
             }
         });
     }
@@ -364,9 +367,15 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
                 )?;
 
                 total_synced += count;
+                let budget_str = match rate_limiter.remaining_budget() {
+                    Some(b) => format!("{}", b),
+                    None => "?".to_string(),
+                };
                 pb.set_message(format!(
-                    "{} donations synced ({:.1}s)",
+                    "{} donations synced | budget: {}/{} ({:.1}s)",
                     total_synced,
+                    budget_str,
+                    rate_limiter.max_requests(),
                     start_time.elapsed().as_secs_f64()
                 ));
                 breaker.record_success();
@@ -422,6 +431,7 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
 
     // Step 6: Summary
     let elapsed = start_time.elapsed();
+    let api_summary = rate_limiter.tracker().summary();
     eprintln!();
     eprintln!(
         "Donation sync complete: {} donations synced across {} committees",
@@ -431,6 +441,19 @@ pub async fn run(args: &SyncDonationsArgs, api_key: String) -> Result<()> {
         "  Elapsed time: {:.1}s",
         elapsed.as_secs_f64()
     );
+    eprintln!(
+        "  API requests: {} total ({} succeeded, {} rate-limited, {} failed)",
+        api_summary.requests_made,
+        api_summary.requests_succeeded,
+        api_summary.requests_rate_limited,
+        api_summary.requests_failed
+    );
+    if api_summary.total_backoff_secs > 0.0 {
+        eprintln!(
+            "  Time in backoff: {:.1}s",
+            api_summary.total_backoff_secs
+        );
+    }
 
     if breaker.is_tripped() {
         bail!("Sync halted due to rate limiting");

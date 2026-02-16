@@ -4,7 +4,6 @@
 
 - v1.1 **Yahoo Finance Price Enrichment** -- Phases 1-6 (shipped 2026-02-11)
 - v1.2 **FEC Donation Integration** -- Phases 7-12 (shipped 2026-02-14)
-- v1.3 **Analytics & Scoring** -- Phases 13-17 (shipped 2026-02-15)
 
 ## Phases
 
@@ -32,20 +31,7 @@ Full details: `.planning/milestones/v1.1-ROADMAP.md`
 - [x] Phase 11: Donations CLI Command (2/2 plans) -- completed 2026-02-13
 - [x] Phase 12: Employer Correlation & Analysis (5/5 plans) -- completed 2026-02-14
 
-Full details: `.planning/milestones/v1.2-ROADMAP.md`
-
-</details>
-
-<details>
-<summary>v1.3 Analytics & Scoring (Phases 13-17) -- SHIPPED 2026-02-15</summary>
-
-- [x] Phase 13: Data Foundation & Sector Classification (2/2 plans) -- completed 2026-02-15
-- [x] Phase 14: Benchmark Price Enrichment (2/2 plans) -- completed 2026-02-15
-- [x] Phase 15: Performance Scoring & Leaderboards (3/3 plans) -- completed 2026-02-15
-- [x] Phase 16: Conflict Detection (2/2 plans) -- completed 2026-02-15
-- [x] Phase 17: Anomaly Detection & Output Integration (3/3 plans) -- completed 2026-02-15
-
-Full details: `.planning/milestones/v1.3-ROADMAP.md`
+**Milestone Goal:** Integrate OpenFEC donation data to show who funds each politician, correlated against their trading activity.
 
 </details>
 
@@ -65,8 +51,3 @@ Full details: `.planning/milestones/v1.3-ROADMAP.md`
 | 10. Donation Sync Pipeline | v1.2 | 2/2 | Complete | 2026-02-12 |
 | 11. Donations CLI Command | v1.2 | 2/2 | Complete | 2026-02-13 |
 | 12. Employer Correlation & Analysis | v1.2 | 5/5 | Complete | 2026-02-14 |
-| 13. Data Foundation & Sector Classification | v1.3 | 2/2 | Complete | 2026-02-15 |
-| 14. Benchmark Price Enrichment | v1.3 | 2/2 | Complete | 2026-02-15 |
-| 15. Performance Scoring & Leaderboards | v1.3 | 3/3 | Complete | 2026-02-15 |
-| 16. Conflict Detection | v1.3 | 2/2 | Complete | 2026-02-15 |
-| 17. Anomaly Detection & Output Integration | v1.3 | 3/3 | Complete | 2026-02-15 |

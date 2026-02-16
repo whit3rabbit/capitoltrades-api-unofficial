@@ -43,3 +43,25 @@
 - Git range: `598dbdd`..`f3b11a0`
 
 **Archive:** `.planning/milestones/v1.2-ROADMAP.md`, `.planning/milestones/v1.2-REQUIREMENTS.md`
+
+## v1.3 Analytics & Scoring -- 2026-02-15
+
+**Phases:** 13-17 | **Plans:** 11 | **Tests:** 618 (all passing)
+
+**Accomplishments:**
+1. GICS sector infrastructure with schema v6, 200-ticker YAML classification, and 12 ETF benchmark definitions
+2. Three-phase price enrichment pipeline adding S&P 500 and sector ETF benchmark prices via Yahoo Finance
+3. Performance analytics engine with FIFO closed trade matching, absolute/annualized returns, SPY/sector alpha, and politician leaderboards
+4. Conflict detection system mapping 40+ committee jurisdictions to GICS sectors with donation-trade employer correlation
+5. Anomaly detection pipeline with pre-move trade flags, unusual volume detection, HHI sector concentration, and composite scoring
+6. Analytics-enriched output integrating performance, conflict, and anomaly data into existing trades/portfolio/politicians commands
+
+**Stats:**
+- 48 commits, 21 files changed, +8,368 / -572 lines
+- 31,043 total Rust LOC
+- 618 workspace tests (108 new, all passing)
+- Execution time: 1.00 hours across 11 plans
+- Timeline: 2026-02-14 to 2026-02-15 (2 days)
+- Git range: `fef9091`..`5545edf`
+
+**Archive:** `.planning/milestones/v1.3-ROADMAP.md`, `.planning/milestones/v1.3-REQUIREMENTS.md`

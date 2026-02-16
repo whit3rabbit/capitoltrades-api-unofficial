@@ -297,7 +297,7 @@ Downloads the `congress-legislators` dataset and matches politicians by name and
 | `--cycle` | Election cycle year (e.g. 2024) | all |
 | `--batch-size` | Donations per API page | 100 |
 
-Requires an `OPENFEC_API_KEY` in your `.env` file. Fetches contributions for all authorized committees associated with the politician's FEC ID. Supports resumable sync via persistent cursors.
+Requires an `OPENFEC_API_KEY` in your `.env` file. Fetches contributions for all authorized committees associated with the politician's FEC ID. Supports resumable sync via persistent cursors. A sliding-window rate limiter (900 req/hr budget) paces requests proactively, and 429 responses trigger exponential backoff retries (up to 3 attempts). Progress output shows remaining API budget and a post-run summary of request stats.
 
 **donations** -- Query and aggregate synced donation data.
 
@@ -367,7 +367,7 @@ capitoltraders/
 ## Development
 
 ```sh
-# Run all tests (366 total)
+# Run all tests (513 total)
 cargo test --workspace
 
 # Lint
@@ -408,6 +408,8 @@ by fetching individual detail pages post-ingest.
 ## Rate Limiting
 
 This tool uses an unofficial API and adds a randomized 5-10 second delay between HTTP requests to avoid putting unnecessary load on the CapitolTrades servers. Cache hits are not delayed, so repeated queries within the 5-minute cache window return instantly. The first request in a session has no delay. Enrichment uses a configurable delay (default 500ms) between detail page fetches with bounded concurrency (default 3).
+
+OpenFEC API requests (`sync-donations`) use a sliding-window rate limiter that tracks request timestamps and proactively paces calls to stay under the 1,000 req/hr free-tier limit (900 default budget with 10% safety margin). If a 429 response still occurs, individual requests retry with exponential backoff (60s base, doubling, up to 3 retries). A circuit breaker halts the pipeline after 5 consecutive post-retry failures.
 
 ## License
 

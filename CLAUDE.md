@@ -7,7 +7,7 @@ This guide provides concrete patterns and conventions for agentic coding in this
 ```bash
 # Primary workspace commands
 cargo check --workspace          # Fast compilation check
-cargo test --workspace           # Run all 503 tests
+cargo test --workspace           # Run all 513 tests
 cargo clippy --workspace         # Lint with all clippy rules
 cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
@@ -321,6 +321,28 @@ impl CircuitBreaker {
 }
 ```
 
+## OpenFEC Rate Limiting Patterns
+
+```rust
+// Sliding-window rate limiter (shared across concurrent tasks)
+let rate_limiter = Arc::new(RateLimiter::default()); // 900 req/hr
+
+// Acquire a slot before each API call (sleeps if window full)
+rate_limiter.acquire().await;
+
+// Wrap API calls with retry on 429
+let result = with_retry(&rate_limiter, 3, Duration::from_secs(60), || {
+    client.get_schedule_a(&query)
+}).await;
+
+// Check remaining budget (non-blocking, returns None if lock contended)
+let remaining = rate_limiter.remaining_budget(); // Option<u64>
+
+// Post-run summary from atomic counters
+let summary = rate_limiter.tracker().summary();
+// summary.requests_made, .requests_succeeded, .requests_rate_limited, .requests_failed, .total_backoff_secs
+```
+
 ## Output Formatting Patterns
 
 ```rust
@@ -448,3 +470,4 @@ let option_count = db.count_option_trades(Some("P000197"))?;
 - Before changing enrichment pipeline concurrency patterns
 - Before modifying FIFO portfolio calculator logic (affects P&L correctness)
 - When changing Yahoo Finance rate limiting or circuit breaker thresholds
+- Before changing OpenFEC rate limiter budget or retry parameters
