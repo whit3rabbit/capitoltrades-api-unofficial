@@ -7,7 +7,7 @@ This guide provides concrete patterns and conventions for agentic coding in this
 ```bash
 # Primary workspace commands
 cargo check --workspace          # Fast compilation check
-cargo test --workspace           # Run all 513 tests
+cargo test --workspace           # Run all 618 tests
 cargo clippy --workspace         # Lint with all clippy rules
 cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
@@ -241,6 +241,9 @@ pub enum Commands {
     SyncDonations(SyncDonationsArgs),
     Donations(DonationsArgs),
     MapEmployers(MapEmployersArgs),
+    Analytics(AnalyticsArgs),          // DB-only: politician performance leaderboard
+    Conflicts(ConflictsArgs),          // DB-only: committee trading scores
+    Anomalies(Box<AnomaliesArgs>),     // DB-only: unusual trading pattern detection
 }
 ```
 

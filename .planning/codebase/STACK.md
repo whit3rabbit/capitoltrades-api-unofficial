@@ -1,6 +1,6 @@
 # Technology Stack
 
-**Analysis Date:** 2026-02-14
+**Analysis Date:** 2026-02-15
 
 ## Languages
 
@@ -8,7 +8,7 @@
 - Rust 1.70+ (minimum requirement) - Entire workspace codebase
 
 **Secondary:**
-- SQL - SQLite schema in `schema/sqlite.sql` (migrations v1-v5)
+- SQL - SQLite schema in `schema/sqlite.sql` (migrations v1-v7)
 - YAML/TOML - For configuration and seed data
 
 ## Runtime
@@ -54,8 +54,8 @@
 ## Crates
 
 - `capitoltrades_api` - Vendored API client and types
-- `capitoltraders_lib` - Core library (scraping, db, yahoo, openfec, mapping)
-- `capitoltraders_cli` - CLI binary with 10 subcommands
+- `capitoltraders_lib` - Core library (scraping, db, yahoo, openfec, mapping, analytics, anomaly, conflict, sector_mapping, committee_jurisdiction)
+- `capitoltraders_cli` - CLI binary with 13 subcommands
 
 ## Platform Requirements
 
@@ -65,4 +65,4 @@
 
 ---
 
-*Stack analysis: 2026-02-14*
+*Stack analysis: 2026-02-15*

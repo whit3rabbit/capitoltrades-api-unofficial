@@ -1,6 +1,6 @@
 # Capitol Traders
 
-A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com), enriching trades with Yahoo Finance market prices, and tracking per-politician portfolio positions with P&L.
+A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com), enriching trades with Yahoo Finance market prices, tracking per-politician portfolio positions with P&L, and scoring trading anomalies, committee conflicts, and performance analytics.
 
 There is no public API (as far as I can tell). The CLI uses an **unofficial API** by scraping the public site (Next.js RSC payloads) and normalizes the data for output.
 The vendored [capitoltrades_api](https://github.com/TommasoAmici/capitoltrades) crate is still used for shared types
@@ -127,6 +127,24 @@ capitoltraders map-employers --db capitoltraders.db export -o unmatched.csv
 
 # View trades with donor context
 capitoltraders trades --db capitoltraders.db --show-donor-context
+
+# View politician performance leaderboard
+capitoltraders analytics --db capitoltraders.db --sort-by alpha --top 10
+
+# Analytics filtered by party and period
+capitoltraders analytics --db capitoltraders.db --party democrat --period 1y
+
+# View committee trading conflict scores
+capitoltraders conflicts --db capitoltraders.db --min-committee-pct 20
+
+# Include donation-trade correlation analysis
+capitoltraders conflicts --db capitoltraders.db --include-donations --politician pelosi
+
+# Detect unusual trading patterns
+capitoltraders anomalies --db capitoltraders.db --min-score 0.5
+
+# Show pre-move trade signals sorted by volume
+capitoltraders anomalies --db capitoltraders.db --show-pre-move --sort-by volume
 ```
 
 ### Subcommands
@@ -322,6 +340,42 @@ Requires an `OPENFEC_API_KEY` in your `.env` file. Fetches contributions for all
 
 Used to correlate FEC donation employers with stock issuers. `export` uses fuzzy matching to suggest tickers for donor employers.
 
+**analytics** -- View politician performance rankings.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+| `--period` | `ytd`, `1y`, `2y`, `all` | `all` |
+| `--min-trades` | Minimum closed trades for inclusion | 5 |
+| `--sort-by` | `return`, `win-rate`, `alpha` | `return` |
+| `--party` | `democrat` (`d`), `republican` (`r`) | all |
+| `--state` | US state code | all |
+| `--top` | Number of results | 25 |
+
+**conflicts** -- View committee trading scores and donation-trade correlations.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+| `--politician` | Filter by politician name (partial match) | all |
+| `--committee` | Filter by committee name (exact match) | all |
+| `--min-committee-pct` | Minimum committee trading percentage (0-100) | 0 |
+| `--include-donations` | Include donation-trade correlations | off |
+| `--min-confidence` | Minimum employer mapping confidence (0.0-1.0) | 0.90 |
+| `--top` | Number of results | 25 |
+
+**anomalies** -- Detect unusual trading patterns.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--db` | SQLite database path (required) | -- |
+| `--politician` | Filter by politician name (partial match) | all |
+| `--min-score` | Minimum composite anomaly score (0.0-1.0) | 0.0 |
+| `--min-confidence` | Minimum confidence threshold (0.0-1.0) | 0.0 |
+| `--show-pre-move` | Show detailed pre-move trade signals | off |
+| `--top` | Number of results | 25 |
+| `--sort-by` | `score`, `volume`, `hhi`, `pre-move` | `score` |
+
 ### Global Flags
 
 | Flag | Description | Default |
@@ -359,15 +413,16 @@ These schemas describe the CLI output (arrays of items), not the PaginatedRespon
 capitoltraders/
   Cargo.toml                    # workspace root
   capitoltrades_api/            # vendored upstream API client
-  capitoltraders_lib/           # library: cache, scraping, db, yahoo, pricing, openfec, mapping
-  capitoltraders_cli/           # CLI binary (10 subcommands)
-  schema/sqlite.sql             # SQLite schema (v5) with FEC and donation tables
+  capitoltraders_lib/           # library: cache, scraping, db, yahoo, pricing, openfec, mapping, analytics, anomaly, conflict
+  capitoltraders_cli/           # CLI binary (13 subcommands)
+  schema/sqlite.sql             # SQLite schema (v7) with FEC, donation, and analytics tables
+  seed_data/                    # GICS sector mappings, committee jurisdictions, employer-issuer mappings
 ```
 
 ## Development
 
 ```sh
-# Run all tests (513 total)
+# Run all tests (618 total)
 cargo test --workspace
 
 # Lint
@@ -387,7 +442,7 @@ filing details, committee memberships, performance data). Senate filings often u
 
 ## SQLite
 
-The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql` (currently at v5). Tables map
+The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql` (currently at v7). Tables map
 directly to the CLI JSON output schemas (`schema/*.schema.json`), including nested data:
 
 - `trades`, `assets`, `issuers`, `politicians`
@@ -396,10 +451,12 @@ directly to the CLI JSON output schemas (`schema/*.schema.json`), including nest
 - `positions` (materialized FIFO portfolio positions per politician per ticker)
 - `fec_mappings`, `fec_committees`, `donations`, `donation_sync_meta`
 - `employer_mappings`, `employer_lookup`
+- `sector_benchmarks` (GICS sector benchmark ETF reference data)
 - `ingest_meta` (tracks `last_trade_pub_date` for incremental sync)
 
 The trades table includes price enrichment columns: `trade_date_price`, `current_price`,
-`price_enriched_at`, `estimated_shares`, `estimated_value`. These are populated by `enrich-prices`.
+`price_enriched_at`, `estimated_shares`, `estimated_value`, `benchmark_price`. These are populated by
+`enrich-prices`. The issuers table includes `gics_sector` for GICS sector classification.
 
 Incremental runs use `last_trade_pub_date` to request only recent pages from the API, then upsert by
 primary key to keep the database current. Enrichment (`--enrich`) populates the join and detail tables

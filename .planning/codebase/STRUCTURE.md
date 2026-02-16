@@ -1,6 +1,6 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-02-14
+**Analysis Date:** 2026-02-15
 
 ## Directory Layout
 
@@ -8,7 +8,11 @@
 capitoltraders/
 ├── Cargo.toml                 # Workspace manifest
 ├── schema/
-│   └── sqlite.sql            # Database schema DDL (v5, 13 tables)
+│   └── sqlite.sql            # Database schema DDL (v7, 14 tables)
+├── seed_data/
+│   ├── gics_sector_mapping.yml   # 200 ticker-to-GICS-sector mappings
+│   ├── committee_sectors.yml     # 40+ committee-to-GICS-sector jurisdiction mappings
+│   └── employer_issuers.toml     # Curated employer-to-issuer mappings
 ├── .planning/
 │   └── codebase/             # Architecture and analysis docs
 ├── capitoltrades_api/        # CRATE 1: Vendored upstream API client
@@ -19,12 +23,17 @@ capitoltraders/
 │   │   ├── yahoo/            # Yahoo Finance market data integration
 │   │   ├── employer_mapping/ # FEC employer correlation logic
 │   │   ├── client.rs         # Cached CapitolTrades client
-│   │   ├── db.rs             # SQLite access and migrations (v1-v5)
-│   │   └── validation.rs     # Input normalization
+│   │   ├── db.rs             # SQLite access and migrations (v1-v7)
+│   │   ├── validation.rs     # Input normalization
+│   │   ├── analytics.rs      # FIFO trade matching, politician metrics, alpha calculation
+│   │   ├── anomaly.rs        # Pre-move signals, volume spikes, HHI concentration scoring
+│   │   ├── conflict.rs       # Committee trading scores, donation-trade correlation
+│   │   ├── committee_jurisdiction.rs  # Committee-to-GICS-sector jurisdiction mapping
+│   │   └── sector_mapping.rs # GICS sector classification and validation
 ├── capitoltraders_cli/       # CRATE 3: CLI binary
 │   ├── src/
 │   │   ├── main.rs           # Entry point and command dispatch
-│   │   ├── commands/         # Subcommand implementations (10 total)
+│   │   ├── commands/         # Subcommand implementations (13 total)
 │   │   │   ├── trades.rs     # Recent trades (scrape/DB)
 │   │   │   ├── sync.rs       # SQLite ingestion
 │   │   │   ├── sync_fec.rs   # FEC candidate ID mapping
@@ -32,7 +41,10 @@ capitoltraders/
 │   │   │   ├── donations.rs  # Query synced donations
 │   │   │   ├── enrich_prices.rs # Yahoo Finance enrichment
 │   │   │   ├── portfolio.rs  # P&L and positions
-│   │   │   └── map_employers.rs # Employer correlation tool
+│   │   │   ├── map_employers.rs # Employer correlation tool
+│   │   │   ├── analytics.rs    # Politician performance leaderboard
+│   │   │   ├── conflicts.rs    # Committee trading scores and donation correlation
+│   │   │   └── anomalies.rs    # Unusual trading pattern detection
 │   │   └── output.rs         # Formatters (table, JSON, CSV, MD, XML)
 ```
 
@@ -62,8 +74,8 @@ capitoltraders/
 
 **Schema & Migrations:**
 - `schema/sqlite.sql` — Base DDL for fresh databases
-- `capitoltraders_lib/src/db.rs` — Migration logic (v1-v5) for existing databases
+- `capitoltraders_lib/src/db.rs` — Migration logic (v1-v7) for existing databases
 
 ---
 
-*Structure analysis: 2026-02-14*
+*Structure analysis: 2026-02-15*

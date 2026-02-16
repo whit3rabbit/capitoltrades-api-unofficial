@@ -1,6 +1,6 @@
 # Architecture
 
-**Analysis Date:** 2026-02-14
+**Analysis Date:** 2026-02-15
 
 ## Pattern Overview
 
@@ -27,21 +27,21 @@
 **Library Layer (capitoltraders_lib):**
 - Purpose: Caching, validation, scraping, enrichment, database access, analysis helpers, Yahoo Finance client, OpenFEC client, employer mapping
 - Location: `capitoltraders_lib/src/`
-- Contains: `CachedClient`, `ScrapeClient`, `Db`, `validation` module, `yahoo` module, `openfec` module, `employer_mapping` module, `portfolio` module
+- Contains: `CachedClient`, `ScrapeClient`, `Db`, `validation` module, `yahoo` module, `openfec` module, `employer_mapping` module, `portfolio` module, `analytics` module, `anomaly` module, `conflict` module, `committee_jurisdiction` module, `sector_mapping` module
 - Depends on: `capitoltrades_api`, dashmap, rusqlite, tokio, regex, yahoo_finance_api, strsim
 - Used by: CLI commands exclusively
 
 **CLI Layer (capitoltraders_cli):**
 - Purpose: User-facing commands, output formatting, orchestration of lib layer
 - Location: `capitoltraders_cli/src/`
-- Contains: 10 subcommands (trades, politicians, issuers, sync, sync-fec, enrich-prices, portfolio, sync-donations, donations, map-employers), output formatters
+- Contains: 13 subcommands (trades, politicians, issuers, sync, sync-fec, enrich-prices, portfolio, sync-donations, donations, map-employers, analytics, conflicts, anomalies), output formatters
 - Depends on: `capitoltraders_lib`, clap, tabled, serde_json, csv, quick-xml, indicatif
 - Used by: Entry point only (main.rs)
 
 **Database Layer:**
 - Purpose: Persistent storage with enrichment tracking and donor correlation
 - Location: `schema/sqlite.sql`
-- Schema (v5): 13 tables (trades, politicians, issuers, assets, trade_committees, trade_labels, politician_committees, positions, fec_mappings, fec_committees, donations, donation_sync_meta, employer_mappings, employer_lookup)
+- Schema (v7): 14 tables (trades, politicians, issuers, assets, trade_committees, trade_labels, politician_committees, positions, fec_mappings, fec_committees, donations, donation_sync_meta, employer_mappings, employer_lookup, sector_benchmarks)
 
 ## Data Flow
 
@@ -56,7 +56,7 @@
 
 **Database Mode (--db flag):**
 1. Same validation and arg parsing
-2. `Db::open()` → initialize schema and run migrations (v1-v5)
+2. `Db::open()` → initialize schema and run migrations (v1-v7)
 3. Build `DbTradeFilter` or similar from validated inputs
 4. `Db::query_trades()` → execute SQL with dynamic WHERE clauses
 5. Apply output formatting and donor context if requested (`--show-donor-context`)
@@ -75,6 +75,14 @@
 3. Estimate shares using midpoint of trade value range and historical price
 4. Fetch current prices per unique ticker to update portfolio valuation
 5. Materialize positions in `positions` table using FIFO accounting
+
+**Analytics Pipeline (analytics, conflicts, anomalies):**
+1. Load all trades with price data from SQLite (query_trades_for_analytics)
+2. FIFO match buy/sell pairs into ClosedTrade records with realized P&L
+3. Compute per-politician metrics: total return, win rate, alpha vs sector benchmarks
+4. Conflict scoring: cross-reference committee jurisdictions with traded sectors
+5. Anomaly detection: pre-move signals, volume spikes, HHI concentration, composite scores
+6. All analytics modules are pure functions with no DB coupling (best-effort enrichment)
 
 ## Key Abstractions
 
@@ -97,4 +105,4 @@
 
 ---
 
-*Architecture analysis: 2026-02-14*
+*Architecture analysis: 2026-02-15*

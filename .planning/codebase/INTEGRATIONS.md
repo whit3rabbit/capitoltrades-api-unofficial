@@ -43,13 +43,14 @@
 - Connection: File-based with WAL mode and foreign keys enabled
 - Client: Rusqlite 0.31 (bundled)
 - Schema: `schema/sqlite.sql`
-- Migrations: Handled in `capitoltraders_lib/src/db.rs` using `user_version` (currently v5)
+- Migrations: Handled in `capitoltraders_lib/src/db.rs` using `user_version` (currently v7)
 
 **Tables:**
 - `trades`, `politicians`, `issuers` (core data)
 - `positions` (materialized portfolio valuation)
 - `fec_mappings`, `fec_committees`, `donations` (donor data)
 - `employer_mappings`, `employer_lookup` (correlation data)
+- `sector_benchmarks` (GICS sector benchmark ETF reference data)
 
 ## Caching
 

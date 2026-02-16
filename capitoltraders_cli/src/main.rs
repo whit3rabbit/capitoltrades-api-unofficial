@@ -1,7 +1,9 @@
 //! CLI binary for querying congressional trading data from CapitolTrades.
 //!
-//! Provides eight subcommands (`trades`, `politicians`, `issuers`, `sync`, `sync-fec`, `enrich-prices`, `portfolio`, `sync-donations`, `donations`) with
-//! extensive filtering, and supports output as table, JSON, CSV, Markdown, or XML.
+//! Provides thirteen subcommands (`trades`, `politicians`, `issuers`, `sync`, `sync-fec`,
+//! `enrich-prices`, `portfolio`, `sync-donations`, `donations`, `map-employers`, `analytics`,
+//! `conflicts`, `anomalies`) with extensive filtering, and supports output as table, JSON,
+//! CSV, Markdown, or XML.
 
 mod commands;
 mod output;
