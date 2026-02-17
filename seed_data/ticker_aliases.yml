@@ -1,0 +1,171 @@
+# Ticker Alias Mappings for Price Enrichment
+#
+# Maps raw CapitolTrades tickers to their Yahoo Finance equivalents.
+# - `to: "TICKER"` means use this Yahoo ticker instead
+# - `to: ~` (null) means this ticker is known-unenrichable (skip it, don't waste API calls)
+#
+# Categories:
+#   Renamed:   Company changed ticker symbol (NCR -> VYX)
+#   Acquired:  Company acquired, trades under acquirer ticker (ATVI -> MSFT)
+#   Delisted:  No longer trades, no successor (to: ~)
+#   Fund:      Money market / mutual fund, not on Yahoo Finance (to: ~)
+#   Index:     Market index, not a tradeable security (to: ~)
+
+aliases:
+  # --- Renamed tickers ---
+  - from: "NCR:US"
+    to: "VYX"           # NCR Corp -> NCR Voyix
+  - from: "FLT:US"
+    to: "CPAY"          # FleetCor Technologies -> Corpay
+  - from: "CDAY:US"
+    to: "DAY"           # Ceridian HCM -> Dayforce
+  - from: "PEAK:US"
+    to: "DOC"           # Healthpeak Properties -> renamed
+  - from: "RE:US"
+    to: "EG"            # Everest Re Group -> Everest Group
+  - from: "LSXMA:US"
+    to: "SIRI"          # Liberty Media SiriusXM -> SiriusXM
+  - from: "BECN:US"
+    to: "QXO"           # Beacon Roofing Supply -> QXO
+  - from: "NYCB:US"
+    to: "FLG"           # New York Community Bancorp -> Flagstar Financial
+  - from: "HHC:US"
+    to: "HHH"           # Howard Hughes Corp -> Howard Hughes Holdings
+  - from: "DWAC:US"
+    to: "DJT"           # Digital World Acquisition Corp -> Trump Media
+  - from: "PRMW:US"
+    to: "PRMB"          # Primo Water -> Primo Brands
+  - from: "LBYAV:US"
+    to: "LBTYA"         # Liberty Global class A voting -> Yahoo uses LBTYA
+  - from: "DISH:US"
+    to: "SATS"          # DISH merged with EchoStar
+  - from: "WWE:US"
+    to: "TKO"           # WWE merged with UFC/Endeavor -> TKO Group Holdings
+  - from: "SIX:US"
+    to: "FUN"           # Six Flags merged with Cedar Fair -> Six Flags Entertainment
+
+  # --- Acquired / merged / delisted (no Yahoo equivalent) ---
+  - from: "ATVI:US"
+    to: ~               # Activision Blizzard acquired by MSFT, delisted
+  - from: "LTHM:US"
+    to: ~               # Livent merged into Arcadium Lithium (ALTM), then acquired by Rio Tinto
+  - from: "INFN:US"
+    to: ~               # Infinera acquired by Nokia
+  - from: "JNPR:US"
+    to: ~               # Juniper Networks acquired by HPE
+  - from: "MSDA:US"
+    to: ~               # MSD Acquisition Corp (SPAC, delisted)
+  - from: "VMW:US"
+    to: ~               # VMware acquired by Broadcom Nov 2023
+  - from: "SGEN:US"
+    to: ~               # Seagen acquired by Pfizer Dec 2023
+  - from: "MMP:US"
+    to: ~               # Magellan Midstream acquired by ONEOK Sep 2023
+  - from: "TRTN:US"
+    to: ~               # Triton International acquired by Brookfield Sep 2023
+  - from: "CSII:US"
+    to: ~               # Cardiovascular Systems acquired by Abbott Apr 2023
+  - from: "AQUA:US"
+    to: ~               # Evoqua Water acquired by Xylem May 2023
+  - from: "CS:US"
+    to: ~               # Credit Suisse acquired by UBS Jun 2023
+  - from: "PXD:US"
+    to: ~               # Pioneer Natural Resources acquired by ExxonMobil May 2024
+  - from: "CTLT:US"
+    to: ~               # Catalent acquired by Novo Holdings Feb 2024
+  - from: "MRTX:US"
+    to: ~               # Mirati Therapeutics acquired by BMS Jan 2024
+  - from: "CHX:US"
+    to: ~               # ChampionX acquired by SLB Oct 2024
+  - from: "WRK:US"
+    to: ~               # WestRock merged with Smurfit Kappa Jul 2024
+  - from: "ETRN:US"
+    to: ~               # Equitrans Midstream acquired by EQT Jul 2024
+  - from: "NCMGY:US"
+    to: ~               # Newcrest Mining ADR acquired by Newmont Nov 2023
+  - from: "KRTX:US"
+    to: ~               # Karuna Therapeutics acquired by BMS Mar 2024
+  - from: "SILK:US"
+    to: ~               # Silk Road Medical acquired by Boston Scientific Jun 2024
+  - from: "EVBG:US"
+    to: ~               # Everbridge taken private by Thoma Bravo Jan 2024
+  - from: "INST:US"
+    to: ~               # Instructure taken private by Thoma Bravo
+  - from: "TOSYY:US"
+    to: ~               # Toshiba ADR went private Dec 2023
+  - from: "AZPN:US"
+    to: ~               # Aspen Technology majority acquired by Emerson
+  - from: "INRE:US"
+    to: ~               # Inland Real Estate Income Trust (private REIT)
+  - from: "ROIC:US"
+    to: ~               # Retail Opportunity Investments acquired by Blackstone 2024
+  - from: "ARGO:US"
+    to: ~               # Argo Group acquired by Brookfield Re 2023
+  - from: "AHL:US"
+    to: ~               # Aspen Insurance Holdings acquired by Apollo
+  - from: "CEQP:US"
+    to: ~               # Crestwood Equity Partners acquired by Energy Transfer
+  - from: "LMST:US"
+    to: ~               # Limestone Bancorp acquired by German American Bankshares
+
+  # --- Failed / seized banks ---
+  - from: "FRC:US"
+    to: ~               # First Republic Bank seized by FDIC May 2023
+  - from: "SBNY:US"
+    to: ~               # Signature Bank failed March 2023
+  - from: "SIVBQ:US"
+    to: ~               # Silicon Valley Bank bankruptcy ticker
+
+  # --- Bankruptcy tickers ---
+  - from: "GPORQ:US"
+    to: ~               # Gulfport Energy bankruptcy ticker
+
+  # --- Money market / mutual funds (not on Yahoo) ---
+  - from: "JTSXX:US"
+    to: ~
+  - from: "VMFXX:US"
+    to: ~
+  - from: "OGVXX:US"
+    to: ~
+  - from: "WWGEX:US"
+    to: ~               # Worldwide Growth & Equity fund
+  - from: "XMEX:US"
+    to: ~               # XM Europe fund
+  - from: "TTTXX:US"
+    to: ~               # Treasury Trust money market
+  - from: "GSTFX:US"
+    to: ~               # Goldman Sachs fund
+  - from: "FZDXX:US"
+    to: ~               # Fidelity money market
+  - from: "FNSXX:US"
+    to: ~               # Fidelity money market
+
+  # --- Numeric/opaque Bloomberg IDs (not real tickers) ---
+  - from: "559242Z:CN"
+    to: ~               # Opaque Bloomberg ID
+  - from: "7410Z:US"
+    to: ~               # Opaque Bloomberg ID
+  - from: "1494391D:US"
+    to: ~               # Opaque Bloomberg ID
+  - from: "5672A:US"
+    to: ~               # Opaque Bloomberg ID
+  - from: "3733Z:US"
+    to: ~               # Opaque Bloomberg ID
+
+  # --- Indices (not tradeable) ---
+  - from: "XSP:US"
+    to: ~               # S&P 500 Mini Options Index
+  - from: "SPX:US"
+    to: ~               # S&P 500 Index
+
+  # --- Foreign tickers with no Yahoo equivalent ---
+  - from: "8376923Z:LN"
+    to: ~               # Unknown London listing
+
+  # --- Tickers that may work on retry (renamed or data gaps) ---
+  - from: "DNB:US"
+    to: "DNB"           # Dun & Bradstreet
+  - from: "CNHI:US"
+    to: "CNH"           # CNH Industrial (ticker changed)
+  - from: "SSBK:US"
+    to: "SSBK"          # Southern States Bancshares (may work with retry)

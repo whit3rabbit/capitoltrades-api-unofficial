@@ -7,7 +7,7 @@ This guide provides concrete patterns and conventions for agentic coding in this
 ```bash
 # Primary workspace commands
 cargo check --workspace          # Fast compilation check
-cargo test --workspace           # Run all 618 tests
+cargo test --workspace           # Run all 638 tests
 cargo clippy --workspace         # Lint with all clippy rules
 cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
@@ -419,10 +419,23 @@ let current: Option<f64> = yahoo.get_current_price("AAPL").await?;
 let range = parse_trade_range(Some(15001.0), Some(50000.0));  // TradeRange with midpoint
 let estimate = estimate_shares(&range.unwrap(), 150.0);        // ShareEstimate
 
+// Ticker alias resolution (compile-time YAML, same pattern as sector_mapping.rs)
+let aliases = ticker_alias::load_ticker_aliases()?;            // HashMap<String, Option<String>>
+let yahoo_ticker = pricing::resolve_yahoo_ticker(raw, &aliases); // alias-first, then normalize
+// aliases map: Some("CPAY") = renamed, None = known-unenrichable (skip API call)
+
 // DB price enrichment operations
 let unenriched = db.get_unenriched_price_trades(Some(50))?;   // PriceEnrichmentRow vec
 db.update_trade_prices(tx_id, price, shares, value)?;          // Always sets price_enriched_at
 db.update_current_price(ticker, price)?;                       // Phase 2 of enrichment
+
+// Enrichment diagnostics (--diagnose flag, no API calls)
+let diag = db.get_enrichment_diagnostics()?;                   // EnrichmentDiagnostics
+// diag.total, .has_price, .attempted_no_price, .never_attempted
+// diag.top_failed_tickers, .never_attempted_reasons, .failed_suffix_distribution
+
+// Reset failed enrichments for retry (--retry-failed flag)
+let reset_count = db.reset_failed_price_enrichments()?;        // clears price_enriched_at where price is NULL
 
 // FIFO portfolio calculator (pure logic, no DB)
 let positions = calculate_positions(trades);  // HashMap<(politician_id, ticker), Position>
@@ -462,6 +475,8 @@ let option_count = db.count_option_trades(Some("P000197"))?;
 - **yahoo_finance_api Decimal is f64**: No conversion needed (type alias without 'decimal' feature)
 - **response.quotes() errors**: Yahoo API returns Ok(response) but quotes() can fail with NoQuotes
 - **Schema v2 fresh DBs**: Base schema.sql includes all columns; migrations only for existing DBs
+- **Unenriched trades after enrichment**: Use `--diagnose` to categorize; most are null tickers (unenrichable) or renamed/delisted stocks (fix via `seed_data/ticker_aliases.yml`)
+- **Ticker alias vs normalize**: `resolve_yahoo_ticker()` checks aliases first, then falls through to `normalize_ticker_for_yahoo()`; never call normalize directly in the enrichment pipeline
 
 ## When to Ask
 
@@ -474,3 +489,4 @@ let option_count = db.count_option_trades(Some("P000197"))?;
 - Before modifying FIFO portfolio calculator logic (affects P&L correctness)
 - When changing Yahoo Finance rate limiting or circuit breaker thresholds
 - Before changing OpenFEC rate limiter budget or retry parameters
+- Before modifying ticker alias resolution order or adding new alias YAML fields

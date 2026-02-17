@@ -271,14 +271,23 @@ already-enriched records. Progress bars show enrichment status. A circuit breake
 | Flag | Description | Default |
 |---|---|---|
 | `--db` | SQLite database path (required) | -- |
-| `--batch-size` | Maximum trades to enrich per run | 50 |
+| `--batch-size` | Maximum trades to enrich per run | all |
 | `--force` | Re-enrich already-enriched trades (reserved, not yet active) | off |
+| `--diagnose` | Print enrichment diagnostics and exit (no Yahoo API calls) | off |
+| `--retry-failed` | Reset trades that were attempted but got no price, then re-enrich | off |
 
-Enrichment runs in two phases: (1) historical trade-date prices fetched per unique (ticker, date) pair,
-then (2) current prices fetched per unique ticker. Trades without valid tickers are marked as processed
-and skipped on future runs. Rate limiting (200-500ms jittered delay, max 5 concurrent) prevents Yahoo
-Finance throttling. A circuit breaker trips after 10 consecutive failures. Progress displays ticker
-counts and success/fail/skip summary.
+Enrichment runs in three phases: (1) historical trade-date prices fetched per unique (ticker, date) pair,
+(2) current prices fetched per unique ticker, and (3) benchmark prices (sector ETF or SPY) per unique
+(ETF, date) pair. A ticker alias system (`seed_data/ticker_aliases.yml`) resolves renamed stocks, acquired
+companies, and known-unenrichable tickers (money market funds, indices) before calling Yahoo Finance.
+Trades without valid tickers are marked as processed and skipped on future runs. Rate limiting (200-500ms
+jittered delay, max 5 concurrent) prevents Yahoo Finance throttling. A circuit breaker trips after 10
+consecutive failures. Progress displays ticker counts and success/fail/skip summary.
+
+As of the current dataset (35,575 trades): 29,406 (82.7%) have prices, 1,339 (3.8%) were attempted but
+Yahoo returned no data (delisted stocks, mutual funds, transient failures), and 4,830 (13.6%) were never
+attempted due to null/empty issuer tickers (genuinely unenrichable). Use `--diagnose` to see a full
+breakdown and `--retry-failed` to re-attempt previously failed tickers.
 
 **portfolio** -- View per-politician stock positions with unrealized P&L.
 
@@ -416,13 +425,13 @@ capitoltraders/
   capitoltraders_lib/           # library: cache, scraping, db, yahoo, pricing, openfec, mapping, analytics, anomaly, conflict
   capitoltraders_cli/           # CLI binary (13 subcommands)
   schema/sqlite.sql             # SQLite schema (v7) with FEC, donation, and analytics tables
-  seed_data/                    # GICS sector mappings, committee jurisdictions, employer-issuer mappings
+  seed_data/                    # GICS sector mappings, committee jurisdictions, employer-issuer mappings, ticker aliases
 ```
 
 ## Development
 
 ```sh
-# Run all tests (618 total)
+# Run all tests (638 total)
 cargo test --workspace
 
 # Lint

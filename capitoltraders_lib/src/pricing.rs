@@ -90,6 +90,35 @@ pub fn estimate_shares(range: &TradeRange, trade_date_price: f64) -> Option<Shar
     })
 }
 
+/// Resolve a raw CapitolTrades ticker to a Yahoo Finance ticker using aliases.
+///
+/// Checks the alias map first (both the raw ticker and its base without suffix),
+/// then falls through to `normalize_ticker_for_yahoo()`.
+///
+/// Returns `None` if:
+/// - The alias maps to `None` (known-unenrichable ticker)
+/// - `normalize_ticker_for_yahoo()` returns `None` (empty/unparseable)
+pub fn resolve_yahoo_ticker(
+    raw: &str,
+    aliases: &std::collections::HashMap<String, Option<String>>,
+) -> Option<String> {
+    // Check alias map with raw ticker first (e.g., "ATVI:US")
+    if let Some(mapped) = aliases.get(raw) {
+        return mapped.clone();
+    }
+
+    // Check alias map with trimmed ticker
+    let trimmed = raw.trim();
+    if trimmed != raw {
+        if let Some(mapped) = aliases.get(trimmed) {
+            return mapped.clone();
+        }
+    }
+
+    // Fall through to format-based normalization
+    normalize_ticker_for_yahoo(raw)
+}
+
 /// Normalize a CapitolTrades ticker to Yahoo Finance format.
 ///
 /// CapitolTrades uses Bloomberg-style exchange suffixes (e.g., `MSFT:US`).
@@ -116,8 +145,8 @@ pub fn normalize_ticker_for_yahoo(ticker: &str) -> Option<String> {
         if base.is_empty() {
             return None;
         }
-        // Replace slash with dash for share classes (BRK/B -> BRK-B)
-        let base = base.replace('/', "-");
+        // Replace slash or dot with dash for share classes (BRK/B -> BRK-B, CWEN.A -> CWEN-A)
+        let base = base.replace('/', "-").replace('.', "-");
         match suffix.trim().to_uppercase().as_str() {
             "US" => Some(base),
             "LN" => Some(format!("{}.L", base)),
@@ -130,8 +159,8 @@ pub fn normalize_ticker_for_yahoo(ticker: &str) -> Option<String> {
             _ => Some(base),
         }
     } else {
-        // No suffix -- replace slash and use as-is
-        Some(trimmed.replace('/', "-"))
+        // No suffix -- replace slash/dot and use as-is
+        Some(trimmed.replace('/', "-").replace('.', "-"))
     }
 }
 
@@ -314,6 +343,12 @@ mod tests {
     }
 
     #[test]
+    fn normalize_share_class_dot() {
+        assert_eq!(normalize_ticker_for_yahoo("CWEN.A:US"), Some("CWEN-A".into()));
+        assert_eq!(normalize_ticker_for_yahoo("BRY.1:US"), Some("BRY-1".into()));
+    }
+
+    #[test]
     fn normalize_plain_ticker() {
         assert_eq!(normalize_ticker_for_yahoo("DALCX"), Some("DALCX".into()));
     }
@@ -336,5 +371,59 @@ mod tests {
     #[test]
     fn normalize_colon_no_base() {
         assert_eq!(normalize_ticker_for_yahoo(":US"), None);
+    }
+
+    // --- resolve_yahoo_ticker tests ---
+
+    fn test_aliases() -> std::collections::HashMap<String, Option<String>> {
+        let mut m = std::collections::HashMap::new();
+        m.insert("ATVI:US".to_string(), None); // delisted
+        m.insert("FLT:US".to_string(), Some("CPAY".to_string())); // renamed
+        m.insert("JTSXX:US".to_string(), None); // money market
+        m
+    }
+
+    #[test]
+    fn resolve_alias_hit_renamed() {
+        let aliases = test_aliases();
+        assert_eq!(resolve_yahoo_ticker("FLT:US", &aliases), Some("CPAY".to_string()));
+    }
+
+    #[test]
+    fn resolve_alias_hit_unenrichable() {
+        let aliases = test_aliases();
+        assert_eq!(resolve_yahoo_ticker("ATVI:US", &aliases), None);
+    }
+
+    #[test]
+    fn resolve_alias_hit_money_market() {
+        let aliases = test_aliases();
+        assert_eq!(resolve_yahoo_ticker("JTSXX:US", &aliases), None);
+    }
+
+    #[test]
+    fn resolve_alias_miss_falls_through() {
+        let aliases = test_aliases();
+        // MSFT:US is not in aliases, should fall through to normalize
+        assert_eq!(resolve_yahoo_ticker("MSFT:US", &aliases), Some("MSFT".to_string()));
+    }
+
+    #[test]
+    fn resolve_alias_empty_map() {
+        let aliases = std::collections::HashMap::new();
+        assert_eq!(resolve_yahoo_ticker("AAPL:US", &aliases), Some("AAPL".to_string()));
+    }
+
+    #[test]
+    fn resolve_alias_empty_ticker() {
+        let aliases = test_aliases();
+        assert_eq!(resolve_yahoo_ticker("", &aliases), None);
+    }
+
+    #[test]
+    fn resolve_alias_trimmed_lookup() {
+        let aliases = test_aliases();
+        // Trailing space -- should still find "FLT:US" after trimming
+        assert_eq!(resolve_yahoo_ticker("FLT:US ", &aliases), Some("CPAY".to_string()));
     }
 }

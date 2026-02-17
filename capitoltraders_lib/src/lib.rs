@@ -20,6 +20,7 @@ pub mod portfolio;
 pub mod pricing;
 pub mod scrape;
 pub mod sector_mapping;
+pub mod ticker_alias;
 pub mod validation;
 pub mod yahoo;
 
@@ -35,8 +36,8 @@ pub use committee::{CommitteeClass, CommitteeError, CommitteeResolver, ResolvedC
 pub use db::{
     AnalyticsTradeRow, ContributorAggRow, Db, DbError, DbIssuerFilter, DbIssuerRow,
     DbPoliticianFilter, DbPoliticianRow, DbTradeFilter, DbTradeRow, DonationFilter, DonationRow,
-    DonationSummary, DonorContext, EmployerAggRow, HHIPositionRow, IssuerStatsRow,
-    PoliticianStatsRow, PortfolioFilter, PortfolioPosition, PreMoveCandidateRow,
+    DonationSummary, DonorContext, EmployerAggRow, EnrichmentDiagnostics, HHIPositionRow,
+    IssuerStatsRow, PoliticianStatsRow, PortfolioFilter, PortfolioPosition, PreMoveCandidateRow,
     PriceEnrichmentRow, SectorTotal, StateAggRow, TradeVolumeRow,
 };
 pub use employer_mapping::{
@@ -47,7 +48,8 @@ pub use error::CapitolTradesError;
 pub use fec_mapping::{FecMapping, FecMappingError, Legislator, download_legislators, match_legislators_to_politicians};
 pub use openfec::{OpenFecClient, OpenFecError};
 pub use portfolio::{calculate_positions, Lot, Position, TradeFIFO};
-pub use pricing::{estimate_shares, parse_trade_range, ShareEstimate, TradeRange};
+pub use pricing::{estimate_shares, parse_trade_range, resolve_yahoo_ticker, ShareEstimate, TradeRange};
+pub use ticker_alias::{load_ticker_aliases, parse_ticker_aliases, TickerAlias, TickerAliasError};
 pub use scrape::{
     ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
     ScrapedPoliticianCard, ScrapedTrade, ScrapedTradeDetail,

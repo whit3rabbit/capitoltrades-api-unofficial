@@ -8,12 +8,12 @@
 //! Uses Semaphore + JoinSet + mpsc pattern for concurrent fetching with rate limiting.
 
 use anyhow::{anyhow, bail, Result};
-use capitoltraders_lib::{pricing, yahoo::YahooClient, Db};
+use capitoltraders_lib::{pricing, ticker_alias, yahoo::YahooClient, Db};
 use chrono::NaiveDate;
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,6 +35,14 @@ pub struct EnrichPricesArgs {
     /// Re-enrich already-enriched trades (reserved for future use)
     #[arg(long)]
     pub force: bool,
+
+    /// Print enrichment diagnostics and exit (no Yahoo API calls)
+    #[arg(long)]
+    pub diagnose: bool,
+
+    /// Reset trades that were attempted but got no price, then re-enrich them
+    #[arg(long)]
+    pub retry_failed: bool,
 }
 
 /// Message sent from fetch tasks to receiver for historical price enrichment.
@@ -105,14 +113,81 @@ fn get_benchmark_ticker(gics_sector: Option<&str>) -> &'static str {
     }
 }
 
+/// Print enrichment diagnostics report to stderr.
+fn print_diagnostics(db: &Db) -> Result<()> {
+    let diag = db.get_enrichment_diagnostics()?;
+
+    eprintln!("=== Enrichment Diagnostics ===");
+    eprintln!();
+    eprintln!("Overall breakdown:");
+    eprintln!("  Total trades:           {:>6}", diag.total);
+    eprintln!("  Has price:              {:>6} ({:.1}%)", diag.has_price, pct(diag.has_price, diag.total));
+    eprintln!("  Attempted, no price:    {:>6} ({:.1}%)", diag.attempted_no_price, pct(diag.attempted_no_price, diag.total));
+    eprintln!("  Never attempted:        {:>6} ({:.1}%)", diag.never_attempted, pct(diag.never_attempted, diag.total));
+
+    if !diag.never_attempted_reasons.is_empty() {
+        eprintln!();
+        eprintln!("Why trades were never attempted:");
+        for (reason, cnt) in &diag.never_attempted_reasons {
+            eprintln!("  {:<25} {:>6}", reason, cnt);
+        }
+    }
+
+    if !diag.top_failed_tickers.is_empty() {
+        eprintln!();
+        eprintln!("Top tickers attempted but got no price:");
+        for (ticker, name, cnt) in &diag.top_failed_tickers {
+            eprintln!("  {:<15} {:<40} {:>4}", ticker, name, cnt);
+        }
+    }
+
+    if !diag.failed_suffix_distribution.is_empty() {
+        eprintln!();
+        eprintln!("Exchange suffix distribution on failed tickers:");
+        for (suffix, cnt) in &diag.failed_suffix_distribution {
+            eprintln!("  {:<10} {:>6}", suffix, cnt);
+        }
+    }
+
+    eprintln!();
+    eprintln!("=== End Diagnostics ===");
+
+    Ok(())
+}
+
+fn pct(part: i64, total: i64) -> f64 {
+    if total == 0 { 0.0 } else { (part as f64 / total as f64) * 100.0 }
+}
+
 /// Run the price enrichment pipeline.
 pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
+    let db = Db::open(&args.db)?;
+
+    // --diagnose: print diagnostics and exit
+    if args.diagnose {
+        print_diagnostics(&db)?;
+        return Ok(());
+    }
+
     if args.force {
         eprintln!("Note: --force flag is reserved for future use and currently has no effect");
     }
 
+    // --retry-failed: reset trades that were attempted but got no price
+    if args.retry_failed {
+        let reset_count = db.reset_failed_price_enrichments()?;
+        eprintln!("Reset {} trades that were attempted but got no price", reset_count);
+    }
+
+    // Load ticker aliases
+    let aliases = ticker_alias::load_ticker_aliases()
+        .map_err(|e| anyhow!("Failed to load ticker aliases: {}", e))?;
+    let alias_count = aliases.len();
+    if alias_count > 0 {
+        eprintln!("Loaded {} ticker aliases", alias_count);
+    }
+
     // Step 1: Setup
-    let db = Db::open(&args.db)?;
     let yahoo = Arc::new(
         YahooClient::new().map_err(|e| anyhow!("Failed to create Yahoo client: {}", e))?,
     );
@@ -134,15 +209,32 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
     let mut normalized_tickers: HashMap<String, String> = HashMap::new();
     let mut skipped_parse_errors = 0usize;
     let mut skipped_no_ticker = 0usize;
+    let mut alias_skipped_unenrichable = 0usize;
+    let mut alias_resolved = 0usize;
 
     for (idx, trade) in trades.iter().enumerate() {
-        let yahoo_ticker = match pricing::normalize_ticker_for_yahoo(&trade.issuer_ticker) {
+        let yahoo_ticker = match pricing::resolve_yahoo_ticker(&trade.issuer_ticker, &aliases) {
             Some(t) => t,
             None => {
-                skipped_no_ticker += 1;
+                // Check if this was an alias-based skip (known unenrichable) vs empty ticker
+                if aliases.get(trade.issuer_ticker.as_str()) == Some(&None)
+                    || aliases.get(trade.issuer_ticker.trim()) == Some(&None)
+                {
+                    alias_skipped_unenrichable += 1;
+                } else {
+                    skipped_no_ticker += 1;
+                }
                 continue;
             }
         };
+
+        // Track alias usage for reporting
+        if aliases.contains_key(trade.issuer_ticker.as_str())
+            || aliases.contains_key(trade.issuer_ticker.trim())
+        {
+            alias_resolved += 1;
+        }
+
         normalized_tickers
             .entry(trade.issuer_ticker.clone())
             .or_insert_with(|| yahoo_ticker.clone());
@@ -167,6 +259,18 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
         eprintln!(
             "Skipped {} trades with empty or unparseable tickers",
             skipped_no_ticker
+        );
+    }
+    if alias_skipped_unenrichable > 0 {
+        eprintln!(
+            "Skipped {} trades with known-unenrichable tickers (via aliases)",
+            alias_skipped_unenrichable
+        );
+    }
+    if alias_resolved > 0 {
+        eprintln!(
+            "Resolved {} trades via ticker aliases",
+            alias_resolved
         );
     }
 
@@ -222,6 +326,9 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
     let mut skipped = 0usize;
     let mut breaker = CircuitBreaker::new(CIRCUIT_BREAKER_THRESHOLD);
 
+    // Track tickers that return no data for end-of-run summary
+    let mut no_data_tickers: HashSet<String> = HashSet::new();
+
     while let Some(fetch) = rx.recv().await {
         match fetch.result {
             Ok(Some(price)) => {
@@ -254,7 +361,10 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
                 }
             }
             Ok(None) => {
-                // Invalid ticker or no data for that date
+                // Log first occurrence of each failing ticker
+                if no_data_tickers.insert(fetch.ticker.clone()) {
+                    pb.println(format!("  No data: {} on {}", fetch.ticker, fetch.date));
+                }
                 for idx in &fetch.trade_indices {
                     let trade = &trades[*idx];
                     db.update_trade_prices(trade.tx_id, None, None, None)?;
@@ -292,6 +402,25 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
         "Phase 1 done: {} enriched, {} failed, {} skipped",
         enriched, failed, skipped
     ));
+
+    // Print failing ticker summary
+    if !no_data_tickers.is_empty() {
+        eprintln!();
+        eprintln!(
+            "{} unique tickers returned no data from Yahoo:",
+            no_data_tickers.len()
+        );
+        let mut sorted: Vec<&String> = no_data_tickers.iter().collect();
+        sorted.sort();
+        for ticker in sorted.iter().take(20) {
+            eprintln!("  {}", ticker);
+        }
+        if no_data_tickers.len() > 20 {
+            eprintln!("  ... and {} more", no_data_tickers.len() - 20);
+        }
+        eprintln!("Tip: Add aliases to seed_data/ticker_aliases.yml for renamed/known tickers");
+        eprintln!();
+    }
 
     // Step 4: Current price enrichment (Phase 2)
     let mut ticker_map: HashMap<String, Vec<usize>> = HashMap::new();

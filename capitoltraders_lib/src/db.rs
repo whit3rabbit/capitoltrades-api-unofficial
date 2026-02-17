@@ -1648,6 +1648,102 @@ impl Db {
         Ok(())
     }
 
+    /// Run enrichment diagnostics queries and return structured results.
+    ///
+    /// Provides a breakdown of trade enrichment state: how many have prices,
+    /// how many were attempted but got no price, and why trades were never attempted.
+    pub fn get_enrichment_diagnostics(&self) -> Result<EnrichmentDiagnostics, DbError> {
+        // Q1: Overall breakdown
+        let (total, has_price, attempted_no_price, never_attempted) = self.conn.query_row(
+            "SELECT
+               COUNT(*) AS total,
+               COALESCE(SUM(CASE WHEN price_enriched_at IS NOT NULL AND trade_date_price IS NOT NULL THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN price_enriched_at IS NOT NULL AND trade_date_price IS NULL THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN price_enriched_at IS NULL THEN 1 ELSE 0 END), 0)
+             FROM trades",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?)),
+        )?;
+
+        // Q2: Why trades were never attempted
+        let mut stmt = self.conn.prepare(
+            "SELECT
+               CASE
+                 WHEN i.issuer_id IS NULL THEN 'orphan_issuer_id'
+                 WHEN i.issuer_ticker IS NULL OR i.issuer_ticker = '' THEN 'null_or_empty_ticker'
+                 WHEN t.tx_date IS NULL THEN 'null_tx_date'
+                 ELSE 'unknown'
+               END AS reason,
+               COUNT(*) AS cnt
+             FROM trades t
+             LEFT JOIN issuers i ON t.issuer_id = i.issuer_id
+             WHERE t.price_enriched_at IS NULL
+             GROUP BY reason ORDER BY cnt DESC",
+        )?;
+        let never_attempted_reasons = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Q3: Top 30 tickers that were attempted but got no price
+        let mut stmt = self.conn.prepare(
+            "SELECT i.issuer_ticker, i.issuer_name, COUNT(*) AS cnt
+             FROM trades t
+             JOIN issuers i ON t.issuer_id = i.issuer_id
+             WHERE t.price_enriched_at IS NOT NULL AND t.trade_date_price IS NULL
+             GROUP BY i.issuer_ticker ORDER BY cnt DESC LIMIT 30",
+        )?;
+        let top_failed_tickers = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Q4: Exchange suffix distribution on failed tickers
+        let mut stmt = self.conn.prepare(
+            "SELECT
+               CASE WHEN i.issuer_ticker LIKE '%:%'
+                 THEN SUBSTR(i.issuer_ticker, INSTR(i.issuer_ticker, ':') + 1)
+                 ELSE '(none)'
+               END AS suffix,
+               COUNT(*) AS cnt
+             FROM trades t
+             JOIN issuers i ON t.issuer_id = i.issuer_id
+             WHERE t.price_enriched_at IS NOT NULL AND t.trade_date_price IS NULL
+             GROUP BY suffix ORDER BY cnt DESC",
+        )?;
+        let failed_suffix_distribution = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(EnrichmentDiagnostics {
+            total,
+            has_price,
+            attempted_no_price,
+            never_attempted,
+            never_attempted_reasons,
+            top_failed_tickers,
+            failed_suffix_distribution,
+        })
+    }
+
+    /// Reset failed price enrichments so they can be retried.
+    ///
+    /// Clears `price_enriched_at` on trades that were processed but got no price
+    /// (i.e., `price_enriched_at IS NOT NULL AND trade_date_price IS NULL`).
+    /// Returns the number of trades reset.
+    pub fn reset_failed_price_enrichments(&self) -> Result<usize, DbError> {
+        let count = self.conn.execute(
+            "UPDATE trades SET price_enriched_at = NULL
+             WHERE price_enriched_at IS NOT NULL AND trade_date_price IS NULL",
+            [],
+        )?;
+        Ok(count)
+    }
+
     /// Persist scraped issuer detail data to the database.
     ///
     /// Updates the issuers table (with COALESCE protection for nullable fields),
@@ -3960,6 +4056,21 @@ pub struct BenchmarkEnrichmentRow {
     pub issuer_ticker: String,
     pub tx_date: String,
     pub gics_sector: Option<String>,
+}
+
+/// Summary of enrichment state across all trades.
+#[derive(Debug)]
+pub struct EnrichmentDiagnostics {
+    pub total: i64,
+    pub has_price: i64,
+    pub attempted_no_price: i64,
+    pub never_attempted: i64,
+    /// Breakdown of why trades were never attempted.
+    pub never_attempted_reasons: Vec<(String, i64)>,
+    /// Top tickers that were attempted but got no price (ticker, issuer_name, count).
+    pub top_failed_tickers: Vec<(String, String, i64)>,
+    /// Exchange suffix distribution on failed tickers (suffix, count).
+    pub failed_suffix_distribution: Vec<(String, i64)>,
 }
 
 /// A trade row for analytics processing, including benchmark prices and sector information.
@@ -9858,5 +9969,202 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let positions = db.query_portfolio_positions_for_hhi().expect("query positions");
 
         assert_eq!(positions.len(), 0);
+    }
+
+    // --- Enrichment diagnostics tests ---
+
+    fn insert_enrichment_issuer(db: &Db, issuer_id: i64, ticker: &str) {
+        insert_test_issuer(
+            db,
+            issuer_id,
+            &format!("Issuer {}", issuer_id),
+            if ticker.is_empty() { None } else { Some(ticker) },
+            None,
+            None,
+            None,
+        );
+    }
+
+    /// Set up FK rows required by trades table (asset + politician).
+    /// Uses INSERT OR IGNORE to be idempotent.
+    fn setup_enrichment_fk_rows(db: &Db) {
+        db.conn
+            .execute(
+                "INSERT OR IGNORE INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+        db.conn
+            .execute(
+                "INSERT OR IGNORE INTO politicians (politician_id, first_name, last_name, party, state_id, dob, gender, chamber)
+                 VALUES ('P000001', 'John', 'Doe', 'Democrat', 'CA', '1970-01-01', 'M', 'House')",
+                [],
+            )
+            .expect("insert politician");
+    }
+
+    fn insert_test_trade_with_enrichment(
+        db: &Db,
+        tx_id: i64,
+        issuer_id: i64,
+        tx_date: &str,
+        price_enriched_at: Option<&str>,
+        trade_date_price: Option<f64>,
+    ) {
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date,
+                    filing_date, tx_date, tx_type, has_capital_gains, owner, chamber,
+                    size_range_low, size_range_high, value, filing_id, filing_url, reporting_gap,
+                    price_enriched_at, trade_date_price)
+                 VALUES (?1, 'P000001', 1, ?2, '2024-01-20',
+                    '2024-01-19', ?3, 'purchase', 0, 'self', 'House',
+                    1001, 15000, 8000, 1, 'https://example.com', 5,
+                    ?4, ?5)",
+                params![tx_id, issuer_id, tx_date, price_enriched_at, trade_date_price],
+            )
+            .expect("insert trade");
+    }
+
+    #[test]
+    fn test_enrichment_diagnostics_all_states() {
+        let db = open_test_db();
+        setup_enrichment_fk_rows(&db);
+
+        // Issuer with ticker
+        insert_enrichment_issuer(&db, 100, "AAPL:US");
+        // Issuer with empty ticker
+        insert_enrichment_issuer(&db, 200, "");
+
+        // Trade with price (enriched successfully)
+        insert_test_trade_with_enrichment(&db, 1, 100, "2024-01-15", Some("2024-01-16 00:00:00"), Some(150.0));
+        // Trade attempted but no price
+        insert_test_trade_with_enrichment(&db, 2, 100, "2024-01-16", Some("2024-01-17 00:00:00"), None);
+        // Trade never attempted (has good ticker but not yet enriched)
+        insert_test_trade_with_enrichment(&db, 3, 100, "2024-01-17", None, None);
+        // Trade never attempted (empty ticker issuer)
+        insert_test_trade_with_enrichment(&db, 4, 200, "2024-01-18", None, None);
+
+        let diag = db.get_enrichment_diagnostics().unwrap();
+
+        assert_eq!(diag.total, 4);
+        assert_eq!(diag.has_price, 1);
+        assert_eq!(diag.attempted_no_price, 1);
+        assert_eq!(diag.never_attempted, 2);
+    }
+
+    #[test]
+    fn test_enrichment_diagnostics_never_attempted_reasons() {
+        let db = open_test_db();
+        setup_enrichment_fk_rows(&db);
+
+        // Issuer with empty ticker
+        insert_enrichment_issuer(&db, 300, "");
+        insert_test_trade_with_enrichment(&db, 10, 300, "2024-01-15", None, None);
+        insert_test_trade_with_enrichment(&db, 11, 300, "2024-01-16", None, None);
+
+        let diag = db.get_enrichment_diagnostics().unwrap();
+        assert_eq!(diag.never_attempted, 2);
+        assert!(!diag.never_attempted_reasons.is_empty());
+        assert_eq!(diag.never_attempted_reasons[0].0, "null_or_empty_ticker");
+        assert_eq!(diag.never_attempted_reasons[0].1, 2);
+    }
+
+    #[test]
+    fn test_enrichment_diagnostics_top_failed_tickers() {
+        let db = open_test_db();
+        setup_enrichment_fk_rows(&db);
+
+        insert_enrichment_issuer(&db, 400, "JTSXX:US");
+        // 3 trades attempted but no price
+        insert_test_trade_with_enrichment(&db, 20, 400, "2024-01-15", Some("2024-01-16 00:00:00"), None);
+        insert_test_trade_with_enrichment(&db, 21, 400, "2024-01-16", Some("2024-01-17 00:00:00"), None);
+        insert_test_trade_with_enrichment(&db, 22, 400, "2024-01-17", Some("2024-01-18 00:00:00"), None);
+
+        let diag = db.get_enrichment_diagnostics().unwrap();
+        assert_eq!(diag.attempted_no_price, 3);
+        assert!(!diag.top_failed_tickers.is_empty());
+        assert_eq!(diag.top_failed_tickers[0].0, "JTSXX:US");
+        assert_eq!(diag.top_failed_tickers[0].2, 3);
+    }
+
+    #[test]
+    fn test_enrichment_diagnostics_empty_db() {
+        let db = open_test_db();
+
+        let diag = db.get_enrichment_diagnostics().unwrap();
+        assert_eq!(diag.total, 0);
+        assert_eq!(diag.has_price, 0);
+        assert_eq!(diag.attempted_no_price, 0);
+        assert_eq!(diag.never_attempted, 0);
+    }
+
+    #[test]
+    fn test_reset_failed_price_enrichments() {
+        let db = open_test_db();
+        setup_enrichment_fk_rows(&db);
+
+        insert_enrichment_issuer(&db, 500, "AAPL:US");
+        // Trade with price -- should NOT be reset
+        insert_test_trade_with_enrichment(&db, 30, 500, "2024-01-15", Some("2024-01-16 00:00:00"), Some(150.0));
+        // Trade attempted but no price -- SHOULD be reset
+        insert_test_trade_with_enrichment(&db, 31, 500, "2024-01-16", Some("2024-01-17 00:00:00"), None);
+        insert_test_trade_with_enrichment(&db, 32, 500, "2024-01-17", Some("2024-01-18 00:00:00"), None);
+        // Trade never attempted -- should NOT be reset (already NULL)
+        insert_test_trade_with_enrichment(&db, 33, 500, "2024-01-18", None, None);
+
+        let count = db.reset_failed_price_enrichments().unwrap();
+        assert_eq!(count, 2);
+
+        // Verify: tx_id 30 still has price_enriched_at set
+        let enriched_at: Option<String> = db.conn
+            .query_row("SELECT price_enriched_at FROM trades WHERE tx_id = 30", [], |row| row.get(0))
+            .unwrap();
+        assert!(enriched_at.is_some());
+
+        // Verify: tx_id 31 and 32 have price_enriched_at cleared
+        let enriched_at: Option<String> = db.conn
+            .query_row("SELECT price_enriched_at FROM trades WHERE tx_id = 31", [], |row| row.get(0))
+            .unwrap();
+        assert!(enriched_at.is_none());
+
+        let enriched_at: Option<String> = db.conn
+            .query_row("SELECT price_enriched_at FROM trades WHERE tx_id = 32", [], |row| row.get(0))
+            .unwrap();
+        assert!(enriched_at.is_none());
+    }
+
+    #[test]
+    fn test_reset_failed_idempotent() {
+        let db = open_test_db();
+        setup_enrichment_fk_rows(&db);
+
+        insert_enrichment_issuer(&db, 600, "SPX:US");
+        insert_test_trade_with_enrichment(&db, 40, 600, "2024-01-15", Some("2024-01-16 00:00:00"), None);
+
+        let count1 = db.reset_failed_price_enrichments().unwrap();
+        assert_eq!(count1, 1);
+
+        // Running again should find 0 since we already cleared them
+        let count2 = db.reset_failed_price_enrichments().unwrap();
+        assert_eq!(count2, 0);
+    }
+
+    #[test]
+    fn test_failed_suffix_distribution() {
+        let db = open_test_db();
+        setup_enrichment_fk_rows(&db);
+
+        insert_enrichment_issuer(&db, 700, "JTSXX:US");
+        insert_enrichment_issuer(&db, 701, "8376923Z:LN");
+        insert_test_trade_with_enrichment(&db, 50, 700, "2024-01-15", Some("2024-01-16 00:00:00"), None);
+        insert_test_trade_with_enrichment(&db, 51, 701, "2024-01-16", Some("2024-01-17 00:00:00"), None);
+
+        let diag = db.get_enrichment_diagnostics().unwrap();
+        assert_eq!(diag.failed_suffix_distribution.len(), 2);
+        // Should have US and LN suffixes
+        let suffixes: Vec<&str> = diag.failed_suffix_distribution.iter().map(|(s, _)| s.as_str()).collect();
+        assert!(suffixes.contains(&"US"));
+        assert!(suffixes.contains(&"LN"));
     }
 }
