@@ -90,8 +90,15 @@ impl OpenFecClient {
         }
 
         // Deserialize JSON
-        response.json::<T>().await.map_err(|e| {
-            OpenFecError::ParseFailed(format!("Failed to deserialize response: {}", e))
+        let body = response.text().await.map_err(|e| {
+            OpenFecError::ParseFailed(format!("Failed to read response body: {}", e))
+        })?;
+        serde_json::from_str::<T>(&body).map_err(|e| {
+            let snippet = if body.len() > 500 { &body[..500] } else { &body };
+            OpenFecError::ParseFailed(format!(
+                "Failed to deserialize response: {} | body snippet: {}",
+                e, snippet
+            ))
         })
     }
 

@@ -101,10 +101,45 @@ pub struct ScheduleAPagination {
 }
 
 /// Cursor values for keyset pagination.
+///
+/// The `last_index` field may be returned as either a number or a string
+/// by the OpenFEC API, so we deserialize with a custom helper.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LastIndexes {
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub last_index: i64,
     pub last_contribution_receipt_date: String,
+}
+
+fn deserialize_string_or_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+
+    struct StringOrI64;
+
+    impl<'de> de::Visitor<'de> for StringOrI64 {
+        type Value = i64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or integer")
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<i64, E> {
+            Ok(v)
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<i64, E> {
+            i64::try_from(v).map_err(de::Error::custom)
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<i64, E> {
+            v.parse::<i64>().map_err(de::Error::custom)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrI64)
 }
 
 // ============================================================================
