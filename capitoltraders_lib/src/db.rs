@@ -103,6 +103,7 @@ impl Db {
         self.conn.execute_batch(schema)?;
 
         self.populate_sector_benchmarks()?;
+        self.apply_sector_mappings()?;
 
         Ok(())
     }
@@ -446,6 +447,16 @@ impl Db {
         }
 
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Apply GICS sector mappings from the embedded YAML to issuers on DB open.
+    fn apply_sector_mappings(&self) -> Result<(), DbError> {
+        let mappings = match crate::sector_mapping::load_sector_mappings() {
+            Ok(m) => m,
+            Err(_) => return Ok(()), // best-effort
+        };
+        self.update_issuer_sectors(&mappings)?;
         Ok(())
     }
 
@@ -1558,11 +1569,13 @@ impl Db {
         let mut total_updated = 0;
 
         let mut stmt = tx.prepare(
-            "UPDATE issuers SET gics_sector = ?1 WHERE issuer_ticker = ?2"
+            "UPDATE issuers SET gics_sector = ?1
+             WHERE issuer_ticker = ?2 OR issuer_ticker = ?3"
         )?;
 
         for mapping in mappings {
-            let rows_affected = stmt.execute(params![&mapping.sector, &mapping.ticker])?;
+            let with_suffix = format!("{}:US", mapping.ticker);
+            let rows_affected = stmt.execute(params![&mapping.sector, &mapping.ticker, &with_suffix])?;
             total_updated += rows_affected;
         }
 

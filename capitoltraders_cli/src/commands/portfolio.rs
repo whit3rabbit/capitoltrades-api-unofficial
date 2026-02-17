@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use capitoltraders_lib::committee_jurisdiction::load_committee_jurisdictions;
+use capitoltraders_lib::portfolio::calculate_positions;
 use capitoltraders_lib::{validation, Db, PortfolioFilter, PortfolioPosition};
 use clap::Args;
 use serde::Serialize;
@@ -89,6 +90,14 @@ impl From<PortfolioPosition> for EnrichedPortfolioPosition {
 
 pub fn run(args: &PortfolioArgs, format: &OutputFormat) -> Result<()> {
     let db = Db::open(&args.db)?;
+
+    // Compute FIFO positions from trades and persist to positions table
+    let trades = db.query_trades_for_portfolio()?;
+    if !trades.is_empty() {
+        let positions = calculate_positions(trades);
+        let count = db.upsert_positions(&positions)?;
+        eprintln!("Computed {} FIFO positions from trade data", count);
+    }
 
     // Validate filters
     let party = match args.party {
