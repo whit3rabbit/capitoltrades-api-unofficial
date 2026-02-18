@@ -99,6 +99,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 8)?;
         }
 
+        if version < 9 {
+            self.migrate_v9()?;
+            self.conn.pragma_update(None, "user_version", 9)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -397,6 +402,34 @@ impl Db {
         }
         // If table doesn't exist yet, v4 migration or base schema.sql will create it
         // with the new schema (including election_cycle).
+
+        Ok(())
+    }
+
+    fn migrate_v9(&self) -> Result<(), DbError> {
+        // Add price_source column to trades table.
+        // Backfill existing enriched trades as 'yahoo' since all prior
+        // price enrichment used Yahoo Finance exclusively.
+        match self
+            .conn
+            .execute("ALTER TABLE trades ADD COLUMN price_source TEXT", [])
+        {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(ref msg)))
+                if msg.contains("duplicate column name")
+                    || msg.contains("no such table") =>
+            {
+                // Column already exists or table not yet created (fresh DB)
+            }
+            Err(e) => return Err(e.into()),
+        }
+
+        // Backfill: best-effort, ignore if table doesn't exist yet
+        let _ = self.conn.execute(
+            "UPDATE trades SET price_source = 'yahoo'
+             WHERE trade_date_price IS NOT NULL AND price_source IS NULL",
+            [],
+        );
 
         Ok(())
     }
@@ -1522,15 +1555,17 @@ impl Db {
         trade_date_price: Option<f64>,
         estimated_shares: Option<f64>,
         estimated_value: Option<f64>,
+        source: Option<&str>,
     ) -> Result<(), DbError> {
         self.conn.execute(
             "UPDATE trades
              SET trade_date_price = ?1,
                  estimated_shares = ?2,
                  estimated_value = ?3,
-                 price_enriched_at = datetime('now')
+                 price_enriched_at = datetime('now'),
+                 price_source = COALESCE(?5, price_source)
              WHERE tx_id = ?4",
-            params![trade_date_price, estimated_shares, estimated_value, tx_id],
+            params![trade_date_price, estimated_shares, estimated_value, tx_id, source],
         )?;
         Ok(())
     }
@@ -1719,6 +1754,17 @@ impl Db {
             .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
             .collect::<Result<Vec<_>, _>>()?;
 
+        // Q5: Price source breakdown for enriched trades
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(price_source, 'unknown') AS source, COUNT(*) AS cnt
+             FROM trades
+             WHERE trade_date_price IS NOT NULL
+             GROUP BY source ORDER BY cnt DESC",
+        )?;
+        let price_source_breakdown = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(EnrichmentDiagnostics {
             total,
             has_price,
@@ -1727,6 +1773,7 @@ impl Db {
             never_attempted_reasons,
             top_failed_tickers,
             failed_suffix_distribution,
+            price_source_breakdown,
         })
     }
 
@@ -4071,6 +4118,8 @@ pub struct EnrichmentDiagnostics {
     pub top_failed_tickers: Vec<(String, String, i64)>,
     /// Exchange suffix distribution on failed tickers (suffix, count).
     pub failed_suffix_distribution: Vec<(String, i64)>,
+    /// Breakdown of enriched trades by price source (source_name, count).
+    pub price_source_breakdown: Vec<(String, i64)>,
 }
 
 /// A trade row for analytics processing, including benchmark prices and sector information.
@@ -4650,7 +4699,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 8);
+        assert_eq!(get_user_version(&db), 9);
     }
 
     #[test]
@@ -4683,7 +4732,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(has_column(&db, "issuers", "enriched_at"));
 
         // Verify user_version is now 8 (all migrations applied)
-        assert_eq!(get_user_version(&db), 8);
+        assert_eq!(get_user_version(&db), 9);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -4751,7 +4800,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "positions table should exist");
 
         // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
-        assert_eq!(get_user_version(&db), 8);
+        assert_eq!(get_user_version(&db), 9);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -4767,7 +4816,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 8);
+        assert_eq!(get_user_version(&db), 9);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -4832,7 +4881,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "fec_mappings table should exist after migration");
 
         // Verify user_version is now 3
-        assert_eq!(get_user_version(&db), 8);
+        assert_eq!(get_user_version(&db), 9);
 
         // Verify pre-existing politician data is preserved
         let name: String = db.conn.query_row(
@@ -4848,7 +4897,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = Db::open_in_memory().unwrap();
         db.init().unwrap();
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -4857,7 +4906,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.init().unwrap();
         db.init().unwrap(); // Should not fail
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -6870,7 +6919,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(db.count_unenriched_prices().expect("count before"), 1);
 
         // Mark as enriched
-        db.update_trade_prices(102, Some(150.0), Some(100.0), Some(15000.0))
+        db.update_trade_prices(102, Some(150.0), Some(100.0), Some(15000.0), Some("yahoo"))
             .expect("update");
 
         // Should no longer be counted
@@ -6949,16 +6998,16 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let trade = make_test_scraped_trade(501, "P000040", 40);
         db.upsert_scraped_trades(&[trade]).expect("upsert");
 
-        db.update_trade_prices(501, Some(123.45), Some(100.5), Some(12406.725))
+        db.update_trade_prices(501, Some(123.45), Some(100.5), Some(12406.725), Some("yahoo"))
             .expect("update");
 
         // Query back via raw SQL
-        let (price, shares, value, enriched_at): (Option<f64>, Option<f64>, Option<f64>, Option<String>) = db
+        let (price, shares, value, enriched_at, source): (Option<f64>, Option<f64>, Option<f64>, Option<String>, Option<String>) = db
             .conn
             .query_row(
-                "SELECT trade_date_price, estimated_shares, estimated_value, price_enriched_at FROM trades WHERE tx_id = 501",
+                "SELECT trade_date_price, estimated_shares, estimated_value, price_enriched_at, price_source FROM trades WHERE tx_id = 501",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
             .expect("query");
 
@@ -6966,6 +7015,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(shares, Some(100.5));
         assert_eq!(value, Some(12406.725));
         assert!(enriched_at.is_some(), "price_enriched_at should be set");
+        assert_eq!(source.as_deref(), Some("yahoo"));
     }
 
     #[test]
@@ -6975,7 +7025,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.upsert_scraped_trades(&[trade]).expect("upsert");
 
         // Update with all None (invalid ticker case)
-        db.update_trade_prices(502, None, None, None)
+        db.update_trade_prices(502, None, None, None, None)
             .expect("update");
 
         let (price, shares, value, enriched_at): (Option<f64>, Option<f64>, Option<f64>, Option<String>) = db
@@ -7006,7 +7056,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert_eq!(db.count_unenriched_prices().expect("count before"), 1);
 
         // Enrich
-        db.update_trade_prices(503, Some(150.0), Some(200.0), Some(30000.0))
+        db.update_trade_prices(503, Some(150.0), Some(200.0), Some(30000.0), Some("yahoo"))
             .expect("update");
 
         // Should no longer be counted as unenriched
@@ -7015,6 +7065,79 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             0,
             "enriched trade should not be re-processed"
         );
+    }
+
+    #[test]
+    fn test_update_trade_prices_tiingo_source() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(550, "P000045", 45);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        db.update_trade_prices(550, Some(99.99), Some(50.0), Some(4999.50), Some("tiingo"))
+            .expect("update");
+
+        let source: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT price_source FROM trades WHERE tx_id = 550",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query");
+
+        assert_eq!(source.as_deref(), Some("tiingo"));
+    }
+
+    #[test]
+    fn test_update_trade_prices_null_source_preserves_existing() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(551, "P000046", 46);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Set source to yahoo first
+        db.update_trade_prices(551, Some(100.0), Some(10.0), Some(1000.0), Some("yahoo"))
+            .expect("first update");
+
+        // Update again with None source -- should keep 'yahoo'
+        db.update_trade_prices(551, Some(101.0), Some(10.0), Some(1010.0), None)
+            .expect("second update");
+
+        let source: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT price_source FROM trades WHERE tx_id = 551",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query");
+
+        assert_eq!(source.as_deref(), Some("yahoo"));
+    }
+
+    #[test]
+    fn test_enrichment_diagnostics_includes_source_breakdown() {
+        let mut db = open_test_db();
+        let trade1 = make_test_scraped_trade(560, "P000047", 47);
+        let trade2 = make_test_scraped_trade(561, "P000048", 48);
+        db.upsert_scraped_trades(&[trade1, trade2]).expect("upsert");
+
+        db.update_trade_prices(560, Some(100.0), Some(10.0), Some(1000.0), Some("yahoo"))
+            .expect("update 1");
+        db.update_trade_prices(561, Some(200.0), Some(20.0), Some(4000.0), Some("tiingo"))
+            .expect("update 2");
+
+        let diag = db.get_enrichment_diagnostics().expect("diagnostics");
+        assert_eq!(diag.has_price, 2);
+
+        // Should have both yahoo and tiingo in breakdown
+        let yahoo_count = diag.price_source_breakdown.iter()
+            .find(|(s, _)| s == "yahoo")
+            .map(|(_, c)| *c);
+        let tiingo_count = diag.price_source_breakdown.iter()
+            .find(|(s, _)| s == "tiingo")
+            .map(|(_, c)| *c);
+        assert_eq!(yahoo_count, Some(1));
+        assert_eq!(tiingo_count, Some(1));
     }
 
     #[test]
@@ -7997,7 +8120,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
 
         // Verify all three new tables exist
         let tables: Vec<String> = db
@@ -8024,7 +8147,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -8076,7 +8199,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
 
         // Verify employer_mappings table exists
         let has_employer_mappings: bool = db
@@ -8132,7 +8255,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -8144,7 +8267,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8, "fresh database should have version 8");
+        assert_eq!(version, 9, "fresh database should have version 9");
     }
 
     #[test]
@@ -9243,7 +9366,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
 
         // Verify gics_sector column exists on issuers
         assert!(has_column(&db, "issuers", "gics_sector"), "gics_sector column should exist after v6 migration");
@@ -9287,7 +9410,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -9299,7 +9422,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8, "fresh database should have version 8");
+        assert_eq!(version, 9, "fresh database should have version 9");
     }
 
     #[test]
@@ -9455,7 +9578,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
 
         // Verify benchmark_price column exists on trades
         assert!(has_column(&db, "trades", "benchmark_price"), "benchmark_price column should exist after v7 migration");
@@ -9512,7 +9635,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -9524,7 +9647,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 8, "fresh database should have version 8");
+        assert_eq!(version, 9, "fresh database should have version 9");
     }
 
     #[test]

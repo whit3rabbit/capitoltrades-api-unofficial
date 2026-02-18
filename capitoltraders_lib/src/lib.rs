@@ -21,6 +21,7 @@ pub mod pricing;
 pub mod scrape;
 pub mod sector_mapping;
 pub mod ticker_alias;
+pub mod tiingo;
 pub mod validation;
 pub mod yahoo;
 
@@ -58,6 +59,7 @@ pub use sector_mapping::{
     load_sector_mappings, parse_sector_mappings, validate_sector, SectorMapping,
     SectorMappingError, GICS_SECTORS,
 };
+pub use tiingo::{TiingoClient, TiingoError};
 pub use yahoo::{YahooClient, YahooError};
 pub use analytics::{
     AnalyticsTrade, ClosedTrade, TradeMetrics, PoliticianMetrics, calculate_closed_trades,

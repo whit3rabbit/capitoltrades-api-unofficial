@@ -7,7 +7,7 @@ This guide provides concrete patterns and conventions for agentic coding in this
 ```bash
 # Primary workspace commands
 cargo check --workspace          # Fast compilation check
-cargo test --workspace           # Run all 638 tests
+cargo test --workspace           # Run all 650 tests
 cargo clippy --workspace         # Lint with all clippy rules
 cargo run -p capitoltraders_cli -- trades --help  # Test CLI
 
@@ -424,15 +424,21 @@ let aliases = ticker_alias::load_ticker_aliases()?;            // HashMap<String
 let yahoo_ticker = pricing::resolve_yahoo_ticker(raw, &aliases); // alias-first, then normalize
 // aliases map: Some("CPAY") = renamed, None = known-unenrichable (skip API call)
 
+// Tiingo fallback for delisted tickers (optional, requires TIINGO_API_KEY in .env)
+let tiingo = TiingoClient::new(api_key)?;                      // Auth: Token header
+let price = tiingo.get_price_on_date("WBA", date).await?;     // Ok(Some(f64)) or Ok(None)
+// Tiingo returns 200+text/plain for rate limits (not 429) -- client checks Content-Type
+
 // DB price enrichment operations
 let unenriched = db.get_unenriched_price_trades(Some(50))?;   // PriceEnrichmentRow vec
-db.update_trade_prices(tx_id, price, shares, value)?;          // Always sets price_enriched_at
+db.update_trade_prices(tx_id, price, shares, value, Some("yahoo"))?;  // 5th arg: price source
 db.update_current_price(ticker, price)?;                       // Phase 2 of enrichment
 
 // Enrichment diagnostics (--diagnose flag, no API calls)
 let diag = db.get_enrichment_diagnostics()?;                   // EnrichmentDiagnostics
 // diag.total, .has_price, .attempted_no_price, .never_attempted
 // diag.top_failed_tickers, .never_attempted_reasons, .failed_suffix_distribution
+// diag.price_source_breakdown  -- Vec<(String, i64)>: [("yahoo", N), ("tiingo", M)]
 
 // Reset failed enrichments for retry (--retry-failed flag)
 let reset_count = db.reset_failed_price_enrichments()?;        // clears price_enriched_at where price is NULL
@@ -477,6 +483,9 @@ let option_count = db.count_option_trades(Some("P000197"))?;
 - **Schema v2 fresh DBs**: Base schema.sql includes all columns; migrations only for existing DBs
 - **Unenriched trades after enrichment**: Use `--diagnose` to categorize; most are null tickers (unenrichable) or renamed/delisted stocks (fix via `seed_data/ticker_aliases.yml`)
 - **Ticker alias vs normalize**: `resolve_yahoo_ticker()` checks aliases first, then falls through to `normalize_ticker_for_yahoo()`; never call normalize directly in the enrichment pipeline
+- **Tiingo rate limit detection**: Tiingo returns HTTP 200 with `Content-Type: text/plain` for rate limits (not 429). Client checks Content-Type before JSON parsing.
+- **Tiingo fallback skipped silently**: When `TIINGO_API_KEY` is not set, fallback is `None` and Yahoo-only path runs without error
+- **price_source column**: `update_trade_prices` uses `COALESCE(?5, price_source)` so passing `None` preserves existing source
 
 ## When to Ask
 
@@ -490,3 +499,4 @@ let option_count = db.count_option_trades(Some("P000197"))?;
 - When changing Yahoo Finance rate limiting or circuit breaker thresholds
 - Before changing OpenFEC rate limiter budget or retry parameters
 - Before modifying ticker alias resolution order or adding new alias YAML fields
+- Before modifying Tiingo client, fallback order, or rate limit detection

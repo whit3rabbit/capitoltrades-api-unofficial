@@ -280,14 +280,20 @@ Enrichment runs in three phases: (1) historical trade-date prices fetched per un
 (2) current prices fetched per unique ticker, and (3) benchmark prices (sector ETF or SPY) per unique
 (ETF, date) pair. A ticker alias system (`seed_data/ticker_aliases.yml`) resolves renamed stocks, acquired
 companies, and known-unenrichable tickers (money market funds, indices) before calling Yahoo Finance.
+When Yahoo returns no data for a ticker (e.g., delisted/acquired companies), the system automatically
+falls back to Tiingo for historical prices if a `TIINGO_API_KEY` is configured in `.env`. The fallback
+is silently skipped when no key is present.
 Trades without valid tickers are marked as processed and skipped on future runs. Rate limiting (200-500ms
 jittered delay, max 5 concurrent) prevents Yahoo Finance throttling. A circuit breaker trips after 10
-consecutive failures. Progress displays ticker counts and success/fail/skip summary.
+consecutive failures. Progress displays ticker counts and success/fail/skip summary. The `price_source`
+column tracks which API provided each price (yahoo or tiingo).
 
-As of the current dataset (35,575 trades): 29,406 (82.7%) have prices, 1,339 (3.8%) were attempted but
-Yahoo returned no data (delisted stocks, mutual funds, transient failures), and 4,830 (13.6%) were never
-attempted due to null/empty issuer tickers (genuinely unenrichable). Use `--diagnose` to see a full
-breakdown and `--retry-failed` to re-attempt previously failed tickers.
+Use `--diagnose` to see a full breakdown including price source distribution, and `--retry-failed` to
+re-attempt previously failed tickers (now with Tiingo fallback for delisted equities).
+
+To enable Tiingo fallback for delisted equities, add `TIINGO_API_KEY` to your `.env` file.
+Get a free key at [tiingo.com](https://www.tiingo.com/account/api/token) (500 unique symbols/month).
+The fallback is optional -- enrichment works without it using Yahoo Finance only.
 
 **portfolio** -- View per-politician stock positions with unrealized P&L.
 
@@ -422,16 +428,16 @@ These schemas describe the CLI output (arrays of items), not the PaginatedRespon
 capitoltraders/
   Cargo.toml                    # workspace root
   capitoltrades_api/            # vendored upstream API client
-  capitoltraders_lib/           # library: cache, scraping, db, yahoo, pricing, openfec, mapping, analytics, anomaly, conflict
+  capitoltraders_lib/           # library: cache, scraping, db, yahoo, tiingo, pricing, openfec, mapping, analytics, anomaly, conflict
   capitoltraders_cli/           # CLI binary (13 subcommands)
-  schema/sqlite.sql             # SQLite schema (v7) with FEC, donation, and analytics tables
+  schema/sqlite.sql             # SQLite schema (v9) with FEC, donation, analytics, and price source tables
   seed_data/                    # GICS sector mappings, committee jurisdictions, employer-issuer mappings, ticker aliases
 ```
 
 ## Development
 
 ```sh
-# Run all tests (638 total)
+# Run all tests (650 total)
 cargo test --workspace
 
 # Lint
@@ -451,7 +457,7 @@ filing details, committee memberships, performance data). Senate filings often u
 
 ## SQLite
 
-The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql` (currently at v7). Tables map
+The `sync` subcommand writes to SQLite using the schema in `schema/sqlite.sql` (currently at v9). Tables map
 directly to the CLI JSON output schemas (`schema/*.schema.json`), including nested data:
 
 - `trades`, `assets`, `issuers`, `politicians`
@@ -464,8 +470,9 @@ directly to the CLI JSON output schemas (`schema/*.schema.json`), including nest
 - `ingest_meta` (tracks `last_trade_pub_date` for incremental sync)
 
 The trades table includes price enrichment columns: `trade_date_price`, `current_price`,
-`price_enriched_at`, `estimated_shares`, `estimated_value`, `benchmark_price`. These are populated by
-`enrich-prices`. The issuers table includes `gics_sector` for GICS sector classification.
+`price_enriched_at`, `estimated_shares`, `estimated_value`, `benchmark_price`, `price_source`. These are
+populated by `enrich-prices`. The `price_source` column tracks which API provided the price (`yahoo` or
+`tiingo`). The issuers table includes `gics_sector` for GICS sector classification.
 
 Incremental runs use `last_trade_pub_date` to request only recent pages from the API, then upsert by
 primary key to keep the database current. Enrichment (`--enrich`) populates the join and detail tables

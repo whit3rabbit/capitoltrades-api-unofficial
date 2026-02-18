@@ -1,14 +1,14 @@
-//! Price enrichment pipeline for fetching historical and current prices from Yahoo Finance.
+//! Price enrichment pipeline for fetching historical and current prices.
 //!
 //! Implements three-phase enrichment:
-//! - Phase 1: Historical prices deduplicated by (ticker, date)
-//! - Phase 2: Current prices deduplicated by ticker
+//! - Phase 1: Historical prices deduplicated by (ticker, date), Yahoo-first with Tiingo fallback
+//! - Phase 2: Current prices deduplicated by ticker (Yahoo only)
 //! - Phase 3: Benchmark prices (sector ETF or SPY) deduplicated by (ETF ticker, date)
 //!
 //! Uses Semaphore + JoinSet + mpsc pattern for concurrent fetching with rate limiting.
 
 use anyhow::{anyhow, bail, Result};
-use capitoltraders_lib::{pricing, ticker_alias, yahoo::YahooClient, Db};
+use capitoltraders_lib::{pricing, ticker_alias, tiingo::TiingoClient, yahoo::YahooClient, Db};
 use chrono::NaiveDate;
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -51,6 +51,8 @@ struct HistoricalPriceResult {
     date: NaiveDate,
     trade_indices: Vec<usize>,
     result: Result<Option<f64>, capitoltraders_lib::yahoo::YahooError>,
+    /// Which API provided the price ("yahoo", "tiingo", or "" if no data).
+    source: String,
 }
 
 /// Message sent from fetch tasks to receiver for current price enrichment.
@@ -149,6 +151,14 @@ fn print_diagnostics(db: &Db) -> Result<()> {
         }
     }
 
+    if !diag.price_source_breakdown.is_empty() {
+        eprintln!();
+        eprintln!("Price source breakdown:");
+        for (source, cnt) in &diag.price_source_breakdown {
+            eprintln!("  {:<15} {:>6}", source, cnt);
+        }
+    }
+
     eprintln!();
     eprintln!("=== End Diagnostics ===");
 
@@ -162,6 +172,7 @@ fn pct(part: i64, total: i64) -> f64 {
 /// Run the price enrichment pipeline.
 pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
     let db = Db::open(&args.db)?;
+    db.init().map_err(|e| anyhow!("Failed to initialize database: {}", e))?;
 
     // --diagnose: print diagnostics and exit
     if args.diagnose {
@@ -191,6 +202,24 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
     let yahoo = Arc::new(
         YahooClient::new().map_err(|e| anyhow!("Failed to create Yahoo client: {}", e))?,
     );
+
+    // Optional Tiingo fallback client (requires TIINGO_API_KEY in .env)
+    let tiingo: Option<Arc<TiingoClient>> = match std::env::var("TIINGO_API_KEY") {
+        Ok(key) if !key.is_empty() => {
+            match TiingoClient::new(key) {
+                Ok(client) => {
+                    eprintln!("Tiingo fallback enabled (TIINGO_API_KEY found)");
+                    Some(Arc::new(client))
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to create Tiingo client: {}", e);
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+
     let trades = db.get_unenriched_price_trades(args.batch_size)?;
 
     if trades.is_empty() {
@@ -301,6 +330,7 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
         let sem = Arc::clone(&semaphore);
         let sender = tx.clone();
         let yahoo_clone = Arc::clone(&yahoo);
+        let tiingo_clone = tiingo.clone();
 
         join_set.spawn(async move {
             let _permit = sem.acquire().await.expect("semaphore closed");
@@ -308,13 +338,35 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
             let delay_ms = rand::thread_rng().gen_range(200..500);
             sleep(Duration::from_millis(delay_ms)).await;
 
-            let result = yahoo_clone.get_price_on_date_with_fallback(&ticker, date).await;
+            let yahoo_result = yahoo_clone.get_price_on_date_with_fallback(&ticker, date).await;
+
+            // If Yahoo returned no data and Tiingo is available, try fallback
+            let (result, source) = match &yahoo_result {
+                Ok(Some(_)) => (yahoo_result, "yahoo".to_string()),
+                Ok(None) if tiingo_clone.is_some() => {
+                    let tiingo_client = tiingo_clone.as_ref().unwrap();
+                    match tiingo_client.get_price_on_date(&ticker, date).await {
+                        Ok(Some(price)) => (Ok(Some(price)), "tiingo".to_string()),
+                        Ok(None) => (Ok(None), String::new()),
+                        Err(_) => {
+                            // Tiingo failed too, pass through Yahoo's Ok(None)
+                            (Ok(None), String::new())
+                        }
+                    }
+                }
+                _ => {
+                    // Yahoo returned Err or Ok(None) without Tiingo
+                    (yahoo_result, String::new())
+                }
+            };
+
             let _ = sender
                 .send(HistoricalPriceResult {
                     ticker,
                     date,
                     trade_indices: indices,
                     result,
+                    source,
                 })
                 .await;
         });
@@ -324,14 +376,21 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
     let mut enriched = 0usize;
     let mut failed = 0usize;
     let mut skipped = 0usize;
+    let mut tiingo_resolved = 0usize;
     let mut breaker = CircuitBreaker::new(CIRCUIT_BREAKER_THRESHOLD);
 
     // Track tickers that return no data for end-of-run summary
     let mut no_data_tickers: HashSet<String> = HashSet::new();
 
     while let Some(fetch) = rx.recv().await {
+        let source_opt = if fetch.source.is_empty() { None } else { Some(fetch.source.as_str()) };
+
         match fetch.result {
             Ok(Some(price)) => {
+                if fetch.source == "tiingo" {
+                    tiingo_resolved += fetch.trade_indices.len();
+                    pb.println(format!("  Tiingo fallback: {} on {} = {:.2}", fetch.ticker, fetch.date, price));
+                }
                 // Process all trades with this (ticker, date) pair
                 for idx in &fetch.trade_indices {
                     let trade = &trades[*idx];
@@ -345,17 +404,18 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
                                 Some(price),
                                 Some(estimate.estimated_shares),
                                 Some(estimate.estimated_value),
+                                source_opt,
                             )?;
                             enriched += 1;
                             breaker.record_success();
                         } else {
                             // Estimate failed (division by zero or out of bounds)
-                            db.update_trade_prices(trade.tx_id, Some(price), None, None)?;
+                            db.update_trade_prices(trade.tx_id, Some(price), None, None, source_opt)?;
                             skipped += 1;
                         }
                     } else {
                         // Invalid range
-                        db.update_trade_prices(trade.tx_id, Some(price), None, None)?;
+                        db.update_trade_prices(trade.tx_id, Some(price), None, None, source_opt)?;
                         skipped += 1;
                     }
                 }
@@ -367,7 +427,7 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
                 }
                 for idx in &fetch.trade_indices {
                     let trade = &trades[*idx];
-                    db.update_trade_prices(trade.tx_id, None, None, None)?;
+                    db.update_trade_prices(trade.tx_id, None, None, None, None)?;
                     skipped += 1;
                 }
             }
@@ -379,7 +439,7 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
                 for idx in &fetch.trade_indices {
                     let trade = &trades[*idx];
                     // Mark as enriched with None to avoid re-processing
-                    db.update_trade_prices(trade.tx_id, None, None, None)?;
+                    db.update_trade_prices(trade.tx_id, None, None, None, None)?;
                     failed += 1;
                 }
                 breaker.record_failure();
@@ -610,6 +670,12 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
         "Price enrichment complete: {} enriched, {} failed, {} skipped (historical)",
         enriched, failed, skipped + skipped_parse_errors
     );
+    if tiingo_resolved > 0 {
+        eprintln!(
+            "  Tiingo fallback: {} trades resolved via Tiingo",
+            tiingo_resolved
+        );
+    }
     eprintln!(
         "  Phase 2: {} current prices enriched, {} skipped",
         current_enriched, current_skipped

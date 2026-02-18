@@ -43,82 +43,245 @@ aliases:
     to: "TKO"           # WWE merged with UFC/Endeavor -> TKO Group Holdings
   - from: "SIX:US"
     to: "FUN"           # Six Flags merged with Cedar Fair -> Six Flags Entertainment
+  - from: "SQ:US"
+    to: "XYZ"           # Block Inc renamed ticker Jan 2025
+  - from: "GPS:US"
+    to: "GAP"           # Gap Inc renamed ticker Aug 2024
+  - from: "SEAS:US"
+    to: "PRKS"          # SeaWorld -> United Parks & Resorts Feb 2024
+  - from: "SGH:US"
+    to: "PENG"          # SMART Global -> Penguin Solutions Oct 2024
+  - from: "CSWI:US"
+    to: "CSW"           # CSW Industrials moved to NYSE Jun 2025
+  - from: "NEP:US"
+    to: "XIFR"          # NextEra Energy Partners -> XPLR Infrastructure Feb 2025
+  - from: "BGNE:US"
+    to: "ONC"           # BeiGene -> BeOne Medicines Jan 2025
+  - from: "ERJ:US"
+    to: "EMBJ"          # Embraer renamed ticker Nov 2025
+  - from: "CCCS:US"
+    to: "CCC"           # CCC Intelligent Solutions shortened ticker Oct 2025
+  - from: "PNM:US"
+    to: "TXNM"          # PNM Resources -> TXNM Energy Aug 2024
+  - from: "AMEH:US"
+    to: "ASTH"          # Apollo Medical -> Astrana Health Feb 2024
+  - from: "SOI:US"
+    to: "SEI"           # Solaris Oilfield -> Solaris Energy Infrastructure Sep 2024
+  - from: "JBT:US"
+    to: "JBTM"          # John Bean Technologies -> JBT Marel Jan 2025
+  - from: "ABB:US"
+    to: "ABBNY"         # ABB Ltd NYSE delisted May 2023, OTC as ABBNY
+  - from: "CAJ:US"
+    to: "CAJPY"         # Canon Inc NYSE delisted Mar 2023, OTC as CAJPY
+  - from: "ESV:US"
+    to: "VAL"           # Ensco -> Valaris
+  - from: "CNHI:US"
+    to: "CNH"           # CNH Industrial (ticker changed)
 
-  # --- Acquired / merged / delisted (no Yahoo equivalent) ---
+  # --- Mergers of equals (alias to successor) ---
+  - from: "SHYF:US"
+    to: "AEBI"          # Shyft Group + Aebi Schmidt Jul 2025
+  - from: "BHLB:US"
+    to: "BBT"           # Berkshire Hills + Brookline -> Beacon Financial Sep 2025
+
+  # --- Acquired / merged / delisted (Tiingo fallback for historical prices) ---
+  # These tickers no longer trade on exchanges. Yahoo returns no data, but Tiingo
+  # retains historical EOD prices. The pipeline will try Yahoo first, then fall back
+  # to Tiingo automatically. Explicit bare-ticker aliases ensure correct resolution.
   - from: "ATVI:US"
-    to: ~               # Activision Blizzard acquired by MSFT, delisted
+    to: "ATVI"          # Activision Blizzard acquired by MSFT, delisted
   - from: "LTHM:US"
-    to: ~               # Livent merged into Arcadium Lithium (ALTM), then acquired by Rio Tinto
+    to: "LTHM"          # Livent merged into Arcadium Lithium, then acquired by Rio Tinto
   - from: "INFN:US"
-    to: ~               # Infinera acquired by Nokia
+    to: "INFN"          # Infinera acquired by Nokia
   - from: "JNPR:US"
-    to: ~               # Juniper Networks acquired by HPE
-  - from: "MSDA:US"
-    to: ~               # MSD Acquisition Corp (SPAC, delisted)
+    to: "JNPR"          # Juniper Networks acquired by HPE
   - from: "VMW:US"
-    to: ~               # VMware acquired by Broadcom Nov 2023
+    to: "VMW"           # VMware acquired by Broadcom Nov 2023
   - from: "SGEN:US"
-    to: ~               # Seagen acquired by Pfizer Dec 2023
+    to: "SGEN"          # Seagen acquired by Pfizer Dec 2023
   - from: "MMP:US"
-    to: ~               # Magellan Midstream acquired by ONEOK Sep 2023
+    to: "MMP"           # Magellan Midstream acquired by ONEOK Sep 2023
   - from: "TRTN:US"
-    to: ~               # Triton International acquired by Brookfield Sep 2023
+    to: "TRTN"          # Triton International acquired by Brookfield Sep 2023
   - from: "CSII:US"
-    to: ~               # Cardiovascular Systems acquired by Abbott Apr 2023
+    to: "CSII"          # Cardiovascular Systems acquired by Abbott Apr 2023
   - from: "AQUA:US"
-    to: ~               # Evoqua Water acquired by Xylem May 2023
+    to: "AQUA"          # Evoqua Water acquired by Xylem May 2023
   - from: "CS:US"
-    to: ~               # Credit Suisse acquired by UBS Jun 2023
+    to: "CS"            # Credit Suisse acquired by UBS Jun 2023
   - from: "PXD:US"
-    to: ~               # Pioneer Natural Resources acquired by ExxonMobil May 2024
+    to: "PXD"           # Pioneer Natural Resources acquired by ExxonMobil May 2024
   - from: "CTLT:US"
-    to: ~               # Catalent acquired by Novo Holdings Feb 2024
+    to: "CTLT"          # Catalent acquired by Novo Holdings Feb 2024
   - from: "MRTX:US"
-    to: ~               # Mirati Therapeutics acquired by BMS Jan 2024
+    to: "MRTX"          # Mirati Therapeutics acquired by BMS Jan 2024
   - from: "CHX:US"
-    to: ~               # ChampionX acquired by SLB Oct 2024
+    to: "CHX"           # ChampionX acquired by SLB Oct 2024
   - from: "WRK:US"
-    to: ~               # WestRock merged with Smurfit Kappa Jul 2024
+    to: "WRK"           # WestRock merged with Smurfit Kappa Jul 2024
   - from: "ETRN:US"
-    to: ~               # Equitrans Midstream acquired by EQT Jul 2024
+    to: "ETRN"          # Equitrans Midstream acquired by EQT Jul 2024
   - from: "NCMGY:US"
-    to: ~               # Newcrest Mining ADR acquired by Newmont Nov 2023
+    to: "NCMGY"         # Newcrest Mining ADR acquired by Newmont Nov 2023
   - from: "KRTX:US"
-    to: ~               # Karuna Therapeutics acquired by BMS Mar 2024
+    to: "KRTX"          # Karuna Therapeutics acquired by BMS Mar 2024
   - from: "SILK:US"
-    to: ~               # Silk Road Medical acquired by Boston Scientific Jun 2024
+    to: "SILK"          # Silk Road Medical acquired by Boston Scientific Jun 2024
   - from: "EVBG:US"
-    to: ~               # Everbridge taken private by Thoma Bravo Jan 2024
+    to: "EVBG"          # Everbridge taken private by Thoma Bravo Jan 2024
   - from: "INST:US"
-    to: ~               # Instructure taken private by Thoma Bravo
+    to: "INST"          # Instructure taken private by Thoma Bravo
   - from: "TOSYY:US"
-    to: ~               # Toshiba ADR went private Dec 2023
+    to: "TOSYY"         # Toshiba ADR went private Dec 2023
   - from: "AZPN:US"
-    to: ~               # Aspen Technology majority acquired by Emerson
-  - from: "INRE:US"
-    to: ~               # Inland Real Estate Income Trust (private REIT)
+    to: "AZPN"          # Aspen Technology majority acquired by Emerson
   - from: "ROIC:US"
-    to: ~               # Retail Opportunity Investments acquired by Blackstone 2024
+    to: "ROIC"          # Retail Opportunity Investments acquired by Blackstone 2024
   - from: "ARGO:US"
-    to: ~               # Argo Group acquired by Brookfield Re 2023
-  - from: "AHL:US"
-    to: ~               # Aspen Insurance Holdings acquired by Apollo
+    to: "ARGO"          # Argo Group acquired by Brookfield Re 2023
   - from: "CEQP:US"
-    to: ~               # Crestwood Equity Partners acquired by Energy Transfer
+    to: "CEQP"          # Crestwood Equity Partners acquired by Energy Transfer
   - from: "LMST:US"
-    to: ~               # Limestone Bancorp acquired by German American Bankshares
+    to: "LMST"          # Limestone Bancorp acquired by German American Bankshares
+  - from: "WBA:US"
+    to: "WBA"           # Walgreens taken private by Sycamore Partners Aug 2025
+  - from: "DFS:US"
+    to: "DFS"           # Discover Financial acquired by Capital One May 2025
+  - from: "K:US"
+    to: "K"             # Kellanova acquired by Mars Inc Dec 2025
+  - from: "X:US"
+    to: "X"             # US Steel acquired by Nippon Steel Jun 2025
+  - from: "ANSS:US"
+    to: "ANSS"          # Ansys acquired by Synopsys Jul 2025
+  - from: "SKX:US"
+    to: "SKX"           # Skechers taken private by 3G Capital Sep 2025
+  - from: "IPG:US"
+    to: "IPG"           # Interpublic Group acquired by Omnicom Nov 2025
+  - from: "LGF/A:US"
+    to: "LGF-A"         # Lions Gate split into LION + STRZ May 2025
+  - from: "PPBI:US"
+    to: "PPBI"          # Pacific Premier acquired by Columbia Banking Sep 2025
+  - from: "ITCI:US"
+    to: "ITCI"          # Intra-Cellular Therapies acquired by J&J Apr 2025
+  - from: "SWTX:US"
+    to: "SWTX"          # SpringWorks Therapeutics acquired by Merck KGaA Jul 2025
+  - from: "VGR:US"
+    to: "VGR"           # Vector Group acquired by JT Group Oct 2024
+  - from: "VBTX:US"
+    to: "VBTX"          # Veritex Holdings acquired by Huntington Bancshares Oct 2025
+  - from: "HBI:US"
+    to: "HBI"           # Hanesbrands acquired by Gildan Activewear Dec 2025
+  - from: "ARIS:US"
+    to: "ARIS"          # Aris Water Solutions acquired by Western Midstream Oct 2025
+  - from: "BERY:US"
+    to: "BERY"          # Berry Global acquired by Amcor Apr 2025
+  - from: "HES:US"
+    to: "HES"           # Hess Corp acquired by Chevron Jul 2025
+  - from: "MRO:US"
+    to: "MRO"           # Marathon Oil acquired by ConocoPhillips Nov 2024
+  - from: "GOGL:US"
+    to: "GOGL"          # Golden Ocean merged with CMB.TECH Aug 2025
+  - from: "MAG:US"
+    to: "MAG"           # MAG Silver acquired by Pan American Silver Sep 2025
+  - from: "AGR:US"
+    to: "AGR"           # Avangrid taken private by Iberdrola Dec 2024
+  - from: "AYX:US"
+    to: "AYX"           # Alteryx taken private by Clearlake/Insight Mar 2024
+  - from: "CHUY:US"
+    to: "CHUY"          # Chuy's acquired by Darden Restaurants Oct 2024
+  - from: "OLO:US"
+    to: "OLO"           # Olo taken private by Thoma Bravo Sep 2025
+  - from: "SMAR:US"
+    to: "SMAR"          # Smartsheet taken private by Vista/Blackstone Jan 2025
+  - from: "VAPO:US"
+    to: "VAPO"          # Vapotherm taken private by Perceptive Advisors Sep 2024
+  - from: "TWKS:US"
+    to: "TWKS"          # Thoughtworks acquired by Apax Partners Nov 2024
+  - from: "PYCR:US"
+    to: "PYCR"          # Paycor HCM acquired by Paychex Apr 2025
+  - from: "AMED:US"
+    to: "AMED"          # Amedisys acquired by UnitedHealth/Optum 2024
+  - from: "AAIC:US"
+    to: "AAIC"          # Arlington Asset Investment
+  - from: "ATUS:US"
+    to: "ATUS"          # Altice USA
+  - from: "ARCH:US"
+    to: "ARCH"          # Arch Resources
+  - from: "AUY:US"
+    to: "AUY"           # Yamana Gold acquired by Pan American Silver 2023
+  - from: "GPP:US"
+    to: "GPP"           # Green Plains Partners merged into GPRE
+  - from: "RADI:US"
+    to: "RADI"          # Radius Global Infrastructure taken private by EQT 2023
+  - from: "ATH:US"
+    to: "ATH"           # Athene Holding merged into Apollo (APO)
+  - from: "BHI:US"
+    to: "BHI"           # Baker Hughes old ticker, now BKR
+  - from: "DRQ:US"
+    to: "DRQ"           # Dril-Quip merged with Innovex (INVX)
+  - from: "EMC:US"
+    to: "EMC"           # EMC Corp acquired by Dell 2016
+  - from: "EQC:US"
+    to: "EQC"           # Equity Commonwealth
+  - from: "FBC:US"
+    to: "FBC"           # Flagstar Bancorp acquired by NYCB
+  - from: "LSI:US"
+    to: "LSI"           # Life Storage acquired by Extra Space (EXR)
+  - from: "NS:US"
+    to: "NS"            # NuStar Energy LP acquired by Sunoco LP 2024
+  - from: "PSXP:US"
+    to: "PSXP"          # Phillips 66 Partners merged into PSX
+  - from: "RAI:US"
+    to: "RAI"           # Reynolds American acquired by BAT 2017
+  - from: "TSS:US"
+    to: "TSS"           # Total System Services acquired by Global Payments 2019
+  - from: "YNDX:US"
+    to: "YNDX"          # Yandex NV delisted, restructured out of Russia
+  - from: "SIRE:US"
+    to: "SIRE"          # Sisecam Resources LP
 
-  # --- Failed / seized banks ---
+  # --- Truly unenrichable (SPAC, private REIT, very old, unknown) ---
+  - from: "MSDA:US"
+    to: ~               # MSD Acquisition Corp (SPAC, delisted, no historical data)
+  - from: "INRE:US"
+    to: ~               # Inland Real Estate Income Trust (private REIT, never public)
+  - from: "AHL:US"
+    to: ~               # Aspen Insurance Holdings acquired by Apollo (very old)
+  - from: "ACF:US"
+    to: ~               # AmeriCredit acquired by GM 2010 (very old, limited data)
+
+  # --- Failed / seized banks (Tiingo fallback) ---
   - from: "FRC:US"
-    to: ~               # First Republic Bank seized by FDIC May 2023
+    to: "FRC"           # First Republic Bank seized by FDIC May 2023
   - from: "SBNY:US"
-    to: ~               # Signature Bank failed March 2023
+    to: "SBNY"          # Signature Bank failed March 2023
   - from: "SIVBQ:US"
-    to: ~               # Silicon Valley Bank bankruptcy ticker
+    to: ~               # Silicon Valley Bank bankruptcy ticker (no price data)
 
-  # --- Bankruptcy tickers ---
+  # --- Bankruptcy / CEF / misc unenrichable ---
   - from: "GPORQ:US"
     to: ~               # Gulfport Energy bankruptcy ticker
+  - from: "CONN:US"
+    to: "CONN"          # Conn's Inc, bankruptcy 2024 (Tiingo may have history)
+  - from: "CANO:US"
+    to: "CANO"          # Cano Health, bankruptcy 2024 (Tiingo may have history)
+  - from: "EQV:US"
+    to: ~               # EQV Ventures SPAC, delisted
+  - from: "VIA:US"
+    to: "VIA"           # Via Renewables
+  - from: "FEI:US"
+    to: ~               # First Trust MLP Fund (CEF)
+  - from: "LTRPA:US"
+    to: "LTRPA"         # Liberty TripAdvisor
+  - from: "MTBC:US"
+    to: "MTBC"          # CareCloud (was MTBC)
+  - from: "RVNC:US"
+    to: "RVNC"          # Revance Therapeutics
+  - from: "STRZA:US"
+    to: "STRZA"         # Starz/Liberty Media (now STRZ from split)
+  - from: "ADMR:US"
+    to: "ADMR"          # Acuren Corp (IPO 2025, limited history)
 
   # --- Money market / mutual funds (not on Yahoo) ---
   - from: "JTSXX:US"
@@ -161,11 +324,97 @@ aliases:
   # --- Foreign tickers with no Yahoo equivalent ---
   - from: "8376923Z:LN"
     to: ~               # Unknown London listing
+  - from: "ELUXB:SS"
+    to: "ELUX-B.ST"     # Electrolux AB, Stockholm exchange
+  - from: "EUN:SP"
+    to: ~               # Unknown Singapore exchange listing
 
-  # --- Tickers that may work on retry (renamed or data gaps) ---
+  # --- Unknown / unresolvable tickers ---
+  - from: "SMCYY:US"
+    to: ~               # Unknown ADR
+  - from: "ITTOY:US"
+    to: ~               # Unknown ADR
+  - from: "IXNZF:US"
+    to: ~               # Unknown OTC
+  - from: "GLDW:US"
+    to: ~               # Unknown
+  - from: "FSEN:US"
+    to: ~               # Unknown
+  - from: "DE1:US"
+    to: ~               # Unknown
+  - from: "GELK:US"
+    to: ~               # Unknown
+  - from: "ITIP:US"
+    to: ~               # Unknown
+  - from: "RGBM:US"
+    to: ~               # Unknown
+  - from: "RNB:US"
+    to: ~               # Unknown
+  - from: "SNRE:US"
+    to: ~               # Unknown
+  - from: "TE1:US"
+    to: ~               # Unknown
+  - from: "UBA:US"
+    to: ~               # Unknown
+  - from: "EVERX:US"
+    to: ~               # Unknown
+  - from: "BRY.1:US"
+    to: ~               # Berry Corp? Ambiguous dot notation
+  - from: "APPL:US"
+    to: ~               # Likely typo for AAPL, cannot auto-correct
+
+  # --- ADRs (Tiingo fallback, may or may not have data) ---
+  - from: "SMFKY:US"
+    to: "SMFKY"         # Smurfit Kappa Group ADR, merged with WestRock Jul 2024
+  - from: "PDRDY:US"
+    to: "PDRDY"         # Pernod-Ricard ADR
+  - from: "EMRAF:US"
+    to: "EMRAF"         # Emera Inc OTC
+  - from: "EPOKY:US"
+    to: "EPOKY"         # Epiroc AB ADR
+  - from: "ANZBY:US"
+    to: "ANZBY"         # ANZ Banking Group ADR
+  - from: "DPSGY:US"
+    to: "DPSGY"         # Deutsche Post AG ADR (now DHL Group)
+  - from: "DLICY:US"
+    to: "DLICY"         # Dai-ichi Life Holdings ADR
+  - from: "HDELY:US"
+    to: "HDELY"         # HeidelbergCement ADR
+  - from: "SMPNY:US"
+    to: "SMPNY"         # Sompo Holdings ADR
+  - from: "TLSYY:US"
+    to: "TLSYY"         # Telstra Corp ADR
+  - from: "WBK:US"
+    to: "WBK"           # Westpac Banking ADR, delisted 2021
+  - from: "FRRVY:US"
+    to: "FRRVY"         # Ferrovial SE ADR
+  - from: "PANDY:US"
+    to: "PANDY"         # Pandora A/S ADR
+  - from: "PETRY:US"
+    to: "PETRY"         # Vibra Energia ADR
+  - from: "SIGCY:US"
+    to: "SIGCY"         # SIG Group AG ADR
+  - from: "SOAGY:US"
+    to: "SOAGY"         # Sartorius AG ADR
+  - from: "UNVGY:US"
+    to: "UNVGY"         # Universal Music Group ADR
+  - from: "VOLVY:US"
+    to: "VOLVY"         # Volvo AB ADR
+  - from: "YAMHY:US"
+    to: "YAMHY"         # Yamaha Motor ADR
+  - from: "TRSWF:US"
+    to: "TRSWF"         # TransAlta Renewables OTC
+  - from: "WTT:US"
+    to: "WTT"           # Wireless Telecom Group
+
+  # --- Crypto ---
+  - from: "$$GRT"
+    to: "GRT-USD"       # The Graph token
+  - from: "$$SUI"
+    to: "SUI-USD"       # Sui blockchain token
+
+  # --- Tickers that may work on retry ---
   - from: "DNB:US"
     to: "DNB"           # Dun & Bradstreet
-  - from: "CNHI:US"
-    to: "CNH"           # CNH Industrial (ticker changed)
   - from: "SSBK:US"
-    to: "SSBK"          # Southern States Bancshares (may work with retry)
+    to: "SSBK"          # Southern States Bancshares

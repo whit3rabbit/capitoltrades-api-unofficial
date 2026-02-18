@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS trades (
     estimated_shares REAL,
     estimated_value REAL,
     benchmark_price REAL,
+    price_source TEXT,
     FOREIGN KEY (politician_id) REFERENCES politicians(politician_id) ON DELETE CASCADE,
     FOREIGN KEY (asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE,
     FOREIGN KEY (issuer_id) REFERENCES issuers(issuer_id) ON DELETE CASCADE
