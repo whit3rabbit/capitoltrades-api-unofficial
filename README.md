@@ -1,5 +1,10 @@
 # Capitol Traders
 
+[![Release](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/release.yml/badge.svg)](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/release.yml)
+[![SQLite Sync](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/sqlite-sync.yml/badge.svg)](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/sqlite-sync.yml)
+
+[Releases](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases)
+
 A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com), enriching trades with Yahoo Finance market prices, tracking per-politician portfolio positions with P&L, and scoring trading anomalies, committee conflicts, and performance analytics.
 
 There is no public API (as far as I can tell). The CLI uses an **unofficial API** by scraping the public site (Next.js RSC payloads) and normalizes the data for output.
@@ -15,41 +20,85 @@ cargo build --release
 # Binary is at target/release/capitoltraders
 ```
 
-## Usage
+Or grab a prebuilt binary from [Releases](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases).
+
+## Getting Started
+
+The typical workflow is: **sync** data into a local SQLite database, **enrich** with market prices, then **query** and **analyze**.
+
+### 1. Sync Data
+
+Pull trades, politicians, and issuers from CapitolTrades into a local database:
+
+```sh
+# Full initial sync (first time)
+capitoltraders sync --db capitoltraders.db --full
+
+# Incremental update (subsequent runs -- only fetches new trades)
+capitoltraders sync --db capitoltraders.db
+
+# Sync and enrich detail pages (asset types, filing details, committees)
+capitoltraders sync --db capitoltraders.db --enrich
+
+# Dry run: see how many items would be enriched
+capitoltraders sync --db capitoltraders.db --enrich --dry-run
+```
+
+### 2. Enrich Prices
+
+Fetch historical and current prices from Yahoo Finance (with optional Tiingo fallback for delisted equities):
+
+```sh
+# Enrich all unenriched trades
+capitoltraders enrich-prices --db capitoltraders.db
+
+# Enrich with custom batch size
+capitoltraders enrich-prices --db capitoltraders.db --batch-size 100
+
+# View enrichment diagnostics (no API calls)
+capitoltraders enrich-prices --db capitoltraders.db --diagnose
+
+# Re-attempt previously failed tickers (now with Tiingo fallback)
+capitoltraders enrich-prices --db capitoltraders.db --retry-failed
+```
+
+To enable Tiingo fallback for delisted equities, add `TIINGO_API_KEY` to your `.env` file.
+Get a free key at [tiingo.com](https://www.tiingo.com/account/api/token) (500 unique symbols/month).
+The fallback is optional -- enrichment works without it using Yahoo Finance only.
+
+### 3. Sync FEC Data (Optional)
+
+Pull campaign finance data from the FEC for donation analysis:
+
+```sh
+# Sync FEC candidate ID mappings (from congress-legislators dataset)
+capitoltraders sync-fec --db capitoltraders.db
+
+# Sync donations (requires OPENFEC_API_KEY in .env)
+capitoltraders sync-donations --db capitoltraders.db
+
+# Sync donations for a specific politician and cycle
+capitoltraders sync-donations --db capitoltraders.db --politician pelosi --cycle 2024
+
+# Load curated employer-to-issuer mappings
+capitoltraders map-employers --db capitoltraders.db load-seed
+```
+
+## Querying Data
+
+### Live Scraping (No Database)
+
+Query CapitolTrades directly without a local database:
 
 ```sh
 # List recent trades
 capitoltraders trades
 
-# Filter trades from the last 7 days (by publication date)
-capitoltraders trades --days 7
-
-# Filter trades from the last 30 days (by trade execution date)
-capitoltraders trades --tx-days 30
-
-# Filter trades published within an absolute date range
-capitoltraders trades --since 2024-01-01 --until 2024-06-30
-
-# Filter trades executed within an absolute date range
-capitoltraders trades --tx-since 2024-01-01 --tx-until 2024-06-30
-
-# Search trades by politician name
+# Search trades by politician
 capitoltraders trades --politician pelosi
 
-# Search trades by issuer name
+# Search trades by issuer
 capitoltraders trades --issuer nvidia
-
-# Senate Democrats buying stock in the last 30 days
-capitoltraders trades --chamber senate --party democrat --tx-type buy --days 30
-
-# Technology sector trades
-capitoltraders trades --sector information-technology
-
-# Trades by state
-capitoltraders trades --state CA --party republican
-
-# Sort trades by reporting gap (how long after the trade it was disclosed)
-capitoltraders trades --sort-by reporting-gap --asc
 
 # List politicians sorted by trade volume
 capitoltraders politicians
@@ -62,84 +111,117 @@ capitoltraders issuers --sector information-technology
 
 # Look up a single issuer by ID
 capitoltraders issuers --id 5678
+```
 
-# Output as JSON instead of a table
-capitoltraders trades --output json
+### Database Queries
 
-# Full SQLite dump (all trades, politicians, issuers)
-capitoltraders sync --db capitoltraders.db --full
+Query the local SQLite database (faster, supports more filters):
 
-# Incremental SQLite update (since last stored pub date)
-capitoltraders sync --db capitoltraders.db
-
-# Sync and enrich: fetch detail pages for trades and issuers
-capitoltraders sync --db capitoltraders.db --enrich
-
-# Dry run: see how many items would be enriched
-capitoltraders sync --db capitoltraders.db --enrich --dry-run
-
-# Enrich with tuning: batch size, concurrency, failure threshold
-capitoltraders sync --db capitoltraders.db --enrich --batch-size 100 --concurrency 5 --max-failures 10
-
-# Query enriched trades from local database
+```sh
+# Query trades from local database
 capitoltraders trades --db capitoltraders.db
 
-# Query enriched politicians with committee data
+# Query politicians with committee data
 capitoltraders politicians --db capitoltraders.db --output json
 
-# Query enriched issuers with performance data
+# Query issuers with performance data
 capitoltraders issuers --db capitoltraders.db --sector information-technology
+```
 
-# Enrich trades with Yahoo Finance prices (historical + current)
-capitoltraders enrich-prices --db capitoltraders.db
+## Filtering
 
-# Enrich with custom batch size
-capitoltraders enrich-prices --db capitoltraders.db --batch-size 100
+### Trade Filters
 
-# View per-politician portfolio positions with P&L
+```sh
+# By date (relative)
+capitoltraders trades --days 7            # published in last 7 days
+capitoltraders trades --tx-days 30        # executed in last 30 days
+
+# By date (absolute range)
+capitoltraders trades --since 2024-01-01 --until 2024-06-30
+capitoltraders trades --tx-since 2024-01-01 --tx-until 2024-06-30
+
+# By party, chamber, state
+capitoltraders trades --chamber senate --party democrat --state CA
+
+# By transaction type
+capitoltraders trades --tx-type buy
+
+# By sector
+capitoltraders trades --sector information-technology
+
+# Combine filters
+capitoltraders trades --chamber senate --party democrat --tx-type buy --days 30
+
+# Sort by reporting gap (how long after the trade it was disclosed)
+capitoltraders trades --sort-by reporting-gap --asc
+```
+
+### Portfolio Filters
+
+```sh
+# View all portfolio positions
 capitoltraders portfolio --db capitoltraders.db
 
-# Filter portfolio by politician, party, state, or ticker
+# Filter by politician, party, state, or ticker
 capitoltraders portfolio --db capitoltraders.db --politician P000197
 capitoltraders portfolio --db capitoltraders.db --party democrat --state CA
 capitoltraders portfolio --db capitoltraders.db --ticker AAPL
 
-# Portfolio output as JSON
-capitoltraders portfolio --db capitoltraders.db --output json
-
 # Include closed positions (shares near zero)
 capitoltraders portfolio --db capitoltraders.db --include-closed
 
-# Sync FEC candidate mappings
-capitoltraders sync-fec --db capitoltraders.db
+# Show donation summary for the politician
+capitoltraders portfolio --db capitoltraders.db --politician P000197 --show-donations
+```
 
-# Sync donations for a politician
-capitoltraders sync-donations --db capitoltraders.db --politician pelosi --cycle 2024
+### Donation Filters
 
-# Query donations aggregated by employer
+```sh
+# Query donations by politician
+capitoltraders donations --db capitoltraders.db --politician pelosi
+
+# Filter by cycle, amount, employer, state
+capitoltraders donations --db capitoltraders.db --politician pelosi --cycle 2024
+capitoltraders donations --db capitoltraders.db --min-amount 1000 --state CA
+
+# Aggregate by employer
 capitoltraders donations --db capitoltraders.db --politician pelosi --group-by employer --top 10
-
-# Load curated employer-to-issuer mappings
-capitoltraders map-employers --db capitoltraders.db load-seed
-
-# Export unmatched employers for review
-capitoltraders map-employers --db capitoltraders.db export -o unmatched.csv
 
 # View trades with donor context
 capitoltraders trades --db capitoltraders.db --show-donor-context
+```
 
-# View politician performance leaderboard
+## Analytics
+
+All analytics commands require a synced and price-enriched database.
+
+### Performance Leaderboard
+
+```sh
+# View politician performance rankings
 capitoltraders analytics --db capitoltraders.db --sort-by alpha --top 10
 
-# Analytics filtered by party and period
+# Filter by party and time period
 capitoltraders analytics --db capitoltraders.db --party democrat --period 1y
 
+# Minimum trade threshold
+capitoltraders analytics --db capitoltraders.db --min-trades 10
+```
+
+### Committee Conflicts
+
+```sh
 # View committee trading conflict scores
 capitoltraders conflicts --db capitoltraders.db --min-committee-pct 20
 
 # Include donation-trade correlation analysis
 capitoltraders conflicts --db capitoltraders.db --include-donations --politician pelosi
+```
 
+### Anomaly Detection
+
+```sh
 # Detect unusual trading patterns
 capitoltraders anomalies --db capitoltraders.db --min-score 0.5
 
@@ -147,9 +229,31 @@ capitoltraders anomalies --db capitoltraders.db --min-score 0.5
 capitoltraders anomalies --db capitoltraders.db --show-pre-move --sort-by volume
 ```
 
-### Subcommands
+## Output Formats
 
-**trades** -- List recent congressional stock trades.
+All commands support multiple output formats via `--output`:
+
+```sh
+capitoltraders trades --output json    # JSON array
+capitoltraders trades --output csv     # CSV with headers
+capitoltraders trades --output md      # Markdown table
+capitoltraders trades --output xml     # Well-formed XML
+capitoltraders trades --output table   # Default: human-readable table
+```
+
+Output is written to stdout; pagination metadata is written to stderr.
+
+Schemas live in `schema/`:
+
+- JSON Schema: `schema/trade.schema.json`, `schema/politician.schema.json`, `schema/issuer.schema.json`
+- XML Schema: `schema/trades.xsd`, `schema/politicians.xsd`, `schema/issuers.xsd`
+- SQLite DDL: `schema/sqlite.sql`
+
+## Subcommand Reference
+
+### trades
+
+List recent congressional stock trades.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -198,7 +302,9 @@ Other filters are not yet supported and will return an error.
 The `trades` command fetches each trade's detail page to populate `filingURL`/`filingId`. Use
 `--details-delay-ms` to throttle those requests.
 
-**politicians** -- List politicians and their trading activity.
+### politicians
+
+List politicians and their trading activity.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -219,7 +325,9 @@ Scrape mode limitations: `--committee` and `--issuer-id` are not supported and w
 DB mode (`--db`): Supported filters are `--party`, `--state`, `--name`.
 Shows committee memberships when data has been enriched via `sync --enrich`.
 
-**issuers** -- List or look up stock issuers.
+### issuers
+
+List or look up stock issuers.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -243,7 +351,9 @@ are not supported and will return an error. `--page-size` is fixed at 12.
 DB mode (`--db`): Supported filters are `--search`, `--sector`, `--state`, `--country`, `--limit`.
 Shows performance metrics and EOD price data when data has been enriched via `sync --enrich`.
 
-**sync** -- Ingest CapitolTrades data into SQLite.
+### sync
+
+Ingest CapitolTrades data into SQLite.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -266,7 +376,9 @@ committee memberships, performance metrics, and EOD price history. Smart-skip av
 already-enriched records. Progress bars show enrichment status. A circuit breaker stops after
 `--max-failures` consecutive HTTP failures.
 
-**enrich-prices** -- Enrich trades with Yahoo Finance market prices.
+### enrich-prices
+
+Enrich trades with Yahoo Finance market prices.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -291,11 +403,9 @@ column tracks which API provided each price (yahoo or tiingo).
 Use `--diagnose` to see a full breakdown including price source distribution, and `--retry-failed` to
 re-attempt previously failed tickers (now with Tiingo fallback for delisted equities).
 
-To enable Tiingo fallback for delisted equities, add `TIINGO_API_KEY` to your `.env` file.
-Get a free key at [tiingo.com](https://www.tiingo.com/account/api/token) (500 unique symbols/month).
-The fallback is optional -- enrichment works without it using Yahoo Finance only.
+### portfolio
 
-**portfolio** -- View per-politician stock positions with unrealized P&L.
+View per-politician stock positions with unrealized P&L.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -307,13 +417,14 @@ The fallback is optional -- enrichment works without it using Yahoo Finance only
 | `--include-closed` | Include positions with near-zero shares | off |
 | `--show-donations` | Show donation summary for the politician | off |
 
-Requires a synced and price-enriched database (`sync` then `enrich-prices`).
- Positions are calculated
+Requires a synced and price-enriched database (`sync` then `enrich-prices`). Positions are calculated
 using FIFO (First-In-First-Out) accounting from estimated share counts. Output columns: Politician,
 Ticker, Shares, Avg Cost, Current Price, Current Value, Unrealized P&L, P&L %. Option trades are
 excluded from position calculations and noted separately in table/markdown output.
 
-**sync-fec** -- Populates FEC candidate ID mappings.
+### sync-fec
+
+Populates FEC candidate ID mappings.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -321,7 +432,9 @@ excluded from position calculations and noted separately in table/markdown outpu
 
 Downloads the `congress-legislators` dataset and matches politicians by name and state to resolve their FEC candidate IDs.
 
-**sync-donations** -- Fetches FEC Schedule A contributions.
+### sync-donations
+
+Fetches FEC Schedule A contributions.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -332,7 +445,9 @@ Downloads the `congress-legislators` dataset and matches politicians by name and
 
 Requires an `OPENFEC_API_KEY` in your `.env` file. Fetches contributions for all authorized committees associated with the politician's FEC ID. Supports resumable sync via persistent cursors. A sliding-window rate limiter (900 req/hr budget) paces requests proactively, and 429 responses trigger exponential backoff retries (up to 3 attempts). Progress output shows remaining API budget and a post-run summary of request stats.
 
-**donations** -- Query and aggregate synced donation data.
+### donations
+
+Query and aggregate synced donation data.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -345,7 +460,9 @@ Requires an `OPENFEC_API_KEY` in your `.env` file. Fetches contributions for all
 | `--top` | Show top N results | all |
 | `--group-by` | Group results by: `contributor`, `employer`, `state` | -- |
 
-**map-employers** -- Build employer-to-issuer mapping database.
+### map-employers
+
+Build employer-to-issuer mapping database.
 
 | Subcommand | Description |
 |---|---|
@@ -355,7 +472,9 @@ Requires an `OPENFEC_API_KEY` in your `.env` file. Fetches contributions for all
 
 Used to correlate FEC donation employers with stock issuers. `export` uses fuzzy matching to suggest tickers for donor employers.
 
-**analytics** -- View politician performance rankings.
+### analytics
+
+View politician performance rankings.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -367,7 +486,9 @@ Used to correlate FEC donation employers with stock issuers. `export` uses fuzzy
 | `--state` | US state code | all |
 | `--top` | Number of results | 25 |
 
-**conflicts** -- View committee trading scores and donation-trade correlations.
+### conflicts
+
+View committee trading scores and donation-trade correlations.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -379,7 +500,9 @@ Used to correlate FEC donation employers with stock issuers. `export` uses fuzzy
 | `--min-confidence` | Minimum employer mapping confidence (0.0-1.0) | 0.90 |
 | `--top` | Number of results | 25 |
 
-**anomalies** -- Detect unusual trading patterns.
+### anomalies
+
+Detect unusual trading patterns.
 
 | Flag | Description | Default |
 |---|---|---|
@@ -404,23 +527,9 @@ The daily SQLite sync workflow lives at `.github/workflows/sqlite-sync.yml`. It 
 database from a GitHub Actions cache, runs `capitoltraders sync`, and uploads the updated database as
 an artifact.
 
-## Output Formats & Schemas
-
-Output is written to stdout; pagination metadata is written to stderr. Supported formats:
-
-- `table` (human-readable table)
-- `json` (array of items)
-- `csv` (header + rows)
-- `md` (Markdown table)
-- `xml` (well-formed XML with root `<trades>`, `<politicians>`, or `<issuers>`)
-
-Schemas live in `schema/`:
-
-- JSON Schema: `schema/trade.schema.json`, `schema/politician.schema.json`, `schema/issuer.schema.json`
-- XML Schema: `schema/trades.xsd`, `schema/politicians.xsd`, `schema/issuers.xsd`
-- SQLite DDL: `schema/sqlite.sql`
-
-These schemas describe the CLI output (arrays of items), not the PaginatedResponse wrapper.
+The release workflow (`.github/workflows/release.yml`) builds cross-platform binaries on tag push and
+uploads them to a GitHub release. It supports both creating new releases and uploading assets to
+releases that were created before the CI run finished.
 
 ## Project Structure
 

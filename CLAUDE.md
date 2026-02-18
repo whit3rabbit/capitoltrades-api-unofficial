@@ -482,6 +482,7 @@ let option_count = db.count_option_trades(Some("P000197"))?;
 - **response.quotes() errors**: Yahoo API returns Ok(response) but quotes() can fail with NoQuotes
 - **Schema v2 fresh DBs**: Base schema.sql includes all columns; migrations only for existing DBs
 - **Unenriched trades after enrichment**: Use `--diagnose` to categorize; most are null tickers (unenrichable) or renamed/delisted stocks (fix via `seed_data/ticker_aliases.yml`)
+- **Enrichment coverage (as of 2026-02-17)**: 35,575 total trades; 29,833 enriched (83.9%, 29,708 Yahoo + 125 Tiingo); 425 attempted but no price (1.2%, mostly acquired/delisted: WBA, DFS, DNB, ANSS, K, etc.); 4,830 null/empty tickers (unenrichable -- non-equity assets like mutual funds, bonds); 487 "unknown" never-attempted (mapped as known-unenrichable in ticker_aliases.yml)
 - **Ticker alias vs normalize**: `resolve_yahoo_ticker()` checks aliases first, then falls through to `normalize_ticker_for_yahoo()`; never call normalize directly in the enrichment pipeline
 - **Tiingo rate limit detection**: Tiingo returns HTTP 200 with `Content-Type: text/plain` for rate limits (not 429). Client checks Content-Type before JSON parsing.
 - **Tiingo fallback skipped silently**: When `TIINGO_API_KEY` is not set, fallback is `None` and Yahoo-only path runs without error
