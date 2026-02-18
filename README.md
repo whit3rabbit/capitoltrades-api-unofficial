@@ -3,13 +3,18 @@
 [![Release](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/release.yml/badge.svg)](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/release.yml)
 [![SQLite Sync](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/sqlite-sync.yml/badge.svg)](https://github.com/whit3rabbit/capitoltrades-api-unofficial/actions/workflows/sqlite-sync.yml)
 
-[Releases](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases)
-
 A command-line tool for querying congressional stock trading data from [CapitolTrades](https://www.capitoltrades.com), enriching trades with Yahoo Finance market prices, tracking per-politician portfolio positions with P&L, and scoring trading anomalies, committee conflicts, and performance analytics.
 
 There is no public API (as far as I can tell). The CLI uses an **unofficial API** by scraping the public site (Next.js RSC payloads) and normalizes the data for output.
 The vendored [capitoltrades_api](https://github.com/TommasoAmici/capitoltrades) crate is still used for shared types
 and validation helpers.
+
+## Quick start
+
+Download database and latest release cli:
+
+[Database](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases/download/v1.4.0/capitoltraders.db)
+[Releases](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases)
 
 ## Install
 
