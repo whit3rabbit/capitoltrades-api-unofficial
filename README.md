@@ -14,22 +14,14 @@ and validation helpers.
 Download database and latest release cli:
 
 [Database](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases/download/v1.4.0/capitoltraders.db)
+
 [Releases](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases)
-
-## Install
-
-Requires Rust 1.70+.
-
-```sh
-cargo build --release
-# Binary is at target/release/capitoltraders
-```
-
-Or grab a prebuilt binary from [Releases](https://github.com/whit3rabbit/capitoltrades-api-unofficial/releases).
 
 ## Getting Started
 
-The typical workflow is: **sync** data into a local SQLite database, **enrich** with market prices, then **query** and **analyze**.
+The typical workflow is: **sync** data into a local SQLite database, **enrich** with market prices, then **query** and **analyze**. 
+
+You can download a prebuilt database from above.
 
 ### 1. Sync Data
 
