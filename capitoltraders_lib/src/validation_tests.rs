@@ -387,11 +387,14 @@ fn chamber_invalid() {
 #[test]
 fn politician_id_valid() {
     assert_eq!(validate_politician_id("P000197").unwrap(), "P000197");
+    assert_eq!(validate_politician_id("K000389").unwrap(), "K000389");
+    assert_eq!(validate_politician_id("M001227").unwrap(), "M001227");
 }
 
 #[test]
 fn politician_id_invalid_prefix() {
-    assert!(validate_politician_id("X000197").is_err());
+    assert!(validate_politician_id("0000197").is_err());
+    assert!(validate_politician_id("p000197").is_err());
 }
 
 #[test]

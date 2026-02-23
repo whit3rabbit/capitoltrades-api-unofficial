@@ -118,7 +118,7 @@ pub fn run(args: &ConflictsArgs, format: &OutputFormat) -> Result<()> {
         })
         .collect();
 
-    let closed_trades = calculate_closed_trades(analytics_trades);
+    let closed_trades = calculate_closed_trades(analytics_trades, false);
 
     // Get all politicians with committees
     let politicians_with_committees = db.get_all_politicians_with_committees()?;

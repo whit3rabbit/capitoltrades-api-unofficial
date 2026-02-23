@@ -82,15 +82,17 @@ struct AnalyticsPosition {
     ticker: String,
     lots: VecDeque<AnalyticsLot>,
     closed_trades: Vec<ClosedTrade>,
+    verbose: bool,
 }
 
 impl AnalyticsPosition {
-    fn new(politician_id: String, ticker: String) -> Self {
+    fn new(politician_id: String, ticker: String, verbose: bool) -> Self {
         Self {
             politician_id,
             ticker,
             lots: VecDeque::new(),
             closed_trades: Vec::new(),
+            verbose,
         }
     }
 
@@ -128,10 +130,12 @@ impl AnalyticsPosition {
             let lot = match self.lots.front_mut() {
                 Some(l) => l,
                 None => {
-                    eprintln!(
-                        "Warning: Oversold position: politician_id={}, ticker={}, remaining_shares={}",
-                        self.politician_id, self.ticker, remaining
-                    );
+                    if self.verbose {
+                        eprintln!(
+                            "Warning: Oversold position: politician_id={}, ticker={}, remaining_shares={}",
+                            self.politician_id, self.ticker, remaining
+                        );
+                    }
                     return;
                 }
             };
@@ -165,13 +169,16 @@ impl AnalyticsPosition {
 }
 
 /// Calculate closed trades from chronologically-ordered trade records using FIFO matching.
-pub fn calculate_closed_trades(trades: Vec<AnalyticsTrade>) -> Vec<ClosedTrade> {
+///
+/// When `verbose` is true, oversold position warnings are printed to stderr.
+/// When false, oversold positions are handled silently.
+pub fn calculate_closed_trades(trades: Vec<AnalyticsTrade>, verbose: bool) -> Vec<ClosedTrade> {
     let mut positions: HashMap<(String, String), AnalyticsPosition> = HashMap::new();
 
     for trade in trades {
         let key = (trade.politician_id.clone(), trade.ticker.clone());
         let position = positions.entry(key.clone()).or_insert_with(|| {
-            AnalyticsPosition::new(trade.politician_id.clone(), trade.ticker.clone())
+            AnalyticsPosition::new(trade.politician_id.clone(), trade.ticker.clone(), verbose)
         });
 
         match trade.tx_type.as_str() {
@@ -196,17 +203,20 @@ pub fn calculate_closed_trades(trades: Vec<AnalyticsTrade>) -> Vec<ClosedTrade> 
                 );
             }
             "exchange" => {
-                // No-op
-                eprintln!(
-                    "Exchange transaction skipped: tx_id={}, politician={}, ticker={}",
-                    trade.tx_id, trade.politician_id, trade.ticker
-                );
+                if verbose {
+                    eprintln!(
+                        "Exchange transaction skipped: tx_id={}, politician={}, ticker={}",
+                        trade.tx_id, trade.politician_id, trade.ticker
+                    );
+                }
             }
             _ => {
-                eprintln!(
-                    "Warning: Unknown tx_type '{}' for tx_id={}, politician={}, ticker={}",
-                    trade.tx_type, trade.tx_id, trade.politician_id, trade.ticker
-                );
+                if verbose {
+                    eprintln!(
+                        "Warning: Unknown tx_type '{}' for tx_id={}, politician={}, ticker={}",
+                        trade.tx_type, trade.tx_id, trade.politician_id, trade.ticker
+                    );
+                }
             }
         }
     }
@@ -469,7 +479,7 @@ mod tests {
         },
         ];
 
-        let closed = calculate_closed_trades(trades);
+        let closed = calculate_closed_trades(trades, false);
         assert_eq!(closed.len(), 1);
         assert_eq!(closed[0].shares, 100.0);
         assert_eq!(closed[0].buy_price, 50.0);
@@ -519,7 +529,7 @@ mod tests {
         },
         ];
 
-        let closed = calculate_closed_trades(trades);
+        let closed = calculate_closed_trades(trades, false);
         assert_eq!(closed.len(), 2);
         // First closed trade: 100 shares from first lot
         assert_eq!(closed[0].shares, 100.0);
@@ -560,7 +570,7 @@ mod tests {
         },
         ];
 
-        let closed = calculate_closed_trades(trades);
+        let closed = calculate_closed_trades(trades, false);
         assert_eq!(closed.len(), 1);
         assert_eq!(closed[0].buy_price, 50.0);
         assert_eq!(closed[0].sell_price, 30.0);
@@ -595,7 +605,7 @@ mod tests {
         },
         ];
 
-        let closed = calculate_closed_trades(trades);
+        let closed = calculate_closed_trades(trades, false);
         assert_eq!(closed.len(), 0);
     }
 
@@ -616,7 +626,7 @@ mod tests {
         },
         ];
 
-        let closed = calculate_closed_trades(trades);
+        let closed = calculate_closed_trades(trades, false);
         assert_eq!(closed.len(), 0);
     }
 
@@ -661,7 +671,7 @@ mod tests {
         },
         ];
 
-        let closed = calculate_closed_trades(trades);
+        let closed = calculate_closed_trades(trades, false);
         assert_eq!(closed.len(), 1);
         assert_eq!(closed[0].politician_id, "P000001");
         assert_eq!(closed[0].buy_price, 50.0);

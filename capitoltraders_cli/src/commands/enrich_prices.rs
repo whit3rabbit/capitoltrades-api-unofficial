@@ -394,27 +394,22 @@ pub async fn run(args: &EnrichPricesArgs) -> Result<()> {
                 // Process all trades with this (ticker, date) pair
                 for idx in &fetch.trade_indices {
                     let trade = &trades[*idx];
-                    // Parse trade range and estimate shares
-                    if let Some(range) =
-                        pricing::parse_trade_range(trade.size_range_low, trade.size_range_high)
-                    {
-                        if let Some(estimate) = pricing::estimate_shares(&range, price) {
-                            db.update_trade_prices(
-                                trade.tx_id,
-                                Some(price),
-                                Some(estimate.estimated_shares),
-                                Some(estimate.estimated_value),
-                                source_opt,
-                            )?;
-                            enriched += 1;
-                            breaker.record_success();
-                        } else {
-                            // Estimate failed (division by zero or out of bounds)
-                            db.update_trade_prices(trade.tx_id, Some(price), None, None, source_opt)?;
-                            skipped += 1;
-                        }
+                    // Estimate shares: try range-based first, fall back to value-based
+                    let estimate = pricing::parse_trade_range(trade.size_range_low, trade.size_range_high)
+                        .and_then(|range| pricing::estimate_shares(&range, price))
+                        .or_else(|| pricing::estimate_shares_from_value(trade.value, price));
+
+                    if let Some(estimate) = estimate {
+                        db.update_trade_prices(
+                            trade.tx_id,
+                            Some(price),
+                            Some(estimate.estimated_shares),
+                            Some(estimate.estimated_value),
+                            source_opt,
+                        )?;
+                        enriched += 1;
+                        breaker.record_success();
                     } else {
-                        // Invalid range
                         db.update_trade_prices(trade.tx_id, Some(price), None, None, source_opt)?;
                         skipped += 1;
                     }

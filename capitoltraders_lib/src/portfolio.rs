@@ -101,7 +101,14 @@ pub struct TradeFIFO {
 }
 
 /// Calculate positions from chronologically-ordered trades.
-pub fn calculate_positions(trades: Vec<TradeFIFO>) -> HashMap<(String, String), Position> {
+///
+/// When `verbose` is true, oversold position warnings are printed to stderr.
+/// When false, oversold positions are handled silently (the common case for
+/// incomplete data where sells predate the data collection window).
+pub fn calculate_positions(
+    trades: Vec<TradeFIFO>,
+    verbose: bool,
+) -> HashMap<(String, String), Position> {
     let mut positions: HashMap<(String, String), Position> = HashMap::new();
 
     for trade in trades {
@@ -116,21 +123,26 @@ pub fn calculate_positions(trades: Vec<TradeFIFO>) -> HashMap<(String, String), 
             }
             "sell" => {
                 if let Err(e) = position.sell(trade.estimated_shares, trade.trade_date_price) {
-                    eprintln!("Warning: {}", e);
+                    if verbose {
+                        eprintln!("Warning: {}", e);
+                    }
                 }
             }
             "exchange" => {
-                // No-op, log occurrence
-                eprintln!(
-                    "Exchange transaction skipped: tx_id={}, politician={}, ticker={}",
-                    trade.tx_id, trade.politician_id, trade.ticker
-                );
+                if verbose {
+                    eprintln!(
+                        "Exchange transaction skipped: tx_id={}, politician={}, ticker={}",
+                        trade.tx_id, trade.politician_id, trade.ticker
+                    );
+                }
             }
             _ => {
-                eprintln!(
-                    "Warning: Unknown tx_type '{}' for tx_id={}, politician={}, ticker={}",
-                    trade.tx_type, trade.tx_id, trade.politician_id, trade.ticker
-                );
+                if verbose {
+                    eprintln!(
+                        "Warning: Unknown tx_type '{}' for tx_id={}, politician={}, ticker={}",
+                        trade.tx_type, trade.tx_id, trade.politician_id, trade.ticker
+                    );
+                }
             }
         }
     }
@@ -226,7 +238,7 @@ mod tests {
             },
         ];
 
-        let positions = calculate_positions(trades);
+        let positions = calculate_positions(trades, false);
         let pos = positions.get(&("P000001".to_string(), "AAPL".to_string())).unwrap();
 
         assert!((pos.shares_held() - 100.0).abs() < EPSILON);
@@ -256,7 +268,7 @@ mod tests {
             },
         ];
 
-        let positions = calculate_positions(trades);
+        let positions = calculate_positions(trades, false);
         let pos = positions.get(&("P000001".to_string(), "AAPL".to_string())).unwrap();
 
         // Exchange should not affect shares
@@ -286,7 +298,7 @@ mod tests {
             },
         ];
 
-        let positions = calculate_positions(trades);
+        let positions = calculate_positions(trades, false);
         assert_eq!(positions.len(), 2);
 
         let pos1 = positions.get(&("P000001".to_string(), "AAPL".to_string())).unwrap();
@@ -319,7 +331,7 @@ mod tests {
             },
         ];
 
-        let positions = calculate_positions(trades);
+        let positions = calculate_positions(trades, false);
         assert_eq!(positions.len(), 2);
 
         let pos1 = positions.get(&("P000001".to_string(), "AAPL".to_string())).unwrap();
@@ -369,7 +381,7 @@ mod tests {
             },
         ];
 
-        let positions = calculate_positions(trades);
+        let positions = calculate_positions(trades, false);
         let pos = positions.get(&("P000001".to_string(), "AAPL".to_string())).unwrap();
 
         // Unknown tx_type should be skipped

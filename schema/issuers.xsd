@@ -56,7 +56,7 @@
 
   <xs:complexType name="PriceSetType">
     <xs:sequence>
-      <xs:element name="priceSet" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="value" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
     </xs:sequence>
   </xs:complexType>
 

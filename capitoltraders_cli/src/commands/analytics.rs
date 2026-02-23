@@ -122,7 +122,7 @@ pub fn run(args: &AnalyticsArgs, format: &OutputFormat) -> Result<()> {
         .collect();
 
     // Run FIFO matching
-    let closed_trades = calculate_closed_trades(analytics_trades);
+    let closed_trades = calculate_closed_trades(analytics_trades, false);
 
     if closed_trades.is_empty() {
         eprintln!("No closed trades found (no matched buy-sell pairs).");

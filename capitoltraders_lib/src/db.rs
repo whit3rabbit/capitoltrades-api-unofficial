@@ -104,6 +104,11 @@ impl Db {
             self.conn.pragma_update(None, "user_version", 9)?;
         }
 
+        if version < 10 {
+            self.migrate_v10()?;
+            self.conn.pragma_update(None, "user_version", 10)?;
+        }
+
         let schema = include_str!("../../schema/sqlite.sql");
         self.conn.execute_batch(schema)?;
 
@@ -428,6 +433,25 @@ impl Db {
         let _ = self.conn.execute(
             "UPDATE trades SET price_source = 'yahoo'
              WHERE trade_date_price IS NOT NULL AND price_source IS NULL",
+            [],
+        );
+
+        Ok(())
+    }
+
+    fn migrate_v10(&self) -> Result<(), DbError> {
+        // Backfill estimated_shares from value / trade_date_price for trades that
+        // have a price but no share estimate. The scraper always populates `value`
+        // (midpoint of the trade size bracket) but size_range_low/high are NULL,
+        // so the original range-based estimator produced nothing for most trades.
+        let _ = self.conn.execute(
+            "UPDATE trades SET
+               estimated_shares = CAST(value AS REAL) / trade_date_price,
+               estimated_value = CAST(value AS REAL)
+             WHERE trade_date_price IS NOT NULL
+               AND trade_date_price > 0.0
+               AND estimated_shares IS NULL
+               AND value > 0",
             [],
         );
 
@@ -2361,7 +2385,7 @@ impl Db {
                    JOIN assets a ON t.asset_id = a.asset_id
                    WHERE t.estimated_shares IS NOT NULL
                      AND t.trade_date_price IS NOT NULL
-                     AND a.asset_type = 'stock'
+                     AND a.asset_type IN ('stock', 'unknown')
                    ORDER BY t.tx_date ASC, t.tx_id ASC";
 
         let mut stmt = self.conn.prepare(sql)?;
@@ -2400,7 +2424,7 @@ impl Db {
                    JOIN assets a ON t.asset_id = a.asset_id
                    WHERE t.estimated_shares IS NOT NULL
                      AND t.trade_date_price IS NOT NULL
-                     AND a.asset_type = 'stock'
+                     AND a.asset_type IN ('stock', 'unknown')
                    ORDER BY t.tx_date ASC, t.tx_id ASC";
 
         let mut stmt = self.conn.prepare(sql)?;
@@ -3676,7 +3700,7 @@ impl Db {
             JOIN assets a ON t.asset_id = a.asset_id
             WHERE t.trade_date_price IS NOT NULL
               AND t.tx_date <= date('now', '-30 days')
-              AND a.asset_type = 'stock'
+              AND a.asset_type IN ('stock', 'unknown')
             ORDER BY t.tx_date DESC
         ";
 
@@ -4699,7 +4723,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // Call init a second time -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 9);
+        assert_eq!(get_user_version(&db), 10);
     }
 
     #[test]
@@ -4732,7 +4756,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(has_column(&db, "issuers", "enriched_at"));
 
         // Verify user_version is now 8 (all migrations applied)
-        assert_eq!(get_user_version(&db), 9);
+        assert_eq!(get_user_version(&db), 10);
 
         // Verify pre-existing data is preserved
         let name: String = db
@@ -4800,7 +4824,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "positions table should exist");
 
         // Verify user_version is now 3 (v1, v2, and v3 migrations applied)
-        assert_eq!(get_user_version(&db), 9);
+        assert_eq!(get_user_version(&db), 10);
 
         // Verify pre-existing trade data is preserved
         let value: i64 = db.conn.query_row(
@@ -4816,7 +4840,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = open_test_db();
         // DB is now at v3. Call init again -- must not error
         db.init().expect("second init should not error");
-        assert_eq!(get_user_version(&db), 9);
+        assert_eq!(get_user_version(&db), 10);
 
         // Verify price columns still exist
         assert!(has_column(&db, "trades", "trade_date_price"));
@@ -4881,7 +4905,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         assert!(table_exists, "fec_mappings table should exist after migration");
 
         // Verify user_version is now 3
-        assert_eq!(get_user_version(&db), 9);
+        assert_eq!(get_user_version(&db), 10);
 
         // Verify pre-existing politician data is preserved
         let name: String = db.conn.query_row(
@@ -4897,7 +4921,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         let db = Db::open_in_memory().unwrap();
         db.init().unwrap();
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -4906,7 +4930,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
         db.init().unwrap();
         db.init().unwrap(); // Should not fail
         let version: i32 = db.conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -7370,6 +7394,186 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
     }
 
     #[test]
+    fn test_migration_v10_backfills_estimated_shares() {
+        let db = open_test_db();
+
+        // Insert parent rows
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert trade with price but no estimated_shares (simulates pre-v10 state)
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 30000, 1, 'http://example.com', 0, 150.0)",
+                [],
+            )
+            .expect("insert trade");
+
+        // Run the v10 migration manually
+        db.migrate_v10().unwrap();
+
+        // Verify backfill: 30000 / 150.0 = 200.0 shares
+        let (shares, value): (f64, f64) = db
+            .conn
+            .query_row(
+                "SELECT estimated_shares, estimated_value FROM trades WHERE tx_id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!((shares - 200.0).abs() < 0.01);
+        assert!((value - 30000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_migration_v10_preserves_existing_estimated_shares() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock')",
+                [],
+            )
+            .expect("insert asset");
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+
+        // Insert trade WITH existing estimated_shares (range-based estimate from v9)
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, trade_date_price, estimated_shares, estimated_value)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 30000, 1, 'http://example.com', 0, 150.0, 999.0, 45000.0)",
+                [],
+            )
+            .expect("insert trade");
+
+        db.migrate_v10().unwrap();
+
+        // Should NOT overwrite existing estimated_shares
+        let shares: f64 = db
+            .conn
+            .query_row(
+                "SELECT estimated_shares FROM trades WHERE tx_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!((shares - 999.0).abs() < 0.01, "Migration should not overwrite existing shares");
+    }
+
+    #[test]
+    fn test_query_trades_for_portfolio_includes_unknown_asset_type() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // 'unknown' is the scraper default -- should still be included
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'unknown')",
+                [],
+            )
+            .expect("insert unknown asset");
+
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert trade");
+
+        let trades = db
+            .query_trades_for_portfolio()
+            .expect("query_trades_for_portfolio");
+
+        assert_eq!(trades.len(), 1, "Should include trades with asset_type='unknown'");
+        assert_eq!(trades[0].tx_id, 1);
+    }
+
+    #[test]
+    fn test_query_trades_for_portfolio_still_excludes_stock_options() {
+        let db = open_test_db();
+
+        db.conn
+            .execute(
+                "INSERT INTO politicians (politician_id, state_id, party, first_name, last_name, dob, gender, chamber)
+                 VALUES ('P000001', 'CA', 'Democrat', 'John', 'Doe', '1970-01-01', 'male', 'house')",
+                [],
+            )
+            .expect("insert politician");
+        db.conn
+            .execute(
+                "INSERT INTO issuers (issuer_id, issuer_name, issuer_ticker) VALUES (1, 'Apple', 'AAPL')",
+                [],
+            )
+            .expect("insert issuer");
+
+        // stock-option should still be excluded
+        db.conn
+            .execute(
+                "INSERT INTO assets (asset_id, asset_type) VALUES (1, 'stock-option')",
+                [],
+            )
+            .expect("insert stock-option asset");
+
+        db.conn
+            .execute(
+                "INSERT INTO trades (tx_id, politician_id, asset_id, issuer_id, pub_date, filing_date, tx_date, tx_type, has_capital_gains, owner, chamber, value, filing_id, filing_url, reporting_gap, estimated_shares, trade_date_price)
+                 VALUES (1, 'P000001', 1, 1, '2024-01-01', '2024-01-01', '2024-01-01', 'buy', 0, 'self', 'house', 5000, 1, 'http://example.com', 0, 100.0, 50.0)",
+                [],
+            )
+            .expect("insert trade");
+
+        let trades = db
+            .query_trades_for_portfolio()
+            .expect("query_trades_for_portfolio");
+
+        assert_eq!(trades.len(), 0, "Should exclude stock-option trades");
+    }
+
+    #[test]
     fn test_query_trades_for_analytics_empty() {
         let db = open_test_db();
         let trades = db
@@ -8120,7 +8324,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
 
         // Verify all three new tables exist
         let tables: Vec<String> = db
@@ -8147,7 +8351,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -8199,7 +8403,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
 
         // Verify employer_mappings table exists
         let has_employer_mappings: bool = db
@@ -8255,7 +8459,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -8267,7 +8471,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9, "fresh database should have version 9");
+        assert_eq!(version, 10, "fresh database should have version 10");
     }
 
     #[test]
@@ -9366,7 +9570,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
 
         // Verify gics_sector column exists on issuers
         assert!(has_column(&db, "issuers", "gics_sector"), "gics_sector column should exist after v6 migration");
@@ -9410,7 +9614,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -9422,7 +9626,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9, "fresh database should have version 9");
+        assert_eq!(version, 10, "fresh database should have version 10");
     }
 
     #[test]
@@ -9578,7 +9782,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
 
         // Verify benchmark_price column exists on trades
         assert!(has_column(&db, "trades", "benchmark_price"), "benchmark_price column should exist after v7 migration");
@@ -9635,7 +9839,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
     }
 
     #[test]
@@ -9647,7 +9851,7 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("get version");
-        assert_eq!(version, 9, "fresh database should have version 9");
+        assert_eq!(version, 10, "fresh database should have version 10");
     }
 
     #[test]

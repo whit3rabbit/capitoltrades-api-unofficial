@@ -24,6 +24,7 @@ fn singular(field: &str) -> &str {
         "committees" => "committee",
         "labels" => "label",
         "eodPrices" => "priceSet",
+        "priceSet" => "value",
         _ => field,
     }
 }

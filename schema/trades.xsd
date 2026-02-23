@@ -15,7 +15,7 @@
       <xs:element name="_politicianId" type="PoliticianIdType"/>
       <xs:element name="_assetId" type="xs:integer"/>
       <xs:element name="_issuerId" type="xs:integer"/>
-      <xs:element name="pubDate" type="xs:string"/>
+      <xs:element name="pubDate" type="xs:dateTime"/>
       <xs:element name="filingDate" type="xs:date"/>
       <xs:element name="txDate" type="xs:date"/>
       <xs:element name="txType" type="TxTypeEnum"/>
@@ -63,7 +63,7 @@
     <xs:all>
       <xs:element name="_stateId" type="xs:string"/>
       <xs:element name="chamber" type="ChamberEnum"/>
-      <xs:element name="dob" type="xs:string"/>
+      <xs:element name="dob" type="xs:date"/>
       <xs:element name="firstName" type="xs:string"/>
       <xs:element name="gender" type="GenderEnum"/>
       <xs:element name="lastName" type="xs:string"/>

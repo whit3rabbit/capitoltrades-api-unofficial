@@ -47,6 +47,10 @@ pub struct PortfolioArgs {
     /// Show donation summary for the politician (requires synced donations)
     #[arg(long)]
     pub show_donations: bool,
+
+    /// Show FIFO oversold position warnings (hidden by default)
+    #[arg(long)]
+    pub verbose: bool,
 }
 
 /// Enriched portfolio position with optional conflict detection fields.
@@ -94,7 +98,7 @@ pub fn run(args: &PortfolioArgs, format: &OutputFormat) -> Result<()> {
     // Compute FIFO positions from trades and persist to positions table
     let trades = db.query_trades_for_portfolio()?;
     if !trades.is_empty() {
-        let positions = calculate_positions(trades);
+        let positions = calculate_positions(trades, args.verbose);
         let count = db.upsert_positions(&positions)?;
         eprintln!("Computed {} FIFO positions from trade data", count);
     }
@@ -115,7 +119,17 @@ pub fn run(args: &PortfolioArgs, format: &OutputFormat) -> Result<()> {
         None => None,
     };
 
-    let ticker = args.ticker.as_ref().map(|t| t.trim().to_uppercase());
+    let ticker = match args.ticker.as_ref() {
+        Some(t) => {
+            let input = t.trim().to_uppercase();
+            // Resolve bare ticker to DB format (e.g., AAPL -> AAPL:US)
+            match db.find_issuer_ticker(&input)? {
+                Some(resolved) => Some(resolved),
+                None => Some(input), // pass through as-is; query will return empty
+            }
+        }
+        None => None,
+    };
 
     let filter = PortfolioFilter {
         politician_id,

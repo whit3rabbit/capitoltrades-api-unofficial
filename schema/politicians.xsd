@@ -21,7 +21,7 @@
       <xs:element name="nickname" type="xs:string" minOccurs="0"/>
       <xs:element name="middleName" type="xs:string" minOccurs="0"/>
       <xs:element name="fullName" type="xs:string"/>
-      <xs:element name="dob" type="xs:string"/>
+      <xs:element name="dob" type="xs:date"/>
       <xs:element name="gender" type="GenderEnum"/>
       <xs:element name="socialFacebook" type="xs:string" minOccurs="0"/>
       <xs:element name="socialTwitter" type="xs:string" minOccurs="0"/>

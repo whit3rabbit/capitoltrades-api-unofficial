@@ -90,6 +90,29 @@ pub fn estimate_shares(range: &TradeRange, trade_date_price: f64) -> Option<Shar
     })
 }
 
+/// Estimate shares directly from a trade's dollar value and historical price.
+///
+/// Used as a fallback when size_range_low/size_range_high are both NULL (the common
+/// case from the scraper). The `value` column represents the midpoint dollar value of
+/// the trade size bracket and is always populated.
+///
+/// Returns None if:
+/// - value <= 0 (no meaningful dollar amount)
+/// - trade_date_price <= 0.0 (division by zero or negative price)
+pub fn estimate_shares_from_value(value: i64, trade_date_price: f64) -> Option<ShareEstimate> {
+    if value <= 0 || trade_date_price <= 0.0 {
+        return None;
+    }
+
+    let dollar_value = value as f64;
+    let estimated_shares = dollar_value / trade_date_price;
+
+    Some(ShareEstimate {
+        estimated_shares,
+        estimated_value: dollar_value,
+    })
+}
+
 /// Resolve a raw CapitolTrades ticker to a Yahoo Finance ticker using aliases.
 ///
 /// Checks the alias map first (both the raw ticker and its base without suffix),
@@ -425,5 +448,42 @@ mod tests {
         let aliases = test_aliases();
         // Trailing space -- should still find "FLT:US" after trimming
         assert_eq!(resolve_yahoo_ticker("FLT:US ", &aliases), Some("CPAY".to_string()));
+    }
+
+    // --- estimate_shares_from_value tests ---
+
+    #[test]
+    fn test_estimate_from_value_normal() {
+        let result = estimate_shares_from_value(30000, 150.0).unwrap();
+        assert!((result.estimated_shares - 200.0).abs() < 0.01);
+        assert!((result.estimated_value - 30000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_estimate_from_value_zero_value() {
+        assert!(estimate_shares_from_value(0, 150.0).is_none());
+    }
+
+    #[test]
+    fn test_estimate_from_value_negative_value() {
+        assert!(estimate_shares_from_value(-1000, 150.0).is_none());
+    }
+
+    #[test]
+    fn test_estimate_from_value_zero_price() {
+        assert!(estimate_shares_from_value(30000, 0.0).is_none());
+    }
+
+    #[test]
+    fn test_estimate_from_value_negative_price() {
+        assert!(estimate_shares_from_value(30000, -10.0).is_none());
+    }
+
+    #[test]
+    fn test_estimate_from_value_small_price() {
+        // Penny stock: $5000 at $0.50/share = 10000 shares
+        let result = estimate_shares_from_value(5000, 0.50).unwrap();
+        assert!((result.estimated_shares - 10000.0).abs() < 0.01);
+        assert!((result.estimated_value - 5000.0).abs() < 0.01);
     }
 }

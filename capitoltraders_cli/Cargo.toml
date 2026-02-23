@@ -1,6 +1,6 @@
 [package]
 name = "capitoltraders_cli"
-version = "1.3.2"
+version = "1.4.1"
 edition = "2021"
 
 [[bin]]

@@ -343,7 +343,7 @@ fn load_politician_analytics(db: &Db) -> Result<HashMap<String, PoliticianMetric
         .collect();
 
     // Calculate closed trades using FIFO
-    let closed_trades = calculate_closed_trades(analytics_trades);
+    let closed_trades = calculate_closed_trades(analytics_trades, false);
 
     // Compute metrics for each closed trade
     let all_metrics: Vec<_> = closed_trades.iter().map(compute_trade_metrics).collect();

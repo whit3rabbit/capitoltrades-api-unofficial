@@ -760,7 +760,7 @@ fn load_analytics_metrics(db: &Db) -> Result<HashMap<(String, String), TradeMetr
         .collect();
 
     // Calculate closed trades using FIFO
-    let closed_trades = calculate_closed_trades(analytics_trades);
+    let closed_trades = calculate_closed_trades(analytics_trades, false);
 
     // Compute metrics for each closed trade
     let all_metrics: Vec<TradeMetrics> = closed_trades

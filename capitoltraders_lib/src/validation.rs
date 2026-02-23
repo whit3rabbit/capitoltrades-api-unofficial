@@ -324,17 +324,17 @@ pub fn validate_chamber(input: &str) -> Result<Chamber, CapitolTradesError> {
     }
 }
 
-/// Validate a politician ID: must match P followed by 6 digits (e.g., P000197).
+/// Validate a politician ID (bioguide format): one uppercase letter followed by 6 digits (e.g., P000197, K000389).
 pub fn validate_politician_id(input: &str) -> Result<String, CapitolTradesError> {
     let trimmed = input.trim();
     if trimmed.len() == 7
-        && trimmed.starts_with('P')
+        && trimmed.as_bytes()[0].is_ascii_uppercase()
         && trimmed[1..].chars().all(|c| c.is_ascii_digit())
     {
         Ok(trimmed.to_string())
     } else {
         Err(CapitolTradesError::InvalidInput(format!(
-            "invalid politician ID '{}'. Expected format: P followed by 6 digits (e.g., P000197)",
+            "invalid politician ID '{}'. Expected format: one letter followed by 6 digits (e.g., P000197)",
             input
         )))
     }
