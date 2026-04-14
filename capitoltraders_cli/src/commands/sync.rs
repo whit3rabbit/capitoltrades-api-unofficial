@@ -153,8 +153,8 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         )
         .await?;
         eprintln!(
-            "Enrichment: {}/{} trades processed ({} failed)",
-            result.enriched, result.total, result.failed
+            "Enrichment: {}/{} trades processed ({} skipped, {} failed)",
+            result.enriched, result.total, result.skipped, result.failed
         );
 
         let issuer_result = enrich_issuers(
@@ -168,8 +168,8 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         )
         .await?;
         eprintln!(
-            "Issuer enrichment: {}/{} issuers processed ({} failed)",
-            issuer_result.enriched, issuer_result.total, issuer_result.failed
+            "Issuer enrichment: {}/{} issuers processed ({} skipped, {} failed)",
+            issuer_result.enriched, issuer_result.total, issuer_result.skipped, issuer_result.failed
         );
     }
 
@@ -185,7 +185,6 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
 
 struct EnrichmentResult {
     enriched: usize,
-    #[allow(dead_code)]
     skipped: usize,
     failed: usize,
     total: usize,
@@ -230,6 +229,17 @@ async fn enrich_trades(
     concurrency: usize,
     max_failures: usize,
 ) -> Result<EnrichmentResult> {
+    // Re-queue trades whose previous enrichment failed to extract a real
+    // asset_type (still "unknown" in the assets table). This handles both
+    // prior runs that silently wrote empty detail and site format changes.
+    let reset = db.reset_failed_trade_enrichments()?;
+    if reset > 0 {
+        eprintln!(
+            "Reset {} trades with unknown asset_type for re-enrichment",
+            reset
+        );
+    }
+
     if dry_run {
         let total = db.count_unenriched_trades()?;
         let selected = match batch_size {
@@ -293,6 +303,7 @@ async fn enrich_trades(
     drop(tx);
 
     let mut enriched = 0usize;
+    let mut skipped = 0usize;
     let mut failed = 0usize;
     let mut breaker = CircuitBreaker::new(max_failures);
 
@@ -303,13 +314,19 @@ async fn enrich_trades(
                 enriched += 1;
                 breaker.record_success();
             }
+            Err(ScrapeError::NotFound { .. }) => {
+                db.mark_trade_not_found(fetch.id)?;
+                skipped += 1;
+                // 404 is deterministic, not transient -- reset the breaker.
+                breaker.record_success();
+            }
             Err(ref err) => {
                 pb.println(format!("  Warning: trade {} failed: {}", fetch.id, err));
                 failed += 1;
                 breaker.record_failure();
             }
         }
-        pb.set_message(format!("{} ok, {} err", enriched, failed));
+        pb.set_message(format!("{} ok, {} skip, {} err", enriched, skipped, failed));
         pb.inc(1);
 
         if breaker.is_tripped() {
@@ -322,11 +339,14 @@ async fn enrich_trades(
         }
     }
 
-    pb.finish_with_message(format!("done: {} enriched, {} failed", enriched, failed));
+    pb.finish_with_message(format!(
+        "done: {} enriched, {} skipped (not found), {} failed",
+        enriched, skipped, failed
+    ));
 
     Ok(EnrichmentResult {
         enriched,
-        skipped: 0,
+        skipped,
         failed,
         total,
     })
@@ -404,6 +424,7 @@ async fn enrich_issuers(
     drop(tx);
 
     let mut enriched = 0usize;
+    let mut skipped = 0usize;
     let mut failed = 0usize;
     let mut breaker = CircuitBreaker::new(max_failures);
 
@@ -414,13 +435,19 @@ async fn enrich_issuers(
                 enriched += 1;
                 breaker.record_success();
             }
+            Err(ScrapeError::NotFound { .. }) => {
+                db.mark_issuer_not_found(fetch.id)?;
+                skipped += 1;
+                // 404 is deterministic, not transient -- reset the breaker.
+                breaker.record_success();
+            }
             Err(ref err) => {
                 pb.println(format!("  Warning: issuer {} failed: {}", fetch.id, err));
                 failed += 1;
                 breaker.record_failure();
             }
         }
-        pb.set_message(format!("{} ok, {} err", enriched, failed));
+        pb.set_message(format!("{} ok, {} skip, {} err", enriched, skipped, failed));
         pb.inc(1);
 
         if breaker.is_tripped() {
@@ -433,11 +460,14 @@ async fn enrich_issuers(
         }
     }
 
-    pb.finish_with_message(format!("done: {} enriched, {} failed", enriched, failed));
+    pb.finish_with_message(format!(
+        "done: {} enriched, {} skipped (not found), {} failed",
+        enriched, skipped, failed
+    ));
 
     Ok(EnrichmentResult {
         enriched,
-        skipped: 0,
+        skipped,
         failed,
         total,
     })
