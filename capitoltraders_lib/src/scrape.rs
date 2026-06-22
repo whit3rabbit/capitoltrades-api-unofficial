@@ -1,5 +1,6 @@
 //! HTML scraping utilities for CapitolTrades pages (no API).
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rand::Rng;
@@ -7,6 +8,7 @@ use regex::Regex;
 use reqwest::header::{HeaderMap, RETRY_AFTER};
 use reqwest::StatusCode;
 use serde::Deserialize;
+use tokio::process::Command;
 use tokio::time::sleep;
 
 use capitoltrades_api::user_agent::get_user_agent;
@@ -34,12 +36,56 @@ pub enum ScrapeError {
     Json(#[from] serde_json::Error),
     #[error("parse error: {0}")]
     Parse(String),
+    #[error("browser fetch error: {0}")]
+    Browser(String),
+    #[error("resource not found: {resource} {id}")]
+    NotFound { resource: String, id: String },
 }
 
 #[derive(Clone)]
 pub struct ScrapeClient {
     base_url: String,
     http: reqwest::Client,
+    fetch_mode: ScrapeFetchMode,
+}
+
+#[derive(Clone, Debug)]
+pub enum ScrapeFetchMode {
+    Native,
+    Chromium(ChromiumFetchOptions),
+}
+
+impl Default for ScrapeFetchMode {
+    fn default() -> Self {
+        Self::Native
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ChromiumFetchOptions {
+    pub node_bin: String,
+    pub script_path: PathBuf,
+    pub executable: Option<PathBuf>,
+    pub user_data_dir: Option<PathBuf>,
+    pub headed: bool,
+    pub manual_challenge: bool,
+    pub timeout_secs: u64,
+    pub wait_ms: u64,
+}
+
+impl Default for ChromiumFetchOptions {
+    fn default() -> Self {
+        Self {
+            node_bin: env_string("CAPITOLTRADES_NODE_BIN", "node"),
+            script_path: default_chromium_fetcher_path(),
+            executable: env_path("CAPITOLTRADES_CHROMIUM_EXECUTABLE"),
+            user_data_dir: env_path("CAPITOLTRADES_CHROMIUM_USER_DATA_DIR"),
+            headed: env_bool("CAPITOLTRADES_CHROMIUM_HEADED", false),
+            manual_challenge: env_bool("CAPITOLTRADES_CHROMIUM_MANUAL_CHALLENGE", false),
+            timeout_secs: env_u64("CAPITOLTRADES_CHROMIUM_TIMEOUT_SECS", 90),
+            wait_ms: env_u64("CAPITOLTRADES_CHROMIUM_WAIT_MS", 1500),
+        }
+    }
 }
 
 pub struct ScrapePage<T> {
@@ -204,18 +250,21 @@ pub struct ScrapedIssuerStats {
 
 impl ScrapeClient {
     pub fn new() -> Result<Self, ScrapeError> {
-        let http = reqwest::Client::builder()
-            .user_agent(get_user_agent())
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(ScrapeError::HttpClient)?;
-        Ok(Self {
-            base_url: "https://www.capitoltrades.com".to_string(),
-            http,
-        })
+        Self::with_base_url_and_fetch_mode("https://www.capitoltrades.com", ScrapeFetchMode::Native)
     }
 
     pub fn with_base_url(base_url: &str) -> Result<Self, ScrapeError> {
+        Self::with_base_url_and_fetch_mode(base_url, ScrapeFetchMode::Native)
+    }
+
+    pub fn with_fetch_mode(fetch_mode: ScrapeFetchMode) -> Result<Self, ScrapeError> {
+        Self::with_base_url_and_fetch_mode("https://www.capitoltrades.com", fetch_mode)
+    }
+
+    pub fn with_base_url_and_fetch_mode(
+        base_url: &str,
+        fetch_mode: ScrapeFetchMode,
+    ) -> Result<Self, ScrapeError> {
         let http = reqwest::Client::builder()
             .user_agent(get_user_agent())
             .timeout(Duration::from_secs(30))
@@ -224,6 +273,7 @@ impl ScrapeClient {
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
+            fetch_mode,
         })
     }
 
@@ -270,12 +320,18 @@ impl ScrapeClient {
         let url = format!("{}/issuers/{}", self.base_url, issuer_id);
         let html = self.fetch_html(&url).await?;
         let payload = extract_rsc_payload(&html)?;
-        let obj = extract_json_object_after(&payload, "\"issuerData\":");
-        match obj {
-            Some(obj) => Ok(serde_json::from_value(obj)?),
-            None => issuer_fallback(issuer_id)
-                .ok_or_else(|| ScrapeError::Parse("missing issuerData payload".into())),
-        }
+        // capitoltrades.com serves HTTP 200 with a Next.js "Page Not Found"
+        // template for nonexistent issuer IDs. The template contains the
+        // same 404 markers as valid pages (they share the NotFound component),
+        // so the only reliable signal is the absence of "issuerData" in the
+        // RSC payload. Valid pages always have this key.
+        let obj = extract_json_object_after(&payload, "\"issuerData\":").ok_or_else(|| {
+            ScrapeError::NotFound {
+                resource: "issuer".into(),
+                id: issuer_id.to_string(),
+            }
+        })?;
+        Ok(serde_json::from_value(obj)?)
     }
 
     pub async fn politicians_page(
@@ -353,6 +409,16 @@ impl ScrapeClient {
         let url = format!("{}/trades/{}", self.base_url, trade_id);
         let html = self.fetch_html(&url).await?;
         let payload = extract_rsc_payload(&html)?;
+        // See issuer_detail: the only reliable 404 signal is the absence of
+        // the data key. Valid trade pages always embed "tradeId":<id> in the
+        // RSC payload; 404 pages do not.
+        let needle = format!("\"tradeId\":{}", trade_id);
+        if !payload.contains(&needle) {
+            return Err(ScrapeError::NotFound {
+                resource: "trade".into(),
+                id: trade_id.to_string(),
+            });
+        }
         Ok(extract_trade_detail(&payload, trade_id))
     }
 
@@ -362,6 +428,13 @@ impl ScrapeClient {
     }
 
     async fn fetch_html_once(&self, url: &str) -> Result<String, ScrapeError> {
+        match &self.fetch_mode {
+            ScrapeFetchMode::Native => self.fetch_html_native(url).await,
+            ScrapeFetchMode::Chromium(options) => self.fetch_html_chromium(url, options).await,
+        }
+    }
+
+    async fn fetch_html_native(&self, url: &str) -> Result<String, ScrapeError> {
         let resp = self
             .http
             .get(url)
@@ -394,6 +467,68 @@ impl ScrapeClient {
         }
 
         Ok(body)
+    }
+
+    async fn fetch_html_chromium(
+        &self,
+        url: &str,
+        options: &ChromiumFetchOptions,
+    ) -> Result<String, ScrapeError> {
+        if !options.script_path.exists() {
+            return Err(ScrapeError::Browser(format!(
+                "Chromium fetcher script not found at {}",
+                options.script_path.display()
+            )));
+        }
+
+        let mut cmd = Command::new(&options.node_bin);
+        cmd.arg(&options.script_path)
+            .arg("--url")
+            .arg(url)
+            .arg("--timeout-ms")
+            .arg((options.timeout_secs.saturating_mul(1000)).to_string())
+            .arg("--wait-ms")
+            .arg(options.wait_ms.to_string());
+
+        if let Some(executable) = &options.executable {
+            cmd.arg("--executable").arg(executable);
+        }
+        if let Some(user_data_dir) = &options.user_data_dir {
+            cmd.arg("--user-data-dir").arg(user_data_dir);
+        }
+        if options.headed {
+            cmd.arg("--headed");
+        }
+        if options.manual_challenge {
+            cmd.arg("--manual-challenge");
+        }
+
+        let output = cmd.output().await.map_err(|err| {
+            ScrapeError::Browser(format!(
+                "failed to run Chromium fetcher via {}: {}",
+                options.node_bin, err
+            ))
+        })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(ScrapeError::Browser(format!(
+                "Chromium fetcher exited with {}: {}",
+                output.status,
+                stderr.trim()
+            )));
+        }
+
+        let html = String::from_utf8(output.stdout).map_err(|err| {
+            ScrapeError::Browser(format!("Chromium fetcher returned non-UTF-8 HTML: {}", err))
+        })?;
+        if html.trim().is_empty() {
+            return Err(ScrapeError::Browser(
+                "Chromium fetcher returned empty HTML".into(),
+            ));
+        }
+
+        Ok(html)
     }
 
     async fn with_retry<T, F, Fut>(&self, url: &str, mut f: F) -> Result<T, ScrapeError>
@@ -437,6 +572,7 @@ fn is_retryable(err: &ScrapeError) -> bool {
                 || status.is_server_error()
         }
         ScrapeError::Http { source, .. } => source.is_timeout() || source.is_connect(),
+        ScrapeError::NotFound { .. } => false,
         _ => false,
     }
 }
@@ -477,6 +613,43 @@ fn env_usize(key: &str, default: usize) -> usize {
         .ok()
         .and_then(|val| val.parse::<usize>().ok())
         .unwrap_or(default)
+}
+
+fn env_string(key: &str, default: &str) -> String {
+    std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var(key)
+        .ok()
+        .filter(|val| !val.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|val| parse_bool(&val))
+        .unwrap_or(default)
+}
+
+fn parse_bool(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "y" | "on" => Some(true),
+        "0" | "false" | "no" | "n" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn default_chromium_fetcher_path() -> PathBuf {
+    if let Some(path) = env_path("CAPITOLTRADES_CHROMIUM_FETCHER") {
+        return path;
+    }
+
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("scripts")
+        .join("chromium_fetch.mjs")
 }
 
 fn extract_rsc_payload(html: &str) -> Result<String, ScrapeError> {
@@ -532,7 +705,8 @@ fn extract_trade_detail(payload: &str, trade_id: i64) -> ScrapedTradeDetail {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&obj_str) {
                     // Verify this object actually contains our tradeId (not a parent object)
                     if parsed.get("tradeId").and_then(|v| v.as_i64()) == Some(trade_id) {
-                        return extract_fields_from_trade_object(&parsed);
+                        detail = extract_fields_from_trade_object(&parsed);
+                        break;
                     }
                 }
             }
@@ -545,10 +719,20 @@ fn extract_trade_detail(payload: &str, trade_id: i64) -> ScrapedTradeDetail {
         if let Some(url) = extract_json_string(window, "\"filingUrl\":\"") {
             detail.filing_id = filing_id_from_url(&url);
             detail.filing_url = Some(url);
-            return detail;
+            break;
         }
         cursor = idx + trade_needle.len();
     }
+
+    // Text-label fallback: the new site renders trade detail fields as React
+    // component pairs ("children":"<value>" + "children":"<label>") rather
+    // than JSON fields. Fill in any fields the JSON path couldn't find.
+    if detail.asset_type.is_none() {
+        if let Some(label) = extract_rsc_label_value(payload, "Asset Type") {
+            detail.asset_type = Some(normalize_asset_type_label(&label));
+        }
+    }
+
     detail
 }
 
@@ -575,9 +759,7 @@ fn extract_fields_from_trade_object(parsed: &serde_json::Value) -> ScrapedTradeD
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
-    let filing_id = filing_url
-        .as_ref()
-        .and_then(|url| filing_id_from_url(url));
+    let filing_id = filing_url.as_ref().and_then(|url| filing_id_from_url(url));
 
     // TRADE-01: asset type from nested "asset" object, fallback to direct key
     let asset_type = parsed
@@ -604,6 +786,42 @@ fn extract_fields_from_trade_object(parsed: &serde_json::Value) -> ScrapedTradeD
         // TRADE-06: labels
         labels: extract_string_vec("labels"),
     }
+}
+
+/// Extract a text value from an RSC payload by its adjacent UI label.
+///
+/// capitoltrades.com renders trade detail fields as React component pairs:
+/// ```text
+///   ["$","span",null,{...,"children":"Stock"}],  ← value
+///   ["$","span",null,{...,"children":"Asset Type"}] ← label
+/// ```
+///
+/// We find `"children":"<label>"` and walk backward to the preceding
+/// `"children":"<value>"`.
+fn extract_rsc_label_value(payload: &str, label: &str) -> Option<String> {
+    let needle = format!("\"children\":\"{}\"", label);
+    let label_pos = payload.find(&needle)?;
+    // Walk backward within a 400-char window to find the previous "children":"..."
+    let window_start = label_pos.saturating_sub(400);
+    let before = &payload[window_start..label_pos];
+    let prefix = "\"children\":\"";
+    let last_match = before.rfind(prefix)?;
+    let value_start = last_match + prefix.len();
+    let value_end = before[value_start..].find('"')?;
+    let value = &before[value_start..value_start + value_end];
+    if value.is_empty() {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+/// Normalize a human-readable asset type label to the kebab-case values
+/// stored in the database.
+///
+/// "Stock" → "stock", "Stock Option" → "stock-option",
+/// "Other Securities" → "other-securities", "Mutual Fund" → "mutual-fund".
+fn normalize_asset_type_label(label: &str) -> String {
+    label.to_lowercase().replace(' ', "-")
 }
 
 fn extract_array_with_key(payload: &str, key: &str) -> Option<serde_json::Value> {
@@ -854,40 +1072,6 @@ fn parse_compact_number(raw: &str) -> Option<i64> {
     Some((num * mult).round() as i64)
 }
 
-/// Hardcoded fallback data for issuers whose detail pages return server-side
-/// errors on capitoltrades.com (RSC error digests instead of issuerData).
-fn issuer_fallback(issuer_id: i64) -> Option<ScrapedIssuerDetail> {
-    let (state, country, name, ticker, sector) = match issuer_id {
-        432049 => (
-            Some("oh"),
-            Some("us"),
-            "Goodyear Tire & Rubber Co",
-            Some("GT:US"),
-            Some("consumer-discretionary"),
-        ),
-        2334265 => (Some("ma"), Some("us"), "TOWN OF HINGHAM MASSACHUSETTS", None, None),
-        2334268 => (Some("fl"), Some("us"), "JEA WATER AND SEWER SYSTEM REVENUE", None, None),
-        _ => return None,
-    };
-
-    Some(ScrapedIssuerDetail {
-        issuer_id,
-        state_id: state.map(String::from),
-        c2iq: None,
-        country: country.map(String::from),
-        issuer_name: name.to_string(),
-        issuer_ticker: ticker.map(String::from),
-        performance: None,
-        sector: sector.map(String::from),
-        stats: ScrapedIssuerStats {
-            count_trades: 0,
-            count_politicians: 0,
-            volume: 0,
-            date_last_traded: String::new(),
-        },
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -975,10 +1159,7 @@ mod tests {
         // TRADE-02: Verify null size fields are handled gracefully
         let (payload, trade_id) = load_minimal_fixture();
         let detail = extract_trade_detail(&payload, trade_id);
-        assert_eq!(
-            detail.size, None,
-            "minimal fixture should have null size"
-        );
+        assert_eq!(detail.size, None, "minimal fixture should have null size");
         assert_eq!(
             detail.size_range_high, None,
             "minimal fixture should have null sizeRangeHigh"
@@ -1010,10 +1191,7 @@ mod tests {
         // TRADE-03: Verify null price is handled gracefully
         let (payload, trade_id) = load_minimal_fixture();
         let detail = extract_trade_detail(&payload, trade_id);
-        assert_eq!(
-            detail.price, None,
-            "minimal fixture should have null price"
-        );
+        assert_eq!(detail.price, None, "minimal fixture should have null price");
     }
 
     // ---- Filing URL and filing ID regression ----
@@ -1148,11 +1326,7 @@ mod tests {
             detail.labels,
             detail.labels.len()
         );
-        assert_eq!(
-            detail.labels.len(),
-            1,
-            "stock fixture has 1 label: faang"
-        );
+        assert_eq!(detail.labels.len(), 1, "stock fixture has 1 label: faang");
         assert_eq!(detail.labels[0], "faang");
 
         // Minimal fixture has empty labels
@@ -1256,8 +1430,7 @@ mod tests {
         let payload = load_issuer_perf_fixture();
         let obj = extract_json_object_after(&payload, "\"issuerData\":")
             .expect("issuerData should be extractable");
-        let detail: ScrapedIssuerDetail =
-            serde_json::from_value(obj).expect("should deserialize");
+        let detail: ScrapedIssuerDetail = serde_json::from_value(obj).expect("should deserialize");
 
         let perf = detail.performance.expect("performance should be Some");
         let eod = perf
@@ -1277,6 +1450,142 @@ mod tests {
         assert_eq!(mcap, Some(3500000000000_i64), "mcap should be 3.5T");
     }
 
+    // ---- Next.js 404 detection tests ----
+
+    fn load_issuer_not_found_fixture() -> String {
+        let html = include_str!("../tests/fixtures/issuer_detail_not_found.html");
+        extract_rsc_payload(html).expect("404 fixture should still have an RSC payload")
+    }
+
+    #[test]
+    fn issuer_404_fixture_has_no_issuer_data() {
+        // Valid issuer pages embed "issuerData":{...} in the RSC payload.
+        // The 404 fixture must NOT contain this key -- that absence is the
+        // signal used by issuer_detail to classify the page as NotFound.
+        let payload = load_issuer_not_found_fixture();
+        assert!(
+            extract_json_object_after(&payload, "\"issuerData\":").is_none(),
+            "404 fixture payload should not contain issuerData"
+        );
+    }
+
+    #[test]
+    fn valid_issuer_fixture_has_issuer_data() {
+        // Sanity check the inverse: valid issuer fixtures DO contain issuerData.
+        let payload = load_issuer_perf_fixture();
+        assert!(
+            extract_json_object_after(&payload, "\"issuerData\":").is_some(),
+            "valid issuer fixture should contain issuerData"
+        );
+    }
+
+    #[test]
+    fn issuer_detail_404_path_returns_not_found_err() {
+        // Exercise the same classification logic that issuer_detail uses on
+        // a live 404. We can't call the async method directly without
+        // wiremock, so we replicate the post-fetch code path on an offline
+        // payload: absence of issuerData => NotFound.
+        let payload = load_issuer_not_found_fixture();
+        let err: Result<ScrapedIssuerDetail, ScrapeError> =
+            match extract_json_object_after(&payload, "\"issuerData\":") {
+                Some(obj) => Ok(serde_json::from_value(obj).expect("deserialize")),
+                None => Err(ScrapeError::NotFound {
+                    resource: "issuer".into(),
+                    id: "99999".into(),
+                }),
+            };
+        match err {
+            Err(ScrapeError::NotFound { resource, id }) => {
+                assert_eq!(resource, "issuer");
+                assert_eq!(id, "99999");
+            }
+            _ => panic!("expected ScrapeError::NotFound for issuer 99999 from 404 fixture"),
+        }
+    }
+
+    #[test]
+    fn trade_detail_404_path_returns_not_found_err() {
+        // Valid trade pages embed "tradeId":<id> in the RSC payload; 404
+        // pages do not. Mirror the issuer test for trades using the 404
+        // fixture (same "Page Not Found" template with no tradeId key).
+        let payload = load_issuer_not_found_fixture();
+        let trade_id: i64 = 12345;
+        let needle = format!("\"tradeId\":{}", trade_id);
+        assert!(
+            !payload.contains(&needle),
+            "404 fixture should not contain tradeId payload"
+        );
+        let err: Result<ScrapedTradeDetail, ScrapeError> = if payload.contains(&needle) {
+            Ok(extract_trade_detail(&payload, trade_id))
+        } else {
+            Err(ScrapeError::NotFound {
+                resource: "trade".into(),
+                id: trade_id.to_string(),
+            })
+        };
+        match err {
+            Err(ScrapeError::NotFound { resource, id }) => {
+                assert_eq!(resource, "trade");
+                assert_eq!(id, "12345");
+            }
+            _ => panic!("expected ScrapeError::NotFound for trade 12345 from 404 fixture"),
+        }
+    }
+
+    // ---- RSC text-label extraction tests ----
+
+    #[test]
+    fn test_extract_rsc_label_value_finds_asset_type() {
+        // Minimal RSC snippet matching the live site pattern.
+        let payload = r#"["$","span",null,{"className":"text-center text-size-4","children":"Stock"}],["$","span",null,{"className":"text-center text-size-3 font-medium text-txt-dimmer","children":"Asset Type"}]"#;
+        let result = extract_rsc_label_value(payload, "Asset Type");
+        assert_eq!(result.as_deref(), Some("Stock"));
+    }
+
+    #[test]
+    fn test_extract_rsc_label_value_other_securities() {
+        let payload = r#"["$","span",null,{"className":"text-size-4","children":"Other Securities"}],["$","span",null,{"className":"text-size-3","children":"Asset Type"}]"#;
+        let result = extract_rsc_label_value(payload, "Asset Type");
+        assert_eq!(result.as_deref(), Some("Other Securities"));
+    }
+
+    #[test]
+    fn test_extract_rsc_label_value_missing_label() {
+        let payload = r#"{"children":"Stock"}],{"children":"Not A Match"}"#;
+        assert!(extract_rsc_label_value(payload, "Asset Type").is_none());
+    }
+
+    #[test]
+    fn test_normalize_asset_type_label() {
+        assert_eq!(normalize_asset_type_label("Stock"), "stock");
+        assert_eq!(normalize_asset_type_label("Stock Option"), "stock-option");
+        assert_eq!(
+            normalize_asset_type_label("Other Securities"),
+            "other-securities"
+        );
+        assert_eq!(normalize_asset_type_label("Mutual Fund"), "mutual-fund");
+        assert_eq!(normalize_asset_type_label("Crypto"), "crypto");
+    }
+
+    #[test]
+    fn test_extract_trade_detail_text_label_fallback() {
+        // Synthetic payload that mimics the new site format:
+        // - {filingUrl, tradeId} as JSON props
+        // - Asset type as text label
+        let payload = r#"other stuff "filingUrl":"https://efdsearch.senate.gov/view/ptr/abc123/","tradeId":99999} more stuff ["$","span",null,{"className":"text-size-4","children":"Stock Option"}],["$","span",null,{"className":"text-size-3","children":"Asset Type"}] end"#;
+        let detail = extract_trade_detail(payload, 99999);
+        assert_eq!(
+            detail.filing_url.as_deref(),
+            Some("https://efdsearch.senate.gov/view/ptr/abc123/"),
+            "should extract filing URL from JSON"
+        );
+        assert_eq!(
+            detail.asset_type.as_deref(),
+            Some("stock-option"),
+            "should extract asset type from text label fallback"
+        );
+    }
+
     // ---- Committee-filtered politician listing fixture tests ----
 
     #[test]
@@ -1288,10 +1597,18 @@ mod tests {
         let payload = extract_rsc_payload(html).expect("fixture should have RSC payload");
 
         let total_count = extract_number(&payload, "\"totalCount\":");
-        assert_eq!(total_count, Some(5), "ssfi fixture should report totalCount=5");
+        assert_eq!(
+            total_count,
+            Some(5),
+            "ssfi fixture should report totalCount=5"
+        );
 
         let cards = parse_politician_cards(&payload).expect("should parse all politician cards");
-        assert_eq!(cards.len(), 5, "ssfi fixture should contain 5 politician cards");
+        assert_eq!(
+            cards.len(),
+            5,
+            "ssfi fixture should contain 5 politician cards"
+        );
 
         // Verify all cards have valid politician_ids
         for card in &cards {
@@ -1301,7 +1618,8 @@ mod tests {
                 card.politician_id
             );
             assert!(
-                card.politician_id.starts_with(|c: char| c.is_ascii_uppercase()),
+                card.politician_id
+                    .starts_with(|c: char| c.is_ascii_uppercase()),
                 "politician_id should start with uppercase letter: {}",
                 card.politician_id
             );
@@ -1311,13 +1629,25 @@ mod tests {
                 "unexpected party: {}",
                 card.party
             );
-            assert_eq!(card.state.len(), 2, "state should be 2 chars: {}", card.state);
-            assert!(card.trades > 0, "trades should be > 0 for {}", card.politician_id);
+            assert_eq!(
+                card.state.len(),
+                2,
+                "state should be 2 chars: {}",
+                card.state
+            );
+            assert!(
+                card.trades > 0,
+                "trades should be > 0 for {}",
+                card.politician_id
+            );
         }
 
         // Verify known politicians are present (Senate Finance committee)
         let ids: Vec<&str> = cards.iter().map(|c| c.politician_id.as_str()).collect();
-        assert!(ids.contains(&"W000802"), "Sheldon Whitehouse should be in ssfi");
+        assert!(
+            ids.contains(&"W000802"),
+            "Sheldon Whitehouse should be in ssfi"
+        );
         assert!(ids.contains(&"C000174"), "Tom Carper should be in ssfi");
     }
 }

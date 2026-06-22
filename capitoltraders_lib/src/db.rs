@@ -1365,6 +1365,18 @@ impl Db {
         Ok(())
     }
 
+    /// Stamp `enriched_at` on a trade whose detail page returned a 404 on
+    /// capitoltrades.com. The trade is left otherwise untouched; the
+    /// sentinel timestamp removes it from `get_unenriched_trade_ids`
+    /// so future enrichment runs skip it.
+    pub fn mark_trade_not_found(&self, tx_id: i64) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE trades SET enriched_at = datetime('now') WHERE tx_id = ?1",
+            params![tx_id],
+        )?;
+        Ok(())
+    }
+
     pub fn count_unenriched_trades(&self) -> Result<i64, DbError> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM trades WHERE enriched_at IS NULL",
@@ -1815,6 +1827,19 @@ impl Db {
         Ok(count)
     }
 
+    /// Reset `enriched_at` for trades whose associated asset still has
+    /// `asset_type = 'unknown'`, pushing them back into the unenriched
+    /// queue so `enrich_trades` will re-fetch their detail pages.
+    pub fn reset_failed_trade_enrichments(&self) -> Result<usize, DbError> {
+        let count = self.conn.execute(
+            "UPDATE trades SET enriched_at = NULL
+             WHERE enriched_at IS NOT NULL
+               AND tx_id IN (SELECT a.asset_id FROM assets a WHERE a.asset_type = 'unknown')",
+            [],
+        )?;
+        Ok(count)
+    }
+
     /// Persist scraped issuer detail data to the database.
     ///
     /// Updates the issuers table (with COALESCE protection for nullable fields),
@@ -2024,6 +2049,18 @@ impl Db {
         Ok(())
     }
 
+    /// Stamp `enriched_at` on an issuer whose detail page returned a 404 on
+    /// capitoltrades.com. The issuer is left otherwise untouched; the
+    /// sentinel timestamp removes it from `get_unenriched_issuer_ids`
+    /// so future enrichment runs skip it.
+    pub fn mark_issuer_not_found(&self, issuer_id: i64) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE issuers SET enriched_at = datetime('now') WHERE issuer_id = ?1",
+            params![issuer_id],
+        )?;
+        Ok(())
+    }
+
     /// Query enriched trades with JOINed politician, issuer, asset,
     /// committee, and label data. Supports filtering by party, state,
     /// transaction type, politician name, issuer name/ticker, and date range.
@@ -2037,7 +2074,8 @@ impl Db {
                     p.party, p.state_id, p.chamber,
                     i.issuer_name, i.issuer_ticker,
                     a.asset_type,
-                    COALESCE(GROUP_CONCAT(DISTINCT tc.committee), '') AS committees,
+                    COALESCE(GROUP_CONCAT(DISTINCT tc.committee),
+                             GROUP_CONCAT(DISTINCT pc.committee), '') AS committees,
                     COALESCE(GROUP_CONCAT(DISTINCT tl.label), '') AS labels,
                     t.politician_id,
                     i.sector AS issuer_sector
@@ -2046,6 +2084,7 @@ impl Db {
              JOIN issuers i ON t.issuer_id = i.issuer_id
              JOIN assets a ON t.asset_id = a.asset_id
              LEFT JOIN trade_committees tc ON t.tx_id = tc.tx_id
+             LEFT JOIN politician_committees pc ON t.politician_id = pc.politician_id
              LEFT JOIN trade_labels tl ON t.tx_id = tl.tx_id
              WHERE 1=1",
         );
@@ -5373,6 +5412,148 @@ CREATE TABLE IF NOT EXISTS ingest_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
             .get_unenriched_issuer_ids(None)
             .expect("get_unenriched_issuer_ids");
         assert_eq!(ids, vec![10, 20]);
+    }
+
+    #[test]
+    fn test_mark_issuer_not_found_stamps_enriched_at() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(1, "P000001", 10);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Precondition: issuer 10 is unenriched.
+        let before = db
+            .get_unenriched_issuer_ids(None)
+            .expect("get_unenriched_issuer_ids");
+        assert_eq!(before, vec![10]);
+
+        db.mark_issuer_not_found(10).expect("mark_issuer_not_found");
+
+        let enriched_at: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM issuers WHERE issuer_id = 10",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query issuer");
+        assert!(
+            enriched_at.is_some(),
+            "mark_issuer_not_found should stamp enriched_at"
+        );
+
+        let after = db
+            .get_unenriched_issuer_ids(None)
+            .expect("get_unenriched_issuer_ids");
+        assert!(
+            after.is_empty(),
+            "stamped issuer should no longer appear in unenriched queue"
+        );
+    }
+
+    #[test]
+    fn test_mark_trade_not_found_stamps_enriched_at() {
+        let mut db = open_test_db();
+        let trade = make_test_scraped_trade(42, "P000001", 10);
+        db.upsert_scraped_trades(&[trade]).expect("upsert");
+
+        // Precondition: trade 42 is unenriched.
+        let before = db
+            .get_unenriched_trade_ids(None)
+            .expect("get_unenriched_trade_ids");
+        assert_eq!(before, vec![42]);
+
+        db.mark_trade_not_found(42).expect("mark_trade_not_found");
+
+        let enriched_at: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 42",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query trade");
+        assert!(
+            enriched_at.is_some(),
+            "mark_trade_not_found should stamp enriched_at"
+        );
+
+        let after = db
+            .get_unenriched_trade_ids(None)
+            .expect("get_unenriched_trade_ids");
+        assert!(
+            after.is_empty(),
+            "stamped trade should no longer appear in unenriched queue"
+        );
+    }
+
+    #[test]
+    fn test_reset_failed_trade_enrichments() {
+        let mut db = open_test_db();
+        // Trade 1: enriched with real asset_type -- should NOT be reset.
+        let t1 = make_test_scraped_trade(1, "P000001", 10);
+        db.upsert_scraped_trades(&[t1]).expect("upsert");
+        db.conn
+            .execute(
+                "UPDATE assets SET asset_type = 'stock' WHERE asset_id = 1",
+                [],
+            )
+            .expect("set stock type");
+        db.conn
+            .execute(
+                "UPDATE trades SET enriched_at = datetime('now') WHERE tx_id = 1",
+                [],
+            )
+            .expect("stamp enriched");
+
+        // Trade 2: enriched but asset_type still 'unknown' -- SHOULD be reset.
+        let t2 = make_test_scraped_trade(2, "P000002", 20);
+        db.upsert_scraped_trades(&[t2]).expect("upsert");
+        db.conn
+            .execute(
+                "UPDATE trades SET enriched_at = datetime('now') WHERE tx_id = 2",
+                [],
+            )
+            .expect("stamp enriched");
+
+        // Trade 3: not enriched (enriched_at NULL) -- should NOT be touched.
+        let t3 = make_test_scraped_trade(3, "P000001", 30);
+        db.upsert_scraped_trades(&[t3]).expect("upsert");
+
+        let count = db.reset_failed_trade_enrichments().unwrap();
+        assert_eq!(count, 1, "only trade 2 should be reset");
+
+        // Verify trade 1 still enriched
+        let ea1: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(ea1.is_some(), "trade 1 should remain enriched");
+
+        // Verify trade 2 was reset
+        let ea2: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 2",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(ea2.is_none(), "trade 2 should have enriched_at cleared");
+
+        // Verify trade 3 still NULL
+        let ea3: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT enriched_at FROM trades WHERE tx_id = 3",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(ea3.is_none(), "trade 3 should still have enriched_at NULL");
     }
 
     // --- update_trade_detail tests ---

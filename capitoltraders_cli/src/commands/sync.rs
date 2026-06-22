@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use capitoltraders_lib::{
-    validation, Db, IssuerStatsRow, PoliticianStatsRow, ScrapeClient, ScrapeError,
+    validation, Db, IssuerStatsRow, PoliticianStatsRow, ScrapeClient, ScrapeError, ScrapeFetchMode,
     ScrapedIssuerDetail, ScrapedTrade, ScrapedTradeDetail,
 };
 use chrono::NaiveDate;
@@ -73,7 +73,11 @@ pub struct SyncArgs {
     pub max_failures: usize,
 }
 
-pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
+pub async fn run(
+    args: &SyncArgs,
+    base_url: Option<&str>,
+    fetch_mode: ScrapeFetchMode,
+) -> Result<()> {
     let _page_size = validation::validate_page_size(args.page_size)?;
     if args.concurrency < 1 || args.concurrency > 10 {
         return Err(anyhow!("--concurrency must be between 1 and 10"));
@@ -117,8 +121,8 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         .map(|s| s.to_string())
         .or_else(|| std::env::var("CAPITOLTRADES_BASE_URL").ok())
     {
-        Some(url) => ScrapeClient::with_base_url(&url)?,
-        None => ScrapeClient::new()?,
+        Some(url) => ScrapeClient::with_base_url_and_fetch_mode(&url, fetch_mode)?,
+        None => ScrapeClient::with_fetch_mode(fetch_mode)?,
     };
 
     let trade_result = sync_trades(
@@ -153,8 +157,8 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         )
         .await?;
         eprintln!(
-            "Enrichment: {}/{} trades processed ({} failed)",
-            result.enriched, result.total, result.failed
+            "Enrichment: {}/{} trades processed ({} skipped, {} failed)",
+            result.enriched, result.total, result.skipped, result.failed
         );
 
         let issuer_result = enrich_issuers(
@@ -168,24 +172,22 @@ pub async fn run(args: &SyncArgs, base_url: Option<&str>) -> Result<()> {
         )
         .await?;
         eprintln!(
-            "Issuer enrichment: {}/{} issuers processed ({} failed)",
-            issuer_result.enriched, issuer_result.total, issuer_result.failed
+            "Issuer enrichment: {}/{} issuers processed ({} skipped, {} failed)",
+            issuer_result.enriched,
+            issuer_result.total,
+            issuer_result.skipped,
+            issuer_result.failed
         );
     }
 
-    let _committee_count = enrich_politician_committees(
-        &scraper,
-        &db,
-        args.details_delay_ms,
-    )
-    .await?;
+    let _committee_count =
+        enrich_politician_committees(&scraper, &db, args.details_delay_ms).await?;
 
     Ok(())
 }
 
 struct EnrichmentResult {
     enriched: usize,
-    #[allow(dead_code)]
     skipped: usize,
     failed: usize,
     total: usize,
@@ -230,16 +232,24 @@ async fn enrich_trades(
     concurrency: usize,
     max_failures: usize,
 ) -> Result<EnrichmentResult> {
+    // Re-queue trades whose previous enrichment failed to extract a real
+    // asset_type (still "unknown" in the assets table). This handles both
+    // prior runs that silently wrote empty detail and site format changes.
+    let reset = db.reset_failed_trade_enrichments()?;
+    if reset > 0 {
+        eprintln!(
+            "Reset {} trades with unknown asset_type for re-enrichment",
+            reset
+        );
+    }
+
     if dry_run {
         let total = db.count_unenriched_trades()?;
         let selected = match batch_size {
             Some(n) => n.min(total),
             None => total,
         };
-        eprintln!(
-            "{} trades would be enriched ({} selected)",
-            total, selected
-        );
+        eprintln!("{} trades would be enriched ({} selected)", total, selected);
         return Ok(EnrichmentResult {
             enriched: 0,
             skipped: 0,
@@ -293,6 +303,7 @@ async fn enrich_trades(
     drop(tx);
 
     let mut enriched = 0usize;
+    let mut skipped = 0usize;
     let mut failed = 0usize;
     let mut breaker = CircuitBreaker::new(max_failures);
 
@@ -303,13 +314,19 @@ async fn enrich_trades(
                 enriched += 1;
                 breaker.record_success();
             }
+            Err(ScrapeError::NotFound { .. }) => {
+                db.mark_trade_not_found(fetch.id)?;
+                skipped += 1;
+                // 404 is deterministic, not transient -- reset the breaker.
+                breaker.record_success();
+            }
             Err(ref err) => {
                 pb.println(format!("  Warning: trade {} failed: {}", fetch.id, err));
                 failed += 1;
                 breaker.record_failure();
             }
         }
-        pb.set_message(format!("{} ok, {} err", enriched, failed));
+        pb.set_message(format!("{} ok, {} skip, {} err", enriched, skipped, failed));
         pb.inc(1);
 
         if breaker.is_tripped() {
@@ -322,11 +339,14 @@ async fn enrich_trades(
         }
     }
 
-    pb.finish_with_message(format!("done: {} enriched, {} failed", enriched, failed));
+    pb.finish_with_message(format!(
+        "done: {} enriched, {} skipped (not found), {} failed",
+        enriched, skipped, failed
+    ));
 
     Ok(EnrichmentResult {
         enriched,
-        skipped: 0,
+        skipped,
         failed,
         total,
     })
@@ -404,6 +424,7 @@ async fn enrich_issuers(
     drop(tx);
 
     let mut enriched = 0usize;
+    let mut skipped = 0usize;
     let mut failed = 0usize;
     let mut breaker = CircuitBreaker::new(max_failures);
 
@@ -414,13 +435,19 @@ async fn enrich_issuers(
                 enriched += 1;
                 breaker.record_success();
             }
+            Err(ScrapeError::NotFound { .. }) => {
+                db.mark_issuer_not_found(fetch.id)?;
+                skipped += 1;
+                // 404 is deterministic, not transient -- reset the breaker.
+                breaker.record_success();
+            }
             Err(ref err) => {
                 pb.println(format!("  Warning: issuer {} failed: {}", fetch.id, err));
                 failed += 1;
                 breaker.record_failure();
             }
         }
-        pb.set_message(format!("{} ok, {} err", enriched, failed));
+        pb.set_message(format!("{} ok, {} skip, {} err", enriched, skipped, failed));
         pb.inc(1);
 
         if breaker.is_tripped() {
@@ -433,11 +460,14 @@ async fn enrich_issuers(
         }
     }
 
-    pb.finish_with_message(format!("done: {} enriched, {} failed", enriched, failed));
+    pb.finish_with_message(format!(
+        "done: {} enriched, {} skipped (not found), {} failed",
+        enriched, skipped, failed
+    ));
 
     Ok(EnrichmentResult {
         enriched,
-        skipped: 0,
+        skipped,
         failed,
         total,
     })
@@ -452,8 +482,7 @@ async fn enrich_politician_committees(
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(
-        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
-            .unwrap(),
+        ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}").unwrap(),
     );
     pb.enable_steady_tick(Duration::from_millis(120));
 
@@ -482,7 +511,9 @@ async fn enrich_politician_committees(
 
         pb.set_message(format!(
             "{}: {} members ({} total)",
-            name, committee_member_count, memberships.len()
+            name,
+            committee_member_count,
+            memberships.len()
         ));
 
         if throttle_ms > 0 {

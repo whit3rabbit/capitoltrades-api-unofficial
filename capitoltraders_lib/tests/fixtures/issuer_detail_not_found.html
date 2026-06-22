@@ -1,0 +1,15 @@
+<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/></head><body>
+<!-- SYNTHETIC FIXTURE: Created 2026-04-14 for a Next.js "Page Not Found" page.
+     capitoltrades.com returns HTTP 200 with this structure for issuer/trade IDs
+     that no longer exist. The RSC payload contains no "issuerData" key and
+     instead has the NotFound page component's children prop.
+
+     This is a minimal reproduction of the error template that the live site
+     serves (the real page is ~45KB and includes the full Next.js error
+     chunks; we only need enough to exercise the detection logic).
+
+     Issuer ID: 99999 (fake, does not exist in the system)
+-->
+<script>self.__next_f.push([1,"1:HL[\"/_next/static/css/test.css\",\"style\"]\n"])</script>
+<script>self.__next_f.push([1,"0:[\"$\",\"div\",null,{\"className\":\"error-container\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"text-nowrap text-3xl font-medium text-foreground\",\"children\":\"Page Not Found\"}],[\"$\",\"p\",null,{\"className\":\"mb-3 text-muted-foreground\",\"children\":\"Unfortunately we cannot find this content, it seems to have gone missing …\"}],[\"$\",\"a\",null,{\"href\":\"/\",\"children\":\"Go to homepage\"}]]}]\n"])</script>
+</body></html>

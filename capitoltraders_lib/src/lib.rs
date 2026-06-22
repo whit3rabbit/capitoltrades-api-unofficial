@@ -52,8 +52,9 @@ pub use portfolio::{calculate_positions, Lot, Position, TradeFIFO};
 pub use pricing::{estimate_shares, parse_trade_range, resolve_yahoo_ticker, ShareEstimate, TradeRange};
 pub use ticker_alias::{load_ticker_aliases, parse_ticker_aliases, TickerAlias, TickerAliasError};
 pub use scrape::{
-    ScrapeClient, ScrapeError, ScrapePage, ScrapedIssuerDetail, ScrapedIssuerList,
-    ScrapedPoliticianCard, ScrapedTrade, ScrapedTradeDetail,
+    ChromiumFetchOptions, ScrapeClient, ScrapeError, ScrapeFetchMode, ScrapePage,
+    ScrapedIssuerDetail, ScrapedIssuerList, ScrapedPoliticianCard, ScrapedTrade,
+    ScrapedTradeDetail,
 };
 pub use sector_mapping::{
     load_sector_mappings, parse_sector_mappings, validate_sector, SectorMapping,
