@@ -1,5 +1,6 @@
 //! HTML scraping utilities for CapitolTrades pages (no API).
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rand::Rng;
@@ -7,6 +8,7 @@ use regex::Regex;
 use reqwest::header::{HeaderMap, RETRY_AFTER};
 use reqwest::StatusCode;
 use serde::Deserialize;
+use tokio::process::Command;
 use tokio::time::sleep;
 
 use capitoltrades_api::user_agent::get_user_agent;
@@ -34,6 +36,8 @@ pub enum ScrapeError {
     Json(#[from] serde_json::Error),
     #[error("parse error: {0}")]
     Parse(String),
+    #[error("browser fetch error: {0}")]
+    Browser(String),
     #[error("resource not found: {resource} {id}")]
     NotFound { resource: String, id: String },
 }
@@ -42,6 +46,46 @@ pub enum ScrapeError {
 pub struct ScrapeClient {
     base_url: String,
     http: reqwest::Client,
+    fetch_mode: ScrapeFetchMode,
+}
+
+#[derive(Clone, Debug)]
+pub enum ScrapeFetchMode {
+    Native,
+    Chromium(ChromiumFetchOptions),
+}
+
+impl Default for ScrapeFetchMode {
+    fn default() -> Self {
+        Self::Native
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ChromiumFetchOptions {
+    pub node_bin: String,
+    pub script_path: PathBuf,
+    pub executable: Option<PathBuf>,
+    pub user_data_dir: Option<PathBuf>,
+    pub headed: bool,
+    pub manual_challenge: bool,
+    pub timeout_secs: u64,
+    pub wait_ms: u64,
+}
+
+impl Default for ChromiumFetchOptions {
+    fn default() -> Self {
+        Self {
+            node_bin: env_string("CAPITOLTRADES_NODE_BIN", "node"),
+            script_path: default_chromium_fetcher_path(),
+            executable: env_path("CAPITOLTRADES_CHROMIUM_EXECUTABLE"),
+            user_data_dir: env_path("CAPITOLTRADES_CHROMIUM_USER_DATA_DIR"),
+            headed: env_bool("CAPITOLTRADES_CHROMIUM_HEADED", false),
+            manual_challenge: env_bool("CAPITOLTRADES_CHROMIUM_MANUAL_CHALLENGE", false),
+            timeout_secs: env_u64("CAPITOLTRADES_CHROMIUM_TIMEOUT_SECS", 90),
+            wait_ms: env_u64("CAPITOLTRADES_CHROMIUM_WAIT_MS", 1500),
+        }
+    }
 }
 
 pub struct ScrapePage<T> {
@@ -206,18 +250,21 @@ pub struct ScrapedIssuerStats {
 
 impl ScrapeClient {
     pub fn new() -> Result<Self, ScrapeError> {
-        let http = reqwest::Client::builder()
-            .user_agent(get_user_agent())
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(ScrapeError::HttpClient)?;
-        Ok(Self {
-            base_url: "https://www.capitoltrades.com".to_string(),
-            http,
-        })
+        Self::with_base_url_and_fetch_mode("https://www.capitoltrades.com", ScrapeFetchMode::Native)
     }
 
     pub fn with_base_url(base_url: &str) -> Result<Self, ScrapeError> {
+        Self::with_base_url_and_fetch_mode(base_url, ScrapeFetchMode::Native)
+    }
+
+    pub fn with_fetch_mode(fetch_mode: ScrapeFetchMode) -> Result<Self, ScrapeError> {
+        Self::with_base_url_and_fetch_mode("https://www.capitoltrades.com", fetch_mode)
+    }
+
+    pub fn with_base_url_and_fetch_mode(
+        base_url: &str,
+        fetch_mode: ScrapeFetchMode,
+    ) -> Result<Self, ScrapeError> {
         let http = reqwest::Client::builder()
             .user_agent(get_user_agent())
             .timeout(Duration::from_secs(30))
@@ -226,6 +273,7 @@ impl ScrapeClient {
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
+            fetch_mode,
         })
     }
 
@@ -380,6 +428,13 @@ impl ScrapeClient {
     }
 
     async fn fetch_html_once(&self, url: &str) -> Result<String, ScrapeError> {
+        match &self.fetch_mode {
+            ScrapeFetchMode::Native => self.fetch_html_native(url).await,
+            ScrapeFetchMode::Chromium(options) => self.fetch_html_chromium(url, options).await,
+        }
+    }
+
+    async fn fetch_html_native(&self, url: &str) -> Result<String, ScrapeError> {
         let resp = self
             .http
             .get(url)
@@ -412,6 +467,68 @@ impl ScrapeClient {
         }
 
         Ok(body)
+    }
+
+    async fn fetch_html_chromium(
+        &self,
+        url: &str,
+        options: &ChromiumFetchOptions,
+    ) -> Result<String, ScrapeError> {
+        if !options.script_path.exists() {
+            return Err(ScrapeError::Browser(format!(
+                "Chromium fetcher script not found at {}",
+                options.script_path.display()
+            )));
+        }
+
+        let mut cmd = Command::new(&options.node_bin);
+        cmd.arg(&options.script_path)
+            .arg("--url")
+            .arg(url)
+            .arg("--timeout-ms")
+            .arg((options.timeout_secs.saturating_mul(1000)).to_string())
+            .arg("--wait-ms")
+            .arg(options.wait_ms.to_string());
+
+        if let Some(executable) = &options.executable {
+            cmd.arg("--executable").arg(executable);
+        }
+        if let Some(user_data_dir) = &options.user_data_dir {
+            cmd.arg("--user-data-dir").arg(user_data_dir);
+        }
+        if options.headed {
+            cmd.arg("--headed");
+        }
+        if options.manual_challenge {
+            cmd.arg("--manual-challenge");
+        }
+
+        let output = cmd.output().await.map_err(|err| {
+            ScrapeError::Browser(format!(
+                "failed to run Chromium fetcher via {}: {}",
+                options.node_bin, err
+            ))
+        })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(ScrapeError::Browser(format!(
+                "Chromium fetcher exited with {}: {}",
+                output.status,
+                stderr.trim()
+            )));
+        }
+
+        let html = String::from_utf8(output.stdout).map_err(|err| {
+            ScrapeError::Browser(format!("Chromium fetcher returned non-UTF-8 HTML: {}", err))
+        })?;
+        if html.trim().is_empty() {
+            return Err(ScrapeError::Browser(
+                "Chromium fetcher returned empty HTML".into(),
+            ));
+        }
+
+        Ok(html)
     }
 
     async fn with_retry<T, F, Fut>(&self, url: &str, mut f: F) -> Result<T, ScrapeError>
@@ -496,6 +613,43 @@ fn env_usize(key: &str, default: usize) -> usize {
         .ok()
         .and_then(|val| val.parse::<usize>().ok())
         .unwrap_or(default)
+}
+
+fn env_string(key: &str, default: &str) -> String {
+    std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var(key)
+        .ok()
+        .filter(|val| !val.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|val| parse_bool(&val))
+        .unwrap_or(default)
+}
+
+fn parse_bool(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "y" | "on" => Some(true),
+        "0" | "false" | "no" | "n" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn default_chromium_fetcher_path() -> PathBuf {
+    if let Some(path) = env_path("CAPITOLTRADES_CHROMIUM_FETCHER") {
+        return path;
+    }
+
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("scripts")
+        .join("chromium_fetch.mjs")
 }
 
 fn extract_rsc_payload(html: &str) -> Result<String, ScrapeError> {
@@ -605,9 +759,7 @@ fn extract_fields_from_trade_object(parsed: &serde_json::Value) -> ScrapedTradeD
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
 
-    let filing_id = filing_url
-        .as_ref()
-        .and_then(|url| filing_id_from_url(url));
+    let filing_id = filing_url.as_ref().and_then(|url| filing_id_from_url(url));
 
     // TRADE-01: asset type from nested "asset" object, fallback to direct key
     let asset_type = parsed
@@ -1007,10 +1159,7 @@ mod tests {
         // TRADE-02: Verify null size fields are handled gracefully
         let (payload, trade_id) = load_minimal_fixture();
         let detail = extract_trade_detail(&payload, trade_id);
-        assert_eq!(
-            detail.size, None,
-            "minimal fixture should have null size"
-        );
+        assert_eq!(detail.size, None, "minimal fixture should have null size");
         assert_eq!(
             detail.size_range_high, None,
             "minimal fixture should have null sizeRangeHigh"
@@ -1042,10 +1191,7 @@ mod tests {
         // TRADE-03: Verify null price is handled gracefully
         let (payload, trade_id) = load_minimal_fixture();
         let detail = extract_trade_detail(&payload, trade_id);
-        assert_eq!(
-            detail.price, None,
-            "minimal fixture should have null price"
-        );
+        assert_eq!(detail.price, None, "minimal fixture should have null price");
     }
 
     // ---- Filing URL and filing ID regression ----
@@ -1180,11 +1326,7 @@ mod tests {
             detail.labels,
             detail.labels.len()
         );
-        assert_eq!(
-            detail.labels.len(),
-            1,
-            "stock fixture has 1 label: faang"
-        );
+        assert_eq!(detail.labels.len(), 1, "stock fixture has 1 label: faang");
         assert_eq!(detail.labels[0], "faang");
 
         // Minimal fixture has empty labels
@@ -1288,8 +1430,7 @@ mod tests {
         let payload = load_issuer_perf_fixture();
         let obj = extract_json_object_after(&payload, "\"issuerData\":")
             .expect("issuerData should be extractable");
-        let detail: ScrapedIssuerDetail =
-            serde_json::from_value(obj).expect("should deserialize");
+        let detail: ScrapedIssuerDetail = serde_json::from_value(obj).expect("should deserialize");
 
         let perf = detail.performance.expect("performance should be Some");
         let eod = perf
@@ -1456,10 +1597,18 @@ mod tests {
         let payload = extract_rsc_payload(html).expect("fixture should have RSC payload");
 
         let total_count = extract_number(&payload, "\"totalCount\":");
-        assert_eq!(total_count, Some(5), "ssfi fixture should report totalCount=5");
+        assert_eq!(
+            total_count,
+            Some(5),
+            "ssfi fixture should report totalCount=5"
+        );
 
         let cards = parse_politician_cards(&payload).expect("should parse all politician cards");
-        assert_eq!(cards.len(), 5, "ssfi fixture should contain 5 politician cards");
+        assert_eq!(
+            cards.len(),
+            5,
+            "ssfi fixture should contain 5 politician cards"
+        );
 
         // Verify all cards have valid politician_ids
         for card in &cards {
@@ -1469,7 +1618,8 @@ mod tests {
                 card.politician_id
             );
             assert!(
-                card.politician_id.starts_with(|c: char| c.is_ascii_uppercase()),
+                card.politician_id
+                    .starts_with(|c: char| c.is_ascii_uppercase()),
                 "politician_id should start with uppercase letter: {}",
                 card.politician_id
             );
@@ -1479,13 +1629,25 @@ mod tests {
                 "unexpected party: {}",
                 card.party
             );
-            assert_eq!(card.state.len(), 2, "state should be 2 chars: {}", card.state);
-            assert!(card.trades > 0, "trades should be > 0 for {}", card.politician_id);
+            assert_eq!(
+                card.state.len(),
+                2,
+                "state should be 2 chars: {}",
+                card.state
+            );
+            assert!(
+                card.trades > 0,
+                "trades should be > 0 for {}",
+                card.politician_id
+            );
         }
 
         // Verify known politicians are present (Senate Finance committee)
         let ids: Vec<&str> = cards.iter().map(|c| c.politician_id.as_str()).collect();
-        assert!(ids.contains(&"W000802"), "Sheldon Whitehouse should be in ssfi");
+        assert!(
+            ids.contains(&"W000802"),
+            "Sheldon Whitehouse should be in ssfi"
+        );
         assert!(ids.contains(&"C000174"), "Tom Carper should be in ssfi");
     }
 }

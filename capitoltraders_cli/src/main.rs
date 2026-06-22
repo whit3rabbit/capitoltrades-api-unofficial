@@ -9,8 +9,10 @@ mod commands;
 mod output;
 mod xml_output;
 
+use std::path::PathBuf;
+
 use anyhow::Result;
-use capitoltraders_lib::ScrapeClient;
+use capitoltraders_lib::{ChromiumFetchOptions, ScrapeClient, ScrapeFetchMode};
 use clap::{Parser, Subcommand};
 
 use crate::output::OutputFormat;
@@ -27,6 +29,34 @@ struct Cli {
     /// Override the scraping base URL (or set CAPITOLTRADES_BASE_URL)
     #[arg(long, global = true)]
     base_url: Option<String>,
+
+    /// HTML fetcher to use for CapitolTrades pages: native or chromium
+    #[arg(long, default_value = "native", global = true, value_parser = ["native", "chromium"])]
+    scraper: String,
+
+    /// Path to Chrome/Chromium executable for --scraper chromium
+    #[arg(long, global = true)]
+    chromium_executable: Option<PathBuf>,
+
+    /// Persistent Chrome profile directory for --scraper chromium
+    #[arg(long, global = true)]
+    chromium_user_data_dir: Option<PathBuf>,
+
+    /// Show Chromium instead of running headless
+    #[arg(long, global = true)]
+    chromium_headed: bool,
+
+    /// Pause headed Chromium when a challenge is detected so you can solve it
+    #[arg(long, global = true)]
+    chromium_manual_challenge: bool,
+
+    /// Browser fetch timeout in seconds
+    #[arg(long, default_value = "90", global = true)]
+    chromium_timeout_secs: u64,
+
+    /// Extra milliseconds to wait after the page load event
+    #[arg(long, default_value = "1500", global = true)]
+    chromium_wait_ms: u64,
 
     #[command(subcommand)]
     command: Commands,
@@ -90,9 +120,10 @@ async fn main() -> Result<()> {
         .base_url
         .clone()
         .or_else(|| std::env::var("CAPITOLTRADES_BASE_URL").ok());
+    let fetch_mode = build_fetch_mode(&cli);
     let scraper = match base_url.as_deref() {
-        Some(url) => ScrapeClient::with_base_url(url)?,
-        None => ScrapeClient::new()?,
+        Some(url) => ScrapeClient::with_base_url_and_fetch_mode(url, fetch_mode.clone())?,
+        None => ScrapeClient::with_fetch_mode(fetch_mode.clone())?,
     };
 
     match &cli.command {
@@ -117,7 +148,7 @@ async fn main() -> Result<()> {
                 commands::issuers::run(args, &scraper, &format).await?
             }
         }
-        Commands::Sync(args) => commands::sync::run(args, base_url.as_deref()).await?,
+        Commands::Sync(args) => commands::sync::run(args, base_url.as_deref(), fetch_mode).await?,
         Commands::SyncFec(args) => commands::sync_fec::run(args).await?,
         Commands::EnrichPrices(args) => commands::enrich_prices::run(args).await?,
         Commands::Portfolio(args) => commands::portfolio::run(args, &format)?,
@@ -133,6 +164,25 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn build_fetch_mode(cli: &Cli) -> ScrapeFetchMode {
+    if cli.scraper == "chromium" {
+        let mut options = ChromiumFetchOptions::default();
+        if let Some(path) = &cli.chromium_executable {
+            options.executable = Some(path.clone());
+        }
+        if let Some(path) = &cli.chromium_user_data_dir {
+            options.user_data_dir = Some(path.clone());
+        }
+        options.headed = cli.chromium_headed;
+        options.manual_challenge = cli.chromium_manual_challenge;
+        options.timeout_secs = cli.chromium_timeout_secs;
+        options.wait_ms = cli.chromium_wait_ms;
+        ScrapeFetchMode::Chromium(options)
+    } else {
+        ScrapeFetchMode::Native
+    }
 }
 
 /// Require the OpenFEC API key from environment, providing helpful error if missing.
